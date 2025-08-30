@@ -1,0 +1,74 @@
+[
+  {
+    "id": 1,
+    "slot": "weapon",
+    "tag": "wooden_sword",
+    "name": "Espada de Madeira",
+    "value": 0,
+    "bonusHp": 0,
+    "bonusDmg": 5,
+    "bonusDef": 0,
+    "bonusSpd": 0,
+    "durability": 50
+  },
+  {
+    "id": 2,
+    "slot": "body_armor",
+    "tag": "leather_armor",
+    "name": "Armadura de Couro",
+    "value": 500,
+    "bonusHp": 5,
+    "bonusDmg": 0,
+    "bonusDef": 5,
+    "bonusSpd": 0,
+    "durability": 100
+  },
+  {
+    "id": 3,
+    "slot": "helmet",
+    "tag": "leather_helmet",
+    "name": "Capacete de Couro",
+    "value": 200,
+    "bonusHp": 0,
+    "bonusDmg": 0,
+    "bonusDef": 5,
+    "bonusSpd": 0,
+    "durability": 100
+  },
+  {
+    "id": 4,
+    "slot": "boots",
+    "tag": "leather_boots",
+    "name": "Botas de Couro",
+    "value": 350,
+    "bonusHp": 0,
+    "bonusDmg": 0,
+    "bonusDef": 5,
+    "bonusSpd": 5,
+    "durability": 100
+  },
+  {
+    "id": 5,
+    "slot": "ring",
+    "tag": "iron_ring",
+    "name": "Anel de ferro",
+    "value": 300,
+    "bonusHp": 5,
+    "bonusDmg": 0,
+    "bonusDef": 0,
+    "bonusSpd": 0,
+    "durability": -1
+  },
+  {
+    "id": 6,
+    "slot": "weapon",
+    "tag": "iron_sword",
+    "name": "Espada de Ferro",
+    "value": 500,
+    "bonusHp": 0,
+    "bonusDmg": 10,
+    "bonusDef": 0,
+    "bonusSpd": 0,
+    "durability": 75
+  }
+]
