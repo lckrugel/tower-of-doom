@@ -16,27 +16,27 @@ var embeddedAssets embed.FS
 //
 // Usado para spawnar uma instância de `Item` no jogo.
 type ItemAsset struct {
-	ID           string `json:"id"`
-	Name         string `json:"name"`
-	Slot         string `json:"slot"`
-	BonusHP      int    `json:"bonusHp"`
-	BonusDamage  int    `json:"bonusDmg"`
-	BonusDefense int    `json:"bonusDef"`
-	BonusSpeed   int    `json:"bonusSpd"`
-	Durability   int    `json:"durability"`
+	ID         string `json:"id"`
+	Name       string `json:"name"`
+	Slot       string `json:"slot"`
+	BonusHP    int    `json:"bonus_hp"`
+	BonusDMG   int    `json:"bonus_dmg"`
+	BonusDEF   int    `json:"bonus_def"`
+	BonusSPD   int    `json:"bonus_spd"`
+	Durability int    `json:"durability"`
 }
 
 // Definição de um asset para monstro.
 //
 // Usado para spawnar uma instância de `Monster` no jogo.
 type MonsterAsset struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Difficulty  int    `json:"difficulty"`
-	HP          int    `json:"hp"`
-	BonusDamage int    `json:"bonus_dmg"`
-	Speed       int    `json:"spd"`
-	Defense     int    `json:"def"`
+	ID         string `json:"id"`
+	Name       string `json:"name"`
+	Difficulty int    `json:"difficulty"`
+	HP         int    `json:"hp"`
+	Damage     int    `json:"bonus_dmg"`
+	Speed      int    `json:"spd"`
+	Defense    int    `json:"def"`
 }
 
 // Define o mostro e seu peso para spawnar em uma seção.
