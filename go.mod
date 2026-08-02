@@ -1,5 +1,5 @@
-module github.com/lckrugel/tower_of_doom
+module github.com/lckrugel/tower-of-doom
 
-go 1.24.5
+go 1.26.5
 
 require github.com/google/uuid v1.6.0
