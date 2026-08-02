@@ -1,0 +1,34 @@
+[
+  {
+    "id": "goblin_pits",
+    "name": "Goblin Pits",
+    "base_difficulty": 9,
+    "difficulty_per_floor": 3,
+    "min_floor": 1,
+    "max_floor": 5,
+    "spawns": [
+      {
+        "monsterTag": "goblin",
+        "weight": 100
+      }
+    ]
+  },
+  {
+    "id": "goblin_camp_outskirts",
+    "name": "Goblin Camp Outskirts",
+    "base_difficulty": 35,
+    "difficulty_per_floor": 7,
+    "min_floor": 6,
+    "max_floor": 10,
+    "spawns": [
+      {
+        "monster_id": "goblin",
+        "weight": 100
+      },
+      {
+        "monster_id": "orc",
+        "weight": 5
+      }
+    ]
+  }
+]
