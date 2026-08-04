@@ -1,21 +1,22 @@
 package main
 
 import (
-	"fmt"
+	"log"
 
-	"github.com/lckrugel/tower_of_doom/internal/game"
+	"github.com/lckrugel/tower-of-doom/internal/game"
+	"github.com/lckrugel/tower-of-doom/internal/game/engine"
 )
 
 func main() {
-	engine, err := game.NewEngine()
+	registry, err := game.Load("")
 	if err != nil {
-		panic("failed to load game")
+		log.Fatalf("failed to load assets: %v", err)
 	}
-
-	g, err := game.NewGameInstance(engine, "Leo")
-	if err != nil {
-		panic("failed to load game")
+	engine.NewEngine(registry)
+	// Apresenta menu inicial
+	for {
+		// Recebe comando
+		// engine.Process() // Processa comando
+		// Mostra eventos/estado atual
 	}
-	log := g.BattleFloorRoom()
-	fmt.Printf("%v\n", log.ToStrings())
 }
