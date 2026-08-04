@@ -112,6 +112,73 @@ func Load(externalDir string) (*Registry, error) {
 
 }
 
+// Validate checks that the loaded content is internally consistent —
+// every floor up to topFloor is covered by some section, and every
+// section's spawn table only references monsters that actually exist.
+// Call this once right after Load(); if it returns an error, that's a
+// content bug (bad JSON), not something a player can hit by playing —
+// so the caller should treat it as fatal and refuse to start.
+func (r *Registry) Validate(topFloor int) error {
+	for _, s := range r.Sections {
+		if len(s.Spawns) == 0 {
+			return fmt.Errorf("content validation: section %q has no spawn table", s.ID)
+		}
+		for _, spawn := range s.Spawns {
+			if _, ok := r.Monsters[spawn.MonsterID]; !ok {
+				return fmt.Errorf("content validation: section %q references unknown monster %q", s.ID, spawn.MonsterID)
+			}
+		}
+	}
+
+	for floor := 1; floor <= topFloor; floor++ {
+		section, err := r.SectionForFloor(floor)
+		if err != nil {
+			return fmt.Errorf("content validation: %w", err)
+		}
+
+		cheapest, err := r.cheapestSpawn(section)
+		if err != nil {
+			return fmt.Errorf("content validation: %w", err)
+		}
+		budget := section.FloorDifficulty(floor)
+		if budget < cheapest {
+			return fmt.Errorf(
+				"content validation: floor %d (section %q) has difficulty budget %d, "+
+					"but the cheapest monster it can spawn (%s) costs %d — this floor would always be empty",
+				floor, section.ID, budget, r.cheapestSpawnName(section), cheapest,
+			)
+		}
+	}
+	return nil
+}
+
+// cheapestSpawn returns the lowest Difficulty among a section's spawn table.
+func (r *Registry) cheapestSpawn(s SectionAsset) (int, error) {
+	cheapest := -1
+	for _, spawn := range s.Spawns {
+		m, ok := r.Monsters[spawn.MonsterID]
+		if !ok {
+			return 0, fmt.Errorf("section %q references unknown monster %q", s.ID, spawn.MonsterID)
+		}
+		if cheapest == -1 || m.Difficulty < cheapest {
+			cheapest = m.Difficulty
+		}
+	}
+	return cheapest, nil
+}
+
+// cheapestSpawnName is a small helper purely for a more useful error message.
+func (r *Registry) cheapestSpawnName(s SectionAsset) string {
+	cheapest, name := -1, ""
+	for _, spawn := range s.Spawns {
+		m, ok := r.Monsters[spawn.MonsterID]
+		if ok && (cheapest == -1 || m.Difficulty < cheapest) {
+			cheapest, name = m.Difficulty, m.Name
+		}
+	}
+	return name
+}
+
 // Lê o JSON com os assets do tipo T no local informado
 // ou utiliza os assets pré-compilados caso não encontre.
 func loadJSON[T any](externalDir, filename string) ([]T, error) {
