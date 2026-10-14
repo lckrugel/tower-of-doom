@@ -34,7 +34,7 @@ type MonsterAsset struct {
 	Name       string `json:"name"`
 	Difficulty int    `json:"difficulty"`
 	HP         int    `json:"hp"`
-	Damage     int    `json:"bonus_dmg"`
+	Damage     int    `json:"dmg"`
 	Speed      int    `json:"spd"`
 	Defense    int    `json:"def"`
 }
