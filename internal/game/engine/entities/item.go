@@ -44,6 +44,11 @@ func NewItemFromAsset(asset game.ItemAsset) Item {
 // O valor varia conforme os status do item e a sua durabilidade atual.
 func (i *Item) Value() float32 {
 	maxValue := float32((i.BonusHP + i.BonusDMG + i.BonusDEF + i.BonusSPD) * 50)
+	// Items with non-positive max durability (e.g. indestructible rings/amulets)
+	// are always worth their full value.
+	if i.MaxDurability <= 0 {
+		return maxValue
+	}
 	return maxValue * (float32(i.CurrentDurability) / float32(i.MaxDurability))
 }
 
