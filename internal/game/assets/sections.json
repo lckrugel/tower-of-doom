@@ -8,8 +8,8 @@
     "max_floor": 5,
     "spawns": [
       {
-        "monsterTag": "goblin",
-        "weight": 100
+        "weight": 100,
+        "monster_id": "goblin"
       }
     ]
   },
@@ -19,7 +19,7 @@
     "base_difficulty": 35,
     "difficulty_per_floor": 7,
     "min_floor": 6,
-    "max_floor": 10,
+    "max_floor": -1,
     "spawns": [
       {
         "monster_id": "goblin",
