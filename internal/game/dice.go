@@ -2,6 +2,7 @@ package game
 
 import (
 	"crypto/rand"
+	"fmt"
 	"math/big"
 )
 
@@ -9,10 +10,11 @@ func rollDice(n int) int {
 	if n <= 0 {
 		return 1
 	}
-	max := big.NewInt(int64(n))
-	reader := rand.Reader
-	r, _ := rand.Int(reader, max)
-	return int(r.Int64())
+	r, err := rand.Int(rand.Reader, big.NewInt(int64(n)))
+	if err != nil {
+		panic(fmt.Sprintf("crypto/rand roll failed: %v", err))
+	}
+	return int(r.Int64()) + 1
 }
 
 func RollD10() int {
