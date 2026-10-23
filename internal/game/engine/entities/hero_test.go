@@ -1,6 +1,10 @@
 package entities
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/lckrugel/tower-of-doom/internal/game"
+)
 
 func TestHeroGiveXP(t *testing.T) {
 	tests := []struct {
@@ -80,6 +84,39 @@ func TestHeroTakeDMG(t *testing.T) {
 		})
 	}
 }
+
+func TestHeroHeal(t *testing.T) {
+	item := NewItemFromAsset(game.ItemAsset{
+		ID:      "collar",
+		Name:    "Test Collar",
+		Slot:    "amulet",
+		BonusHP: 100,
+	})
+	tests := []struct {
+		name          string
+		currentHP     int
+		healReceived  int
+		item          *Item
+		wantCurrentHP int
+		wantHealDone  int
+	}{
+		{"heals a fixed amount", 50, 20, nil, 70, 20},
+		{"heal is greater than HP", 50, 200, nil, 100, 50},
+		{"heal considers item bonus HP", 50, 200, &item, 200, 150},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := NewPlayer()
+			h.EquipItem(tt.item)
+			t.Logf("MaxHP = %d | CurrentHP = %d", h.MaxHP(), h.CurrentHP)
+			h.CurrentHP = tt.currentHP
+			actualHeal := h.Heal(tt.healReceived)
+			if h.CurrentHP != tt.wantCurrentHP {
+				t.Errorf("CurrentHP = %d, want = %d", h.CurrentHP, tt.wantCurrentHP)
+			}
+			if actualHeal != tt.wantHealDone {
+				t.Errorf("HealDone = %d, want = %d", actualHeal, tt.wantHealDone)
 			}
 		})
 	}

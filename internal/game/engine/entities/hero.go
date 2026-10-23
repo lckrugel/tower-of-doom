@@ -132,13 +132,13 @@ func (h *Hero) requiredXp() int {
 	return (h.Lvl * h.Lvl) * baseReqXp
 }
 
-func (h *Hero) Heal(hp int) int {
-	healDone := hp
-	if h.CurrentHP+hp > h.BaseMaxHP {
-		healDone = h.BaseMaxHP - h.CurrentHP
-		h.CurrentHP = h.BaseMaxHP
+func (h *Hero) Heal(heal int) int {
+	healDone := min(heal, h.MaxHP())
+	if h.CurrentHP+healDone > h.MaxHP() {
+		healDone = h.MaxHP() - h.CurrentHP
+		h.CurrentHP = h.MaxHP()
 	} else {
-		h.CurrentHP += hp
+		h.CurrentHP += healDone
 	}
 	return healDone
 }
@@ -171,6 +171,12 @@ func (h *Hero) EquipItem(i *Item) *Item {
 		h.Ring = i
 	}
 
+	// Updates CurrentHP when equiping and item with BonusHP
+	if i.BonusHP != 0 {
+		// Snapshots current %HP
+		percentHP := float64(h.CurrentHP) / float64(h.BaseMaxHP)
+		h.CurrentHP = int(math.Floor(float64(h.MaxHP()) * percentHP))
+	}
 	return oldItem
 }
 
@@ -189,6 +195,13 @@ func (h *Hero) UnequipItem(slot ItemSlot) *Item {
 		item = h.Amulet
 	case ring:
 		item = h.Ring
+	}
+
+	// Updates CurrentHP when unequiping and item with BonusHP
+	if item.BonusHP != 0 {
+		// Snapshots current %HP
+		percentHP := float64(h.CurrentHP) / float64(h.BaseMaxHP)
+		h.CurrentHP = int(math.Floor(float64(h.MaxHP()) * percentHP))
 	}
 	return item
 }
