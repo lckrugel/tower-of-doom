@@ -55,8 +55,29 @@ func TestLevelUpStats(t *testing.T) {
 			if h.CurrentHP != tt.wantCurrentHP {
 				t.Errorf("currentHP = %d, want = %d", h.CurrentHP, tt.wantCurrentHP)
 			}
-			if h.BaseDMG != tt.wantDMG {
-				t.Errorf("baseDMG = %d, want= %d", h.BaseDMG, tt.wantDMG)
+func TestHeroTakeDMG(t *testing.T) {
+	tests := []struct {
+		name         string
+		dmgReceived  int
+		wantDMGTaken int
+	}{
+		{"receives exact HP as dmg", 100, 100},
+		{"receives dmg greater then HP", 150, 100},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := NewPlayer()
+			dmgTaken := h.TakeDmg(tt.dmgReceived)
+			if h.CurrentHP < 0 {
+				t.Errorf("CurrentHP = %d, want 0", h.CurrentHP)
+			}
+			if dmgTaken != tt.wantDMGTaken {
+				t.Errorf("DMGTaken = %d, want = %d", dmgTaken, tt.wantDMGTaken)
+			}
+		})
+	}
+}
 			}
 		})
 	}

@@ -144,12 +144,10 @@ func (h *Hero) Heal(hp int) int {
 }
 
 func (h *Hero) TakeDmg(dmg int) int {
-	actualDmg := dmg
-	if actualDmg >= h.CurrentHP {
-		h.CurrentHP = 0
-	}
-	h.CurrentHP -= actualDmg
-	return actualDmg
+	// TODO: apply damage reduction formula
+	dmgReceived := min(dmg, h.CurrentHP)
+	h.CurrentHP -= dmgReceived
+	return dmgReceived
 }
 
 func (h *Hero) EquipItem(i *Item) *Item {
