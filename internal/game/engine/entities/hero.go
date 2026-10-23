@@ -104,15 +104,11 @@ func (h *Hero) GiveXP(xp int) {
 		return
 	}
 	h.Xp += xp
-	nextLevelXp := h.requiredXp()
-	if h.Xp >= nextLevelXp {
-		mod := h.Xp % nextLevelXp
-		for range mod {
-			h.Xp = h.Xp - nextLevelXp
+	for h.Xp >= h.requiredXp() {
+		h.Xp -= h.requiredXp()
 			h.levelUp()
 		}
 	}
-}
 
 func (h *Hero) levelUp() {
 	if !h.IsAlive() {
