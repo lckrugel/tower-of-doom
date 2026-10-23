@@ -18,7 +18,23 @@ type Engine struct {
 	CanAscend        bool
 	CurrentEncounter []entities.Monster
 	reg              *game.Registry
+	// rng é a fonte de aleatoriedade para decisões do engine
+	// (geração de encontros hoje; combates no futuro).
+	// Testes injetam um rng determinístico.
+	rng rng
 }
+
+// `rng` é a fonte de aleatoriedade usada pelo engine.
+//
+// A implementação padrão usa `math/rand` global (auto-seedada);
+// testes substituem por uma versão determinística.
+type rng interface {
+	Intn(n int) int
+}
+
+type mathRandRng struct{}
+
+func (mathRandRng) Intn(n int) int { return rand.Intn(n) }
 
 func NewEngine(reg *game.Registry) *Engine {
 	return &Engine{
@@ -27,6 +43,7 @@ func NewEngine(reg *game.Registry) *Engine {
 		State:        StateExploring,
 		CanAscend:    false,
 		reg:          reg,
+		rng:          mathRandRng{},
 	}
 }
 
@@ -137,7 +154,7 @@ func (e *Engine) generateEncounter(floor int) ([]entities.Monster, error) {
 			break // nothing left affordable — stop here
 		}
 
-		def := weightedPick(candidates, weights)
+		def := e.weightedPick(candidates, weights)
 		encounter = append(encounter, entities.NewMonsterFromAsset(def))
 		budget -= def.Difficulty
 	}
@@ -147,13 +164,20 @@ func (e *Engine) generateEncounter(floor int) ([]entities.Monster, error) {
 	return encounter, nil
 }
 
-// weightedPick chooses one item at random, proportional to its weight.
-func weightedPick(items []game.MonsterAsset, weights []int) game.MonsterAsset {
+// weightedPick escolhe um item aleatoriamente, proporcional ao seu peso.
+//
+// Panics se nenhum peso for positivo: a validação de conteúdo garante
+// weight >= 1, então isso é defesa em profundidade para chamadores que
+// pularem a validação.
+func (e *Engine) weightedPick(items []game.MonsterAsset, weights []int) game.MonsterAsset {
 	total := 0
 	for _, w := range weights {
 		total += w
 	}
-	r := rand.Intn(total)
+	if total <= 0 {
+		panic(fmt.Sprintf("weightedPick: nenhum peso positivo (total=%d)", total))
+	}
+	r := e.rng.Intn(total)
 	cumulative := 0
 	for i, w := range weights {
 		cumulative += w
@@ -161,5 +185,5 @@ func weightedPick(items []game.MonsterAsset, weights []int) game.MonsterAsset {
 			return items[i]
 		}
 	}
-	return items[len(items)-1] // unreachable in practice
+	return items[len(items)-1] // inalcançável
 }
