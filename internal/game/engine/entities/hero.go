@@ -1,5 +1,9 @@
 package entities
 
+import (
+	"math"
+)
+
 // Status base do Herói
 const (
 	baseHp    = 100
@@ -106,16 +110,21 @@ func (h *Hero) GiveXP(xp int) {
 	h.Xp += xp
 	for h.Xp >= h.requiredXp() {
 		h.Xp -= h.requiredXp()
-			h.levelUp()
-		}
+		h.levelUp()
 	}
+}
 
 func (h *Hero) levelUp() {
 	if !h.IsAlive() {
 		return
 	}
+	// Snapshots current %HP
+	percentHP := float64(h.CurrentHP) / float64(h.BaseMaxHP)
+	// Raises base stats
 	h.BaseMaxHP += hpBylvl
 	h.BaseDMG += dmgByLvl
+	// Heals proportional to current %HP
+	h.CurrentHP = int(math.Floor(float64(h.BaseMaxHP) * percentHP))
 	h.Lvl++
 }
 
