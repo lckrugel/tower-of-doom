@@ -198,7 +198,7 @@ func (h *Hero) UnequipItem(slot ItemSlot) *Item {
 	}
 
 	// Updates CurrentHP when unequiping and item with BonusHP
-	if item.BonusHP != 0 {
+	if item != nil && item.BonusHP != 0 {
 		// Snapshots current %HP
 		percentHP := float64(h.CurrentHP) / float64(h.BaseMaxHP)
 		h.CurrentHP = int(math.Floor(float64(h.MaxHP()) * percentHP))
