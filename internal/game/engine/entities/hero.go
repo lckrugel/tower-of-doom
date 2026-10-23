@@ -132,14 +132,11 @@ func (h *Hero) requiredXp() int {
 	return (h.Lvl * h.Lvl) * baseReqXp
 }
 
+// Heals the Hero with a set amount.
+// Returns the amount that was actually healed.
 func (h *Hero) Heal(heal int) int {
-	healDone := min(heal, h.MaxHP())
-	if h.CurrentHP+healDone > h.MaxHP() {
-		healDone = h.MaxHP() - h.CurrentHP
-		h.CurrentHP = h.MaxHP()
-	} else {
+	healDone := min(heal, h.MaxHP()-h.CurrentHP)
 		h.CurrentHP += healDone
-	}
 	return healDone
 }
 
