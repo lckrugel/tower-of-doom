@@ -3,8 +3,10 @@ package game
 import (
 	"embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 )
 
 // Arquivos .json na pasta `assets/` serão compilados juntamente do executável da aplicação.
@@ -103,9 +105,18 @@ func Load(externalDir string) (*Registry, error) {
 		return nil, fmt.Errorf("loading sections: %w", err)
 	}
 
+	monstersMap, err := indexBy(monsters, func(m MonsterAsset) string { return m.ID })
+	if err != nil {
+		return nil, fmt.Errorf("loading monsters: %w", err)
+	}
+	itemsMap, err := indexBy(items, func(i ItemAsset) string { return i.ID })
+	if err != nil {
+		return nil, fmt.Errorf("loading items: %w", err)
+	}
+
 	r := &Registry{
-		Monsters: indexBy(monsters, func(m MonsterAsset) string { return m.ID }),
-		Items:    indexBy(items, func(i ItemAsset) string { return i.ID }),
+		Monsters: monstersMap,
+		Items:    itemsMap,
 		Sections: sections,
 	}
 	return r, nil
@@ -124,8 +135,22 @@ func (r *Registry) Validate(topFloor int) error {
 			return fmt.Errorf("content validation: section %q has no spawn table", s.ID)
 		}
 		for _, spawn := range s.Spawns {
-			if _, ok := r.Monsters[spawn.MonsterID]; !ok {
+			m, ok := r.Monsters[spawn.MonsterID]
+			if !ok {
 				return fmt.Errorf("content validation: section %q references unknown monster %q", s.ID, spawn.MonsterID)
+			}
+			if spawn.Weight < 1 {
+				return fmt.Errorf(
+					"content validation: section %q spawn for monster %q has weight %d, want >= 1",
+					s.ID, spawn.MonsterID, spawn.Weight,
+				)
+			}
+			if m.Difficulty < 1 {
+				return fmt.Errorf(
+					"content validation: monster %q has difficulty %d, want >= 1 "+
+						"(garante que geração de encontros termina)",
+					m.ID, m.Difficulty,
+				)
 			}
 		}
 	}
@@ -181,18 +206,31 @@ func (r *Registry) cheapestSpawnName(s SectionAsset) string {
 
 // Lê o JSON com os assets do tipo T no local informado
 // ou utiliza os assets pré-compilados caso não encontre.
+//
+// Um arquivo externo que não existe faz fallback para os assets embutidos;
+// um arquivo externo que existe mas não pode ser lido é tratado como erro
+// real (mods quebrados não devem falhar silenciosamente).
 func loadJSON[T any](externalDir, filename string) ([]T, error) {
 	var raw []byte
-	var err error
 
 	if externalDir != "" {
-		raw, err = os.ReadFile(externalDir + "/" + filename)
+		path := filepath.Join(externalDir, filename)
+		r, err := os.ReadFile(path)
+		switch {
+		case err == nil:
+			raw = r
+		case errors.Is(err, os.ErrNotExist):
+			// arquivo externo ausente: cai para os assets embutidos
+		default:
+			return nil, fmt.Errorf("reading external asset %s: %w", path, err)
+		}
 	}
-	if externalDir == "" || err != nil {
-		raw, err = embeddedAssets.ReadFile("assets/" + filename)
-	}
-	if err != nil {
-		return nil, err
+	if raw == nil {
+		r, err := embeddedAssets.ReadFile("assets/" + filename)
+		if err != nil {
+			return nil, fmt.Errorf("reading embedded asset %s: %w", filename, err)
+		}
+		raw = r
 	}
 
 	var items []T
@@ -203,10 +241,16 @@ func loadJSON[T any](externalDir, filename string) ([]T, error) {
 }
 
 // Cria um map para o tipo T utilizando o campo retornado por `keyFn` como índice.
-func indexBy[T any](items []T, keyFn func(T) string) map[string]T {
+// Retorna erro se dois itens tiverem o mesmo id: duplicatas seriam
+// silenciosamente escondidas pelo map, escondendo conteúdo.
+func indexBy[T any](items []T, keyFn func(T) string) (map[string]T, error) {
 	out := make(map[string]T, len(items))
 	for _, item := range items {
-		out[keyFn(item)] = item
+		key := keyFn(item)
+		if _, exists := out[key]; exists {
+			return nil, fmt.Errorf("duplicate id %q", key)
+		}
+		out[key] = item
 	}
-	return out
+	return out, nil
 }
