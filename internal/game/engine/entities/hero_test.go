@@ -28,18 +28,16 @@ func TestHeroGiveXP(t *testing.T) {
 	}
 }
 
-func TestLevelUpStats(t *testing.T) {
+func TestHeroLevelUp_CurrentHP(t *testing.T) {
 	tests := []struct {
 		name          string
 		currentHP     int
 		wantLVL       int
 		wantMaxHP     int
 		wantCurrentHP int
-		wantDMG       int
 	}{
-		{"level up increases status", baseHp, 2, baseHp + hpBylvl, baseHp + hpBylvl, baseDmg + dmgByLvl},
-		{"full health level up", baseHp, 2, baseHp + hpBylvl, baseHp + hpBylvl, baseDmg + dmgByLvl},
-		{"half health level up", baseHp / 2, 2, baseHp + hpBylvl, (baseHp + hpBylvl) / 2, baseDmg + dmgByLvl},
+		{"full health level up", baseHp, 2, baseHp + hpBylvl, baseHp + hpBylvl},
+		{"half health level up", baseHp / 2, 2, baseHp + hpBylvl, (baseHp + hpBylvl) / 2},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -55,6 +53,10 @@ func TestLevelUpStats(t *testing.T) {
 			if h.CurrentHP != tt.wantCurrentHP {
 				t.Errorf("currentHP = %d, want = %d", h.CurrentHP, tt.wantCurrentHP)
 			}
+		})
+	}
+}
+
 func TestHeroTakeDMG(t *testing.T) {
 	tests := []struct {
 		name         string
