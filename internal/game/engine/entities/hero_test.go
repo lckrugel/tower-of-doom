@@ -6,6 +6,18 @@ import (
 	"github.com/lckrugel/tower-of-doom/internal/game"
 )
 
+// newTestItem cria um item de teste pelo asset informado.
+func newTestItem(asset game.ItemAsset) *Item {
+	item := NewItemFromAsset(asset)
+	return &item
+}
+
+// Curva de XP: o custo para subir do nível atual é 100 * max(Lvl-1, 1)^1.5.
+// Custos por nível: L1→2: 100, L2→3: 100, L3→4: 282, L4→5: 519, L5→6: 800,
+// L6→7: 1118, L7→8: 1469, L8→9: 1852, L9→10: 2262.
+//
+// Nota (decisão fechada): L2→3 custa o mesmo que L1→2 por causa do
+// max(Lvl-1, 1) — "níveis iniciais baratos", mantido de propósito.
 func TestHeroGiveXP(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -14,8 +26,11 @@ func TestHeroGiveXP(t *testing.T) {
 		wantXP  int
 	}{
 		{"below level threshold", 50, 1, 50},
-		{"exact level up", 100, 2, 0},
-		{"multiple level ups", 550, 3, 50},
+		{"exactly reaches level 2", 100, 2, 0},
+		{"exactly finishes level 3", 482, 4, 0},
+		{"one xp short of finishing level 3", 481, 3, 281},
+		{"multiple level ups", 550, 4, 68},
+		{"many level ups", 10_000, 10, 1_498},
 	}
 
 	for _, tt := range tests {
@@ -29,6 +44,16 @@ func TestHeroGiveXP(t *testing.T) {
 				t.Errorf("xp = %d, want %d", h.Xp, tt.wantXP)
 			}
 		})
+	}
+}
+
+func TestHeroGiveXP_DeadHeroIsNoOp(t *testing.T) {
+	h := NewPlayer()
+	h.TakeDmg(h.BaseMaxHP)
+	h.GiveXP(1_000)
+
+	if h.Lvl != 1 || h.Xp != 0 {
+		t.Errorf("dead hero gained XP: level = %d, xp = %d, want 1/0", h.Lvl, h.Xp)
 	}
 }
 
@@ -61,57 +86,121 @@ func TestHeroLevelUp_CurrentHP(t *testing.T) {
 	}
 }
 
-func TestHeroTakeDMG(t *testing.T) {
+// O % de vida atual deve ser preservado quando o HP máximo muda — incluindo
+// quando há itens de BonusHP equipados (o máximo muda pelo item também).
+func TestHeroLevelUp_RescalesHPWithEquippedItem(t *testing.T) {
+	h := NewPlayer()
+	h.EquipItem(newTestItem(game.ItemAsset{
+		ID:      "collar",
+		Name:    "Test Collar",
+		Slot:    amulet,
+		BonusHP: 50,
+	}))
+	// Full: 150/150 → sobe de nível → novo máximo 160.
+	h.levelUp()
+
+	if h.CurrentHP != 160 {
+		t.Errorf("currentHP = %d, want 160 (new MaxHP at full health)", h.CurrentHP)
+	}
+	if h.MaxHP() != 160 {
+		t.Errorf("maxHP = %d, want 160", h.MaxHP())
+	}
+}
+
+func TestHeroTakeDmg(t *testing.T) {
 	tests := []struct {
-		name         string
-		dmgReceived  int
-		wantDMGTaken int
+		name          string
+		dmgReceived   int
+		wantDMGTaken  int
+		wantCurrentHP int
+		wantAlive     bool
 	}{
-		{"receives exact HP as dmg", 100, 100},
-		{"receives dmg greater then HP", 150, 100},
+		{"takes partial damage", 30, 30, 70, true},
+		{"takes exactly max HP", 100, 100, 0, false},
+		{"overkill clamps to current HP", 150, 100, 0, false},
+		{"negative damage does nothing", -5, 0, 100, true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			h := NewPlayer()
 			dmgTaken := h.TakeDmg(tt.dmgReceived)
-			if h.CurrentHP < 0 {
-				t.Errorf("CurrentHP = %d, want 0", h.CurrentHP)
-			}
+
 			if dmgTaken != tt.wantDMGTaken {
 				t.Errorf("DMGTaken = %d, want = %d", dmgTaken, tt.wantDMGTaken)
 			}
+			if h.CurrentHP != tt.wantCurrentHP {
+				t.Errorf("CurrentHP = %d, want %d", h.CurrentHP, tt.wantCurrentHP)
+			}
+			if h.IsAlive() != tt.wantAlive {
+				t.Errorf("IsAlive = %v, want %v", h.IsAlive(), tt.wantAlive)
+			}
 		})
+	}
+
+	t.Run("dead hero stays dead", func(t *testing.T) {
+		h := NewPlayer()
+		h.TakeDmg(100)
+		dmgTaken := h.TakeDmg(50)
+
+		if dmgTaken != 0 || h.CurrentHP != 0 || h.IsAlive() {
+			t.Errorf("damage on dead hero: taken = %d, HP = %d, alive = %v, want 0/0/false",
+				dmgTaken, h.CurrentHP, h.IsAlive())
+		}
+	})
+}
+
+// StartersItens... somatório de atributos deve refletir todos os slots equipados.
+func TestHeroEquippedItemStats(t *testing.T) {
+	h := NewPlayer()
+	h.EquipItem(newTestItem(game.ItemAsset{ID: "sword", Name: "Sword", Slot: weapon, BonusDMG: 5, BonusSPD: 1}))
+	h.EquipItem(newTestItem(game.ItemAsset{ID: "helm", Name: "Helm", Slot: helmet, BonusDEF: 2}))
+	h.EquipItem(newTestItem(game.ItemAsset{ID: "plate", Name: "Plate", Slot: body, BonusHP: 30, BonusDEF: 1}))
+
+	if got := h.Damage(); got != 5 {
+		t.Errorf("Damage = %d, want 5", got)
+	}
+	if got := h.Speed(); got != 11 {
+		t.Errorf("Speed = %d, want 11", got)
+	}
+	if got := h.Defense(); got != 3 {
+		t.Errorf("Defense = %d, want 3", got)
+	}
+	if got := h.MaxHP(); got != 130 {
+		t.Errorf("MaxHP = %d, want 130", got)
 	}
 }
 
 func TestHeroHeal(t *testing.T) {
-	item := NewItemFromAsset(game.ItemAsset{
-		ID:      "collar",
-		Name:    "Test Collar",
-		Slot:    "amulet",
-		BonusHP: 100,
-	})
 	tests := []struct {
 		name          string
 		currentHP     int
 		healReceived  int
-		item          *Item
+		itemBonusHP   int
 		wantCurrentHP int
 		wantHealDone  int
 	}{
-		{"heals a fixed amount", 50, 20, nil, 70, 20},
-		{"heal is greater than HP", 50, 200, nil, 100, 50},
-		{"heal considers item bonus HP", 50, 200, &item, 200, 150},
+		{"heals a fixed amount", 50, 20, 0, 70, 20},
+		{"heal is greater than HP", 50, 200, 0, 100, 50},
+		{"full health heals nothing", 100, 50, 0, 100, 0},
+		{"heal considers item bonus HP", 50, 200, 100, 200, 150},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			h := NewPlayer()
-			h.EquipItem(tt.item)
-			t.Logf("MaxHP = %d | CurrentHP = %d", h.MaxHP(), h.CurrentHP)
+			if tt.itemBonusHP != 0 {
+				h.EquipItem(newTestItem(game.ItemAsset{
+					ID:      "collar",
+					Name:    "Test Collar",
+					Slot:    amulet,
+					BonusHP: tt.itemBonusHP,
+				}))
+			}
 			h.CurrentHP = tt.currentHP
+
 			actualHeal := h.Heal(tt.healReceived)
+
 			if h.CurrentHP != tt.wantCurrentHP {
 				t.Errorf("CurrentHP = %d, want = %d", h.CurrentHP, tt.wantCurrentHP)
 			}
@@ -120,4 +209,129 @@ func TestHeroHeal(t *testing.T) {
 			}
 		})
 	}
+}
+
+// Equipar/unequip itens com BonusHP reescalan o CurrentHP para preservar
+// o % de vida — relativo ao MaxHP() de antes, não ao BaseMaxHP.
+func TestHeroEquipRescalesHP(t *testing.T) {
+	tests := []struct {
+		name          string
+		damageTaken   int
+		itemBonusHP   int
+		wantCurrentHP int
+		wantMaxHP     int
+	}{
+		{"full health keeps full", 0, 50, 150, 150},
+		{"fraction preserved when bonus lands", 75, 50, 37, 150},
+		{"dead hero stays dead", 100, 50, 0, 150},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := NewPlayer()
+			h.TakeDmg(tt.damageTaken)
+
+			h.EquipItem(newTestItem(game.ItemAsset{
+				ID:      "collar",
+				Name:    "Test Collar",
+				Slot:    amulet,
+				BonusHP: tt.itemBonusHP,
+			}))
+
+			if h.CurrentHP != tt.wantCurrentHP {
+				t.Errorf("CurrentHP = %d, want %d", h.CurrentHP, tt.wantCurrentHP)
+			}
+			if h.MaxHP() != tt.wantMaxHP {
+				t.Errorf("MaxHP = %d, want %d", h.MaxHP(), tt.wantMaxHP)
+			}
+		})
+	}
+
+	t.Run("equipping item without hp bonus leaves HP untouched", func(t *testing.T) {
+		h := NewPlayer()
+		h.TakeDmg(40)
+
+		h.EquipItem(newTestItem(game.ItemAsset{ID: "sword", Name: "Test Sword", Slot: weapon}))
+
+		if h.CurrentHP != 60 || h.MaxHP() != 100 {
+			t.Errorf("CurrentHP = %d, MaxHP = %d, want 60/100", h.CurrentHP, h.MaxHP())
+		}
+	})
+
+	t.Run("equipping over an occupied slot returns the replaced item", func(t *testing.T) {
+		h := NewPlayer()
+		first := newTestItem(game.ItemAsset{ID: "collar_a", Name: "Collar A", Slot: amulet, BonusHP: 50})
+		second := newTestItem(game.ItemAsset{ID: "collar_b", Name: "Collar B", Slot: amulet, BonusHP: 100})
+
+		h.EquipItem(first)
+		replaced := h.EquipItem(second)
+
+		if replaced != first {
+			t.Errorf("replaced item = %v, want the first collar", replaced)
+		}
+		if h.Amulet != second {
+			t.Errorf("unequipped item = %v, want the unequipped collar", h.Amulet)
+		}
+		if h.MaxHP() != 200 {
+			t.Errorf("MaxHP = %d, want 200 (only the second collar equipped)", h.MaxHP())
+		}
+	})
+
+	t.Run("swapping hp items mid-health preserves the fraction", func(t *testing.T) {
+		h := NewPlayer()
+		first := newTestItem(game.ItemAsset{ID: "collar_a", Name: "Collar A", Slot: amulet, BonusHP: 50})
+		second := newTestItem(game.ItemAsset{ID: "collar_b", Name: "Collar B", Slot: amulet, BonusHP: 100})
+
+		h.EquipItem(first) // 150 no máximo
+		h.TakeDmg(75)      // 75/150 = 50%
+		h.EquipItem(second)
+
+		if h.CurrentHP != 100 || h.MaxHP() != 200 {
+			t.Errorf("CurrentHP = %d, MaxHP = %d, want 100/200 (50%% of new max)", h.CurrentHP, h.MaxHP())
+		}
+	})
+}
+
+func TestHeroUnequipRescalesHP(t *testing.T) {
+	t.Run("unequipping an empty slot is a no-op", func(t *testing.T) {
+		h := NewPlayer()
+
+		removed := h.UnequipItem(boots)
+
+		if removed != nil {
+			t.Errorf("unequipped = %v, want nil", removed)
+		}
+		if h.CurrentHP != 100 || h.MaxHP() != 100 {
+			t.Errorf("CurrentHP = %d, MaxHP = %d, want unchanged 100/100", h.CurrentHP, h.MaxHP())
+		}
+	})
+
+	t.Run("unequipping hp item preserves the fraction", func(t *testing.T) {
+		h := NewPlayer()
+		h.EquipItem(newTestItem(game.ItemAsset{ID: "collar", Name: "Test Collar", Slot: amulet, BonusHP: 50}))
+		h.TakeDmg(75) // 75/150 = 50%
+
+		removed := h.UnequipItem(amulet)
+
+		if removed == nil {
+			t.Fatal("unequipped = nil, want the collar")
+		}
+		if h.Amulet != nil {
+			t.Errorf("unequipped = %v, want the unequipped collar", h.Amulet)
+		}
+		if h.CurrentHP != 50 || h.MaxHP() != 100 {
+			t.Errorf("CurrentHP = %d, MaxHP = %d, want 50/100 (50%% of new max)", h.CurrentHP, h.MaxHP())
+		}
+	})
+
+	t.Run("unequipping item without hp bonus leaves HP untouched", func(t *testing.T) {
+		h := NewPlayer()
+		h.EquipItem(newTestItem(game.ItemAsset{ID: "sword", Name: "Test Sword", Slot: weapon}))
+		h.TakeDmg(40)
+
+		h.UnequipItem(weapon)
+
+		if h.CurrentHP != 60 || h.MaxHP() != 100 {
+			t.Errorf("CurrentHP = %d, MaxHP = %d, want 60/100", h.CurrentHP, h.MaxHP())
+		}
+	})
 }
