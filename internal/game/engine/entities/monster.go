@@ -37,10 +37,7 @@ func (m *Monster) Defense() int       { return m.BaseDEF }
 func (m *Monster) CritThreshold() int { return 10 }
 
 func (m *Monster) TakeDmg(dmg int) int {
-	dmgTaken := dmg
-	if dmgTaken >= m.CurrentHP {
-		m.CurrentHP = 0
-	}
+	dmgTaken := max(0, min(dmg, m.CurrentHP))
 	m.CurrentHP -= dmgTaken
 	return dmgTaken
 }
