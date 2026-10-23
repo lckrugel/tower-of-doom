@@ -65,16 +65,17 @@ func (e *Engine) handleExploring(cmd Command) []Event {
 		e.CurrentFloor++
 		sectionDef, err := e.reg.SectionForFloor(e.CurrentFloor)
 		if err != nil {
-			// Deve ser inacessivel.
-			// O conteúdo deve ser validado durante a inicialização.
-			// Portanto não devem ocorrer casos onde não há uma seção para um andar.
-			panic(fmt.Sprintf("unreachable: GenerateEncounter failed for floor %d despite passing content validation: %v", e.CurrentFloor, err))
+			// Deve ser inacessível enquanto a torre for infinita:
+			// existe uma seção com max_floor == -1 cobrindo todos os andares
+			// acima do último trecho finito, e a inicialização valida isso.
+			// (TODO: quando a torre tiver um topo, este caso vira uma
+			// condição de vitória, não um panic.)
+			panic(fmt.Sprintf("unreachable: no section covers floor %d despite passing content validation: %v", e.CurrentFloor, err))
 		}
 		return []Event{NewFloorEntered(e.CurrentFloor, sectionDef.Name)}
 	default:
 		return []Event{NewMessage("Invalid command")}
 	}
-	return nil
 }
 
 func (e *Engine) handleCombat(cmd Command) []Event {
@@ -119,10 +120,11 @@ func (e *Engine) generateEncounter(floor int) ([]entities.Monster, error) {
 
 	var encounter []entities.Monster
 	for budget > 0 && len(encounter) < MAX_ENCOUNTER_SIZE {
-		// Only consider monsters that fit the remaining budget — this is
-		// what guarantees termination even without the size cap: each
-		// iteration either adds a monster (shrinking budget) or finds
-		// nothing affordable and stops.
+		// Considera apenas monstros com difficulty >= 1: cada iteração ou
+		// adiciona um monstro (reduzindo o budget) ou não acha candidato e
+		// para. Na prática a garantia real vem da validação de conteúdo
+		// (difficulty >= 1); MAX_ENCOUNTER_SIZE fica como defesa em
+		// profundidade.
 		candidates := make([]game.MonsterAsset, 0, len(allDefs))
 		weights := make([]int, 0, len(allDefs))
 		for i, def := range allDefs {
