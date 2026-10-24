@@ -58,5 +58,85 @@
     "bonus_def": 0,
     "bonus_spd": 0,
     "durability": 75
+  },
+  {
+    "id": "iron_helmet",
+    "slot": "helmet",
+    "name": "Capacete de Ferro",
+    "bonus_hp": 5,
+    "bonus_dmg": 0,
+    "bonus_def": 8,
+    "bonus_spd": 0,
+    "durability": 125
+  },
+  {
+    "id": "iron_body_armor",
+    "slot": "body_armor",
+    "name": "Armadura de Ferro",
+    "bonus_hp": 15,
+    "bonus_dmg": 0,
+    "bonus_def": 10,
+    "bonus_spd": 0,
+    "durability": 150
+  },
+  {
+    "id": "iron_boots",
+    "slot": "boots",
+    "name": "Botas de Ferro",
+    "bonus_hp": 0,
+    "bonus_dmg": 0,
+    "bonus_def": 8,
+    "bonus_spd": 0,
+    "durability": 125
+  },
+  {
+    "id": "steel_sword",
+    "slot": "weapon",
+    "name": "Espada de Aço",
+    "bonus_hp": 0,
+    "bonus_dmg": 15,
+    "bonus_def": 0,
+    "bonus_spd": 0,
+    "durability": 100
+  },
+  {
+    "id": "steel_body_armor",
+    "slot": "body_armor",
+    "name": "Armadura de Aço",
+    "bonus_hp": 25,
+    "bonus_dmg": 0,
+    "bonus_def": 15,
+    "bonus_spd": -5,
+    "durability": 200
+  },
+  {
+    "id": "sapphire_ring",
+    "slot": "ring",
+    "name": "Anel de Safira",
+    "bonus_hp": 10,
+    "bonus_dmg": 0,
+    "bonus_def": 0,
+    "bonus_spd": 0,
+    "durability": -1
+  },
+  {
+    "id": "ring_of_haste",
+    "slot": "ring",
+    "name": "Anel da Rapidez",
+    "bonus_hp": 0,
+    "bonus_dmg": 0,
+    "bonus_def": 0,
+    "bonus_spd": 5,
+    "durability": -1
+  },
+  {
+    "id": "amulet_of_the_seer",
+    "slot": "amulet",
+    "name": "Amuleto do Vidente",
+    "bonus_hp": 5,
+    "bonus_dmg": 0,
+    "bonus_def": 5,
+    "bonus_spd": 5,
+    "durability": -1
   }
 ]

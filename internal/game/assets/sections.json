@@ -5,29 +5,175 @@
     "base_difficulty": 9,
     "difficulty_per_floor": 3,
     "min_floor": 1,
-    "max_floor": 5,
+    "max_floor": 3,
     "spawns": [
       {
         "weight": 100,
         "monster_id": "goblin"
+      },
+      {
+        "monster_id": "goblin_scout",
+        "weight": 60
+      },
+      {
+        "monster_id": "goblin_bomber",
+        "weight": 30
       }
     ]
   },
   {
     "id": "goblin_camp_outskirts",
     "name": "Goblin Camp Outskirts",
-    "base_difficulty": 35,
+    "base_difficulty": 25,
     "difficulty_per_floor": 7,
-    "min_floor": 6,
-    "max_floor": -1,
+    "min_floor": 3,
+    "max_floor": 13,
     "spawns": [
       {
         "monster_id": "goblin",
-        "weight": 100
+        "weight": 80
+      },
+      {
+        "monster_id": "goblin_scout",
+        "weight": 60
+      },
+      {
+        "monster_id": "goblin_bomber",
+        "weight": 30
+      },
+      {
+        "monster_id": "hobgoblin",
+        "weight": 40
+      },
+      {
+        "monster_id": "goblin_chief",
+        "weight": 10
       },
       {
         "monster_id": "orc",
+        "weight": 30
+      },
+      {
+        "monster_id": "orc_berserker",
+        "weight": 12
+      },
+      {
+        "monster_id": "orc_warlord",
         "weight": 5
+      }
+    ]
+  },
+  {
+    "id": "underdark_reaches",
+    "name": "Underdark Reaches",
+    "base_difficulty": 30,
+    "difficulty_per_floor": 8,
+    "min_floor": 14,
+    "max_floor": 33,
+    "spawns": [
+      {
+        "monster_id": "giant_rat",
+        "weight": 70
+      },
+      {
+        "monster_id": "kobold",
+        "weight": 80
+      },
+      {
+        "monster_id": "cave_spider",
+        "weight": 40
+      },
+      {
+        "monster_id": "skeleton",
+        "weight": 50
+      },
+      {
+        "monster_id": "zombie",
+        "weight": 30
+      },
+      {
+        "monster_id": "ghoul",
+        "weight": 25
+      },
+      {
+        "monster_id": "gelatinous_cube",
+        "weight": 15
+      },
+      {
+        "monster_id": "mimic",
+        "weight": 12
+      }
+    ]
+  },
+  {
+    "id": "wraithfall_bastion",
+    "name": "Wraithfall Bastion",
+    "base_difficulty": 40,
+    "difficulty_per_floor": 10,
+    "min_floor": 34,
+    "max_floor": 59,
+    "spawns": [
+      {
+        "monster_id": "skeleton",
+        "weight": 40
+      },
+      {
+        "monster_id": "ghoul",
+        "weight": 60
+      },
+      {
+        "monster_id": "wraith",
+        "weight": 45
+      },
+      {
+        "monster_id": "gargoyle",
+        "weight": 35
+      },
+      {
+        "monster_id": "mimic",
+        "weight": 25
+      },
+      {
+        "monster_id": "vampire_spawn",
+        "weight": 30
+      },
+      {
+        "monster_id": "beholder",
+        "weight": 10
+      },
+      {
+        "monster_id": "lich",
+        "weight": 5
+      }
+    ]
+  },
+  {
+    "id": "dragon_hoard",
+    "name": "The Dragon's Hoard",
+    "base_difficulty": 60,
+    "difficulty_per_floor": 12,
+    "min_floor": 60,
+    "max_floor": -1,
+    "spawns": [
+      {
+        "monster_id": "dragonling",
+        "weight": 70
+      },
+      {
+        "monster_id": "mimic",
+        "weight": 30
+      },
+      {
+        "monster_id": "young_red_dragon",
+        "weight": 30
+      },
+      {
+        "monster_id": "beholder",
+        "weight": 12
+      },
+      {
+        "monster_id": "ancient_red_dragon",
+        "weight": 3
       }
     ]
   }

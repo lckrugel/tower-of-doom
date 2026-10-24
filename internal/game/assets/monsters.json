@@ -10,6 +10,46 @@
     "crit": 5
   },
   {
+    "id": "goblin_scout",
+    "name": "Goblin Scout",
+    "difficulty": 3,
+    "hp": 18,
+    "dmg": 2,
+    "spd": 13,
+    "def": 0,
+    "crit": 15
+  },
+  {
+    "id": "goblin_bomber",
+    "name": "Goblin Bomber",
+    "difficulty": 5,
+    "hp": 15,
+    "dmg": 6,
+    "spd": 9,
+    "def": 0,
+    "crit": 10
+  },
+  {
+    "id": "goblin_chief",
+    "name": "Goblin Chief",
+    "difficulty": 9,
+    "hp": 55,
+    "dmg": 6,
+    "spd": 10,
+    "def": 3,
+    "crit": 10
+  },
+  {
+    "id": "hobgoblin",
+    "name": "Hobgoblin Drill Sergeant",
+    "difficulty": 7,
+    "hp": 45,
+    "dmg": 5,
+    "spd": 9,
+    "def": 4,
+    "crit": 5
+  },
+  {
     "id": "orc",
     "name": "Orc",
     "difficulty": 5,
@@ -18,5 +58,185 @@
     "spd": 8,
     "def": 3,
     "crit": 10
+  },
+  {
+    "id": "orc_berserker",
+    "name": "Orc Berserker",
+    "difficulty": 7,
+    "hp": 40,
+    "dmg": 10,
+    "spd": 10,
+    "def": 0,
+    "crit": 20
+  },
+  {
+    "id": "orc_warlord",
+    "name": "Orc Warlord",
+    "difficulty": 12,
+    "hp": 85,
+    "dmg": 12,
+    "spd": 6,
+    "def": 6,
+    "crit": 10
+  },
+  {
+    "id": "giant_rat",
+    "name": "Giant Rat",
+    "difficulty": 2,
+    "hp": 12,
+    "dmg": 2,
+    "spd": 11,
+    "def": 0,
+    "crit": 5
+  },
+  {
+    "id": "kobold",
+    "name": "Kobold",
+    "difficulty": 2,
+    "hp": 16,
+    "dmg": 2,
+    "spd": 9,
+    "def": 1,
+    "crit": 5
+  },
+  {
+    "id": "cave_spider",
+    "name": "Cave Spider",
+    "difficulty": 5,
+    "hp": 25,
+    "dmg": 4,
+    "spd": 10,
+    "def": 1,
+    "crit": 15
+  },
+  {
+    "id": "skeleton",
+    "name": "Skeleton",
+    "difficulty": 5,
+    "hp": 35,
+    "dmg": 5,
+    "spd": 9,
+    "def": 3,
+    "crit": 5
+  },
+  {
+    "id": "ghoul",
+    "name": "Ghoul",
+    "difficulty": 7,
+    "hp": 40,
+    "dmg": 6,
+    "spd": 12,
+    "def": 2,
+    "crit": 10
+  },
+  {
+    "id": "zombie",
+    "name": "Zombie",
+    "difficulty": 6,
+    "hp": 60,
+    "dmg": 6,
+    "spd": 2,
+    "def": 2,
+    "crit": 0
+  },
+  {
+    "id": "gelatinous_cube",
+    "name": "Gelatinous Cube",
+    "difficulty": 9,
+    "hp": 70,
+    "dmg": 7,
+    "spd": 2,
+    "def": 8,
+    "crit": 0
+  },
+  {
+    "id": "mimic",
+    "name": "Mimic",
+    "difficulty": 9,
+    "hp": 55,
+    "dmg": 9,
+    "spd": 5,
+    "def": 5,
+    "crit": 25
+  },
+  {
+    "id": "wraith",
+    "name": "Wraith",
+    "difficulty": 10,
+    "hp": 45,
+    "dmg": 8,
+    "spd": 13,
+    "def": 4,
+    "crit": 15
+  },
+  {
+    "id": "gargoyle",
+    "name": "Gargoyle",
+    "difficulty": 12,
+    "hp": 65,
+    "dmg": 9,
+    "spd": 6,
+    "def": 8,
+    "crit": 10
+  },
+  {
+    "id": "vampire_spawn",
+    "name": "Vampire Spawn",
+    "difficulty": 13,
+    "hp": 60,
+    "dmg": 10,
+    "spd": 12,
+    "def": 4,
+    "crit": 15
+  },
+  {
+    "id": "beholder",
+    "name": "Beholder",
+    "difficulty": 18,
+    "hp": 95,
+    "dmg": 14,
+    "spd": 7,
+    "def": 5,
+    "crit": 20
+  },
+  {
+    "id": "lich",
+    "name": "Lich",
+    "difficulty": 20,
+    "hp": 100,
+    "dmg": 16,
+    "spd": 9,
+    "def": 6,
+    "crit": 20
+  },
+  {
+    "id": "dragonling",
+    "name": "Dragonling",
+    "difficulty": 15,
+    "hp": 90,
+    "dmg": 12,
+    "spd": 9,
+    "def": 6,
+    "crit": 15
+  },
+  {
+    "id": "young_red_dragon",
+    "name": "Young Red Dragon",
+    "difficulty": 24,
+    "hp": 150,
+    "dmg": 18,
+    "spd": 8,
+    "def": 8,
+    "crit": 15
+  },
+  {
+    "id": "ancient_red_dragon",
+    "name": "Ancient Red Dragon",
+    "difficulty": 40,
+    "hp": 220,
+    "dmg": 25,
+    "spd": 7,
+    "def": 10,
+    "crit": 20
   }
 ]
