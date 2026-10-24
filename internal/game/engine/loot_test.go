@@ -10,16 +10,18 @@ import (
 // chestEngine returns an engine whose rng rolls a chest (20 → chest in the
 // mixed section), then an ITEM chest (50 ≥ chestGoldChance), then
 // `wantPick` for the item pool, plus a mixed-section registry with two
-// items: sorted pool [rusty_ring, shiny_sword].
+// items: sorted pool [rusty_ring, shiny_sword]. The run's forced first
+// combat (pacing rule) is already spent, so EXPLORE rolls the kind table
+// as usual.
 func chestEngine(wantPick int, rngValues ...int) *Engine {
 	values := append([]int{20, 50, wantPick}, rngValues...)
 	e := newKindEngine(values...)
+	e.reg.Sections = []game.SectionAsset{mixedSection()}
 	e.reg.Items = map[string]game.ItemAsset{
 		"shiny_sword": {ID: "shiny_sword", Name: "Shiny Sword", Slot: "weapon", BonusDMG: 5},
 		"rusty_ring":  {ID: "rusty_ring", Name: "Rusty Ring", Slot: "ring", BonusDEF: 1},
 	}
-	e.reg.Sections = []game.SectionAsset{mixedSection()}
-	return e
+	return pastFirstExplore(e)
 }
 
 // A chest no longer auto-equips: EXPLORE rolls the item (same pickItem roll

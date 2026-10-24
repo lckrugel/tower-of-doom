@@ -29,12 +29,14 @@ func tierSection(tiers []int) game.SectionAsset {
 }
 
 // tieredEngine is a chest-bearing engine over `tiers` with the tiered
-// registry. With the mixed table the chest rolls at rng 20.
+// registry. With the mixed table the chest rolls at rng 20. The run's
+// forced first combat (pacing rule) is already spent, so EXPLORE rolls
+// the kind table as usual.
 func tieredEngine(tiers []int, rngValues ...int) *Engine {
 	e := newKindEngine(rngValues...)
 	e.reg.Sections = []game.SectionAsset{tierSection(tiers)}
 	e.reg.Items = tieredItems()
-	return e
+	return pastFirstExplore(e)
 }
 
 // A section restricted by item_tiers can only roll items of those tiers —

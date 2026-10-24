@@ -27,12 +27,14 @@ func merchantItems() map[string]game.ItemAsset {
 }
 
 // merchantEngine is an engine over the merchant section with
-// pre-programmed rng values (30 → merchant).
+// pre-programmed rng values (30 → merchant). The run's forced first
+// combat (pacing rule) is already spent, so EXPLORE rolls the kind table
+// as usual.
 func merchantEngine(rngValues ...int) *Engine {
 	e := newTestEngine(rngValues...)
 	e.reg.Sections = []game.SectionAsset{merchantSection()}
 	e.reg.Items = merchantItems()
-	return e
+	return pastFirstExplore(e)
 }
 
 // stockOffers is the rng for finding a merchant with an all-tier-1 stock

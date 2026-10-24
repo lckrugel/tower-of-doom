@@ -78,6 +78,47 @@ func (e *Engine) rollEncounterType(w game.EncounterTypeWeights) EncounterType {
 	)
 }
 
+// decideEncounterKind resolves one encounter-kind decision (the EXPLORE
+// path) on top of the raw weighted roll (rollEncounterType), applying two
+// engine-level pacing rules:
+//
+//   - The FIRST explore of a run is forced combat: the kind roll is
+//     skipped entirely — zero rng consumed, so a sanctuary, chest or
+//     merchant can never open a run. The flag is per run: ascension does
+//     not reset it.
+//   - A non-combat kind that would be the THIRD identical non-combat kind
+//     in a row is overridden to combat. The override is not a reroll: the
+//     original roll's single Intn stays the only rng consumed. Two
+//     identical non-combat kinds in a row remain possible.
+//
+// Every resolved kind — combat included, the forced first one too — is
+// recorded into the two-slot history that feeds the streak rule, so an
+// override is recorded as what actually happened. Only kind decisions
+// feed the history: monster picks, gold rolls and merchant stock never
+// touch it.
+func (e *Engine) decideEncounterKind(w game.EncounterTypeWeights) EncounterType {
+	if !e.firstExploreDone {
+		e.firstExploreDone = true
+		e.recordEncounterKind(EncounterCombat)
+		return EncounterCombat
+	}
+	kind := e.rollEncounterType(w)
+	if kind != EncounterCombat &&
+		e.recentKinds[0] == kind && e.recentKinds[1] == kind {
+		kind = EncounterCombat
+	}
+	e.recordEncounterKind(kind)
+	return kind
+}
+
+// recordEncounterKind slides a resolved kind into the last-two-kinds
+// history (recentKinds[1] is the most recent). Combat entries reset any
+// non-combat streak naturally.
+func (e *Engine) recordEncounterKind(kind EncounterType) {
+	e.recentKinds[0] = e.recentKinds[1]
+	e.recentKinds[1] = kind
+}
+
 // resolveEncounter handles the EncounterTypes that resolve on the spot:
 // a sanctuary (heal) resolves instantly, while a chest rolls its item and
 // holds it as PendingLoot for the StateLoot decision (equip/stash/discard).

@@ -75,7 +75,7 @@ func TestKillGrantsGold(t *testing.T) {
 // decision entirely.
 func TestChestGold(t *testing.T) {
 	t.Run("gold chest pays 5 × floor difficulty and skips StateLoot", func(t *testing.T) {
-		e := newKindEngine(20, 0) // chest, then rng 0 < 40 → gold
+		e := pastFirstExplore(newKindEngine(20, 0)) // chest, then rng 0 < 40 → gold
 
 		events := e.Process(Command{Type: CmdExplore})
 
@@ -104,8 +104,8 @@ func TestChestGold(t *testing.T) {
 	})
 
 	t.Run("the amount scales with the floor difficulty", func(t *testing.T) {
-		e := newKindEngine(20, 39) // still gold (39 < 40), on floor 2
-		e.CurrentFloor = 2         // difficulty 9 + 3 = 12
+		e := pastFirstExplore(newKindEngine(20, 39)) // still gold (39 < 40), on floor 2
+		e.CurrentFloor = 2                           // difficulty 9 + 3 = 12
 
 		events := e.Process(Command{Type: CmdExplore})
 

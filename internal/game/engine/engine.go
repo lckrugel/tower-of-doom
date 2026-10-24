@@ -45,6 +45,18 @@ type Engine struct {
 	// (geração de encontros hoje; combates no futuro).
 	// Testes injetam um rng determinístico.
 	rng rng
+	// firstExploreDone tracks whether the run's first EXPLORE already
+	// happened. The first encounter-kind decision of a run is forced
+	// combat without consuming rng (pacing rule — see
+	// decideEncounterKind), so a sanctuary/chest/merchant can never open
+	// a run. Per run: ascension does not reset it.
+	firstExploreDone bool
+	// recentKinds holds the encounter kinds resolved by the last two kind
+	// decisions (recentKinds[1] is the most recent), feeding the "no
+	// three identical non-combat kinds in a row" pacing rule. The zero
+	// value is combat, so a fresh engine's empty history can never
+	// satisfy the non-combat streak and false-trigger the override.
+	recentKinds [2]EncounterType
 }
 
 // `rng` é a fonte de aleatoriedade usada pelo engine.
@@ -278,9 +290,10 @@ func (e *Engine) handleGameOver(cmd Command) []Event {
 	}
 }
 
-// generateEncounter decides what actually spawns on a floor: first it rolls
-// the encounter kind from the section's `encounter_types` weights
-// (an absent/zeroed table means combat-only — see rollEncounterType), then,
+// generateEncounter decides what actually spawns on a floor: first it
+// resolves the encounter kind through the pacing rules (decideEncounterKind)
+// over the section's `encounter_types` weights (an absent/zeroed table means
+// combat-only — see rollEncounterType), then,
 // for combat, computes the section difficulty budget and weighted-randomly
 // picks monsters from the spawn table until the budget runs out. Registry
 // only supplies the data (sections, spawn weights, monster stats) — every
@@ -291,7 +304,7 @@ func (e *Engine) generateEncounter(floor int) (Encounter, error) {
 		return Encounter{}, err
 	}
 
-	kind := e.rollEncounterType(section.EncounterTypes)
+	kind := e.decideEncounterKind(section.EncounterTypes)
 	if kind != EncounterCombat {
 		return Encounter{Type: kind}, nil
 	}

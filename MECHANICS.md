@@ -7,9 +7,16 @@
 - Player can EXPLORE, ASCEND or INVENTORY
     - ASCEND starts blocked
 - EXPLORE generates an encounter
+    - The FIRST EXPLORE of a run is always COMBAT: the kind roll is
+      skipped entirely (no rng consumed), so a run can never open with
+      a sanctuary, chest or merchant
     - The encounter TYPE is rolled from the section's `encounter_types`
       weights (combat/sanctuary/chest/merchant; a section without the
       table is combat-only) — see "Types of encounters"
+    - A third identical NON-combat kind in a row never happens: when the
+      roll lands on the same non-combat kind as the previous two, it is
+      overridden to combat (an override, NOT a reroll — the roll's rng
+      consumption is unchanged) — see "Types of encounters"
     - COMBAT encounters keep the two-step flow (StateEncounter)
     - SANCTUARY encounters resolve instantly, on the spot (heal)
     - CHEST encounters roll gold-vs-item first (one extra rng roll):
@@ -210,6 +217,26 @@ sequence identical), then fills the section difficulty budget with
 monsters only when the kind is combat. A section without the table (or
 with every weight at 0) is combat-only and consumes no rng for the kind
 roll, so old sections/mods keep their exact spawn behavior.
+
+Two engine-level PACING rules shape the kind decision (they hold
+regardless of frontend, and both are rng-neutral or rng-saving — never
+an extra roll):
+
+- **The run's first EXPLORE is always COMBAT.** The very first kind
+  decision of a run skips the kind roll entirely (zero rng consumed), so
+  a sanctuary, chest or merchant can never open a run. The flag is per
+  run — ascending does not reset it — and every later explore rolls the
+  kind table exactly as before the rule existed. The forced combat is
+  the first entry of the history below.
+- **No three identical non-combat kinds in a row.** The engine records
+  the kinds of the last two resolved kind decisions; when a roll lands
+  on a non-combat kind equal to BOTH of them, the result is overridden
+  to combat. The override is not a reroll: the original roll's single
+  `Intn` stays the only rng consumed, and a pair (two identical
+  non-combat kinds in a row) remains possible. Only the rolled/resolved
+  kinds feed this history — monster picks, chest gold rolls and merchant
+  stock are never affected — and an override is recorded as what
+  actually happened (combat), so it naturally breaks the streak.
 
 - **COMBAT** — enemies spawn per the section spawn table:
     - The Hero can FIGHT (StateCombat) or SNEAK past it (50/50)
