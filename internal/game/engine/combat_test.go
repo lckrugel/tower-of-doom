@@ -520,7 +520,10 @@ func TestAscendWithoutArmorRegistryGrantsNothing(t *testing.T) {
 }
 
 func TestQuitAllowedInEveryState(t *testing.T) {
-	for _, state := range []GameState{StateExploring, StateEncounter, StateCombat, StateGameOver} {
+	for _, state := range []GameState{
+		StateExploring, StateEncounter, StateCombat, StateGameOver,
+		StateLoot, StateInventory,
+	} {
 		e := newTestEngine()
 		e.State = state
 

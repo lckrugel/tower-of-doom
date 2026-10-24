@@ -80,6 +80,10 @@ func (e *Engine) Process(cmd Command) []Event {
 		return e.handleEncounter(cmd)
 	case StateCombat:
 		return e.handleCombat(cmd)
+	case StateLoot:
+		return e.handleLoot(cmd)
+	case StateInventory:
+		return e.handleInventory(cmd)
 	case StateGameOver:
 		return e.handleGameOver(cmd)
 	default:
@@ -110,6 +114,12 @@ func (e *Engine) handleExploring(cmd Command) []Event {
 		e.CurrentEncounter = encounter
 		e.State = StateEncounter
 		return []Event{NewEncounterFound(encounter.Monsters)}
+	case CmdInventory:
+		// Opening the bag is a pure inspection pause: the bag stays open
+		// until CmdClose (or CmdQuit). No combat state is disturbed —
+		// this command only exists in StateExploring.
+		e.State = StateInventory
+		return []Event{NewMessage("You open your bag.")}
 	case CmdAscend:
 		if !e.CanAscend {
 			return []Event{NewMessage("Cannot ascend yet")}
@@ -169,6 +179,39 @@ func (e *Engine) handleCombat(cmd Command) []Event {
 		return e.resolveRound(true)
 	case CmdFlee:
 		return e.resolveFlee()
+	default:
+		return []Event{NewMessage("Unhandled command")}
+	}
+}
+
+// handleLoot resolves what happens to the pending chest loot (StateLoot).
+// The equip/stash/discard semantics land together with the chest flow
+// change; until then every command falls to the default branch.
+func (e *Engine) handleLoot(cmd Command) []Event {
+	switch cmd.Type {
+	default:
+		return []Event{NewMessage("Unhandled command")}
+	}
+}
+
+// handleInventory manages the hero bag (StateInventory, reachable only
+// from StateExploring — no mid-combat bag access). Equip and drop index
+// the bag; `isValidCommand` already guarantees a live bag slot, so the
+// handlers below index safely.
+func (e *Engine) handleInventory(cmd Command) []Event {
+	switch cmd.Type {
+	case CmdEquip:
+		item := e.Player.Bag()[cmd.ItemIndex]
+		displaced := e.Player.EquipFromBag(cmd.ItemIndex)
+		return []Event{NewItemEquipped(item, displaced)}
+	case CmdDrop:
+		// Destroyed on the spot: there is no floor layer to drop things
+		// on, so the item is gone for good.
+		item := e.Player.DropFromBag(cmd.ItemIndex)
+		return []Event{NewItemDiscarded(item)}
+	case CmdClose:
+		e.State = StateExploring
+		return []Event{NewMessage("You close your bag.")}
 	default:
 		return []Event{NewMessage("Unhandled command")}
 	}
@@ -327,5 +370,16 @@ func (e *Engine) SectionName(floor int) string {
 
 func (e *Engine) isValidCommand(cmd Command) bool {
 	allowed := AllowedCommands(e.State)
-	return slices.Contains(allowed, cmd.Type)
+	if !slices.Contains(allowed, cmd.Type) {
+		return false
+	}
+	// Bag commands carry a bag index: it must point at a real bag slot,
+	// otherwise it is a generic invalid command with no state change
+	// (never a panic — the index is player-reachable).
+	if cmd.Type == CmdEquip || cmd.Type == CmdDrop {
+		if cmd.ItemIndex < 0 || cmd.ItemIndex >= len(e.Player.Bag()) {
+			return false
+		}
+	}
+	return true
 }

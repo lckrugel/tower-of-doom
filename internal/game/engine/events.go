@@ -36,6 +36,12 @@ const (
 	EventQuit
 	// Generic game message.
 	EventMessage
+	// The Hero moved an item into its equipment slot (from the bag or
+	// from a chest's pending loot).
+	EventItemEquipped
+	// The Hero destroyed an item on purpose (bag drop or loot discard).
+	// Destroyed items are gone for good: there is no floor layer.
+	EventItemDiscarded
 )
 
 // `Event` é o que o jogo envia após processar um `Command`.
@@ -223,9 +229,49 @@ func NewQuit() Event {
 
 // NewItemFound reports an item the Hero found and auto-equipped
 // (there is no inventory yet — whatever it replaced is gone).
+//
+// Note: since the hero bag exists, chests do NOT auto-equip anymore (they
+// open the StateLoot decision); this event remains for rewards the engine
+// still auto-equips, like the ascend armor piece.
 func NewItemFound(item *entities.Item) Event {
 	return Event{
 		Type: EventItemFound,
+		Data: map[string]any{
+			"item": item,
+		},
+	}
+}
+
+// NewItemEquipped reports an item the Hero moved into its equipment slot —
+// from the bag (StateInventory) or the pending chest loot (StateLoot).
+//
+// Payload:
+//   - "item": the item now equipped.
+//   - "swapped_from": the displaced item, which took the bag item's old
+//     bag position (bag swaps only). The key is ABSENT when nothing was
+//     displaced — consumers must treat it as optional.
+func NewItemEquipped(item, swappedFrom *entities.Item) Event {
+	data := map[string]any{
+		"item": item,
+	}
+	if swappedFrom != nil {
+		data["swapped_from"] = swappedFrom
+	}
+	return Event{
+		Type: EventItemEquipped,
+		Data: data,
+	}
+}
+
+// NewItemDiscarded reports an item the Hero destroyed on purpose (a bag
+// drop or a loot discard). Destroyed items are gone for good: there is no
+// floor layer to pick things back up from.
+//
+// Payload:
+//   - "item": the destroyed item.
+func NewItemDiscarded(item *entities.Item) Event {
+	return Event{
+		Type: EventItemDiscarded,
 		Data: map[string]any{
 			"item": item,
 		},
