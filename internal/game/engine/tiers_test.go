@@ -71,7 +71,8 @@ func TestUnrestrictedSectionRollsEveryTier(t *testing.T) {
 	}
 }
 
-// The ascend armor reward respects the section's item_tiers too.
+// The ascend armor reward respects the section's item_tiers too — and,
+// like a chest, it opens the StateLoot decision instead of auto-equipping.
 func TestAscendArmorRespectsTiers(t *testing.T) {
 	for _, pick := range []int{0, 1} { // the tier-1 armor pool holds exactly 2 pieces
 		e := tieredEngine([]int{1}, pick)
@@ -79,12 +80,25 @@ func TestAscendArmorRespectsTiers(t *testing.T) {
 
 		events := e.Process(Command{Type: CmdAscend})
 
-		if got := eventTypes(events); !typesEqual(got, EventFloorEntered, EventItemFound) {
-			t.Fatalf("pick %d: events = %v, want [floor-entered item-found]", pick, got)
+		if got := eventTypes(events); !typesEqual(got, EventFloorEntered, EventLootFound) {
+			t.Fatalf("pick %d: events = %v, want [floor-entered loot-found]", pick, got)
 		}
 		item := events[1].Data["item"].(*entities.Item)
 		if item == nil || item.Tier != 1 {
 			t.Errorf("pick %d: armor reward = %v (tier %d), want a tier-1 armor piece", pick, item, item.Tier)
+		}
+		if e.State != StateLoot || e.PendingLoot != item {
+			t.Errorf("pick %d: state = %v, pending = %v, want StateLoot holding the reward", pick, e.State, e.PendingLoot)
+		}
+		switch entities.ItemSlot(item.Slot) {
+		case entities.ItemSlot("helmet"):
+			if e.Player.Head != nil {
+				t.Error("armor reward auto-equipped in the helmet slot — must wait for the player decision")
+			}
+		case entities.ItemSlot("body_armor"):
+			if e.Player.Body != nil {
+				t.Error("armor reward auto-equipped in the body slot — must wait for the player decision")
+			}
 		}
 	}
 }
@@ -97,9 +111,15 @@ func TestAscendArmorUnrestrictedReachesEveryTier(t *testing.T) {
 
 	events := e.Process(Command{Type: CmdAscend})
 
+	if got := eventTypes(events); !typesEqual(got, EventFloorEntered, EventLootFound) {
+		t.Fatalf("events = %v, want [floor-entered loot-found]", got)
+	}
 	item := events[1].Data["item"].(*entities.Item)
 	if item == nil || item.ID != "adamant_crown" {
 		t.Errorf("armor reward = %v, want adamant_crown (unrestricted pools reach tier 2)", item)
+	}
+	if e.PendingLoot != item || e.State != StateLoot {
+		t.Errorf("state = %v, pending = %v, want StateLoot holding the reward", e.State, e.PendingLoot)
 	}
 }
 
@@ -115,5 +135,25 @@ func TestChestWithEmptyAllowedTierPoolIsEmpty(t *testing.T) {
 	}
 	if e.State != StateExploring || e.PendingLoot != nil {
 		t.Errorf("state = %v, pending = %v, want Exploring/nil", e.State, e.PendingLoot)
+	}
+}
+
+// An empty armor pool on ascend behaves like an empty chest too: the floor
+// is entered, a message is emitted and the run stays exploring with
+// nothing pending — never StateLoot holding a nil item.
+func TestAscendWithEmptyArmorPoolStaysExploring(t *testing.T) {
+	e := tieredEngine([]int{7}, 0) // no tier-7 item exists; registry skips validation
+	e.CanAscend = true
+
+	events := e.Process(Command{Type: CmdAscend})
+
+	if got := eventTypes(events); !typesEqual(got, EventFloorEntered, EventMessage) {
+		t.Fatalf("events = %v, want [floor-entered message]", got)
+	}
+	if e.State != StateExploring || e.PendingLoot != nil {
+		t.Errorf("state = %v, pending = %v, want Exploring/nil", e.State, e.PendingLoot)
+	}
+	if e.CanAscend {
+		t.Error("ascend did not consume the CanAscend flag")
 	}
 }

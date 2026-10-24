@@ -22,7 +22,7 @@
     - CHEST encounters roll gold-vs-item first (one extra rng roll):
       a GOLD chest pays out and exploring continues directly, an ITEM
       chest rolls an item and opens StateLoot: decide
-      EQUIP LOOT / STASH / DISCARD — see "Items"
+      WEAR / STASH / DISCARD — see "Items"
     - MERCHANT encounters open StateMerchant: BUY / SELL / LEAVE —
       see "Gold & prices" and "Types of encounters"
 - PLayer can FIGHT or SNEAK
@@ -48,14 +48,13 @@
     - every defeat also pays `5 × enemy difficulty` gold (no rng)
 - When all enemies die, the encounter ends with a victory for the player
     - Unlocks climbing: ASCEND to the next floor
-    - Ascending also grants a random armor piece (helmet/body/boots) from
-      the registry, restricted to the section's `item_tiers`, auto-equipped
-      on the spot; whatever it displaced goes to the hero bag when there
-      is room, else it is destroyed (gold and item tiers: see "Gold &
-      prices" / "Item tiers")
+    - Ascending also rolls a random armor piece (helmet/body/boots) from
+      the registry, restricted to the section's `item_tiers`, and opens
+      the SAME loot decision as a chest: WEAR / STASH / DISCARD — see
+      "Items" (gold and item tiers: see "Gold & prices" / "Item tiers")
 - After combat games goes to StateExploring again
     - If combat was won, ASCEND is now permitted
-- From StateExploring the bag can be opened (StateInventory): EQUIP /
+- From StateExploring the bag can be opened (StateInventory): WEAR /
   DROP / CLOSE — see "Items"; no bag access mid-combat
 - If the Hero's HP reachs zero, it dies
     - StateGameOver
@@ -118,6 +117,21 @@ current HP as a fraction of the previous max (`rescaleHP`).
 - **Hero bag** — bounded by `InventoryCapacity` = 10. `Hero.StashItem`
   appends at the end (insertion order preserved) and refuses when the bag
   is full: "bag full" is a player-facing condition, never an overflow.
+- **WEAR — one command, two states** — moves an item into its equipment
+  slot; the emission is identical in both states
+  (`event-item-equipped{item, swapped_from?}`, `swapped_from` ABSENT when
+  nothing was displaced):
+    - StateLoot (pending loot) — wears `Engine.PendingLoot` (`ItemIndex`
+      ignored); the displaced item goes to the bag when there is room,
+      else it is destroyed (`event-item-lost`). Either way back to
+      StateExploring with nothing pending. Chests never unlock ASCEND.
+    - StateInventory (bag screen) — wears the bag item at `ItemIndex`;
+      the displaced item takes the worn item's old bag position (the bag
+      length is unchanged — an empty slot shrinks the bag by one). The
+      bag stays open.
+    - Out-of-range/negative indexes are a generic invalid command with
+      no state change, never a panic (player-reachable); in StateLoot the
+      index is ignored instead.
 - **Chest flow** — after the encounter-kind roll, ONE extra rng roll
   (`Intn(100) < 40`) decides gold-vs-item:
     - GOLD chest — pays `5 × floor difficulty` on the spot
@@ -127,27 +141,22 @@ current HP as a fraction of the previous max (`rescaleHP`).
       pool; rng roll unchanged apart from the gold check ahead of it) and
       holds it as `Engine.PendingLoot`, entering StateLoot. The player
       decides:
-    - `EQUIP LOOT` — equips it; the displaced item goes to the bag when
-      there is room, else it is destroyed (`event-item-lost`). Either
-      way back to StateExploring with nothing pending. Chests still never
-      unlock ASCEND.
-    - `STASH` — stores it in the bag. While the bag is full the attempt
-      is rejected (`event-bag-full`, NO state change: the decision stays
-      open and the item stays pending).
-    - `DISCARD` — destroys it on the spot.
+      - `WEAR` — see above (pending-loot case).
+      - `STASH` — stores it in the bag. While the bag is full the attempt
+        is rejected (`event-bag-full`, NO state change: the decision
+        stays open and the item stays pending).
+      - `DISCARD` — destroys it on the spot.
 - **Inventory (bag screen)** — reachable ONLY from StateExploring (no
   mid-combat bag access):
-    - `EQUIP <index>` — swaps the bag item into its slot; the displaced
-      item takes the swapped item's old bag position (the bag length is
-      unchanged — an empty slot shrinks the bag by one).
+    - `WEAR <index>` — see above (bag-screen case).
     - `DROP <index>` — destroys the item on the spot. There is no floor
       layer: destroyed/dropped items are gone for good.
     - `CLOSE` — back to StateExploring; the bag keeps its contents.
-    - Out-of-range/negative indexes are a generic invalid command with
-      no state change, never a panic (player-reachable).
-- **Ascend exception** — ascending still auto-equips the rolled armor
-  reward (fast pacing by design); its displaced gear goes to the bag when
-  there is room, else it is destroyed (`event-item-lost`).
+- **Ascend flow** — there is NO auto-equip anymore: ascending rolls the
+  armor reward from the NEW floor's section and opens the very same
+  StateLoot decision (WEAR / STASH / DISCARD — the pending-loot case
+  above). An empty armor pool degrades like an empty chest: a message
+  event and exploring continues (no loot decision).
 
 New events (additive; no existing key changed meaning):
 `event-loot-found{item}`, `event-item-equipped{item, swapped_from?}`
@@ -207,14 +216,17 @@ older mods keep working.
     - `LEAVE` — the remaining stock is discarded, back to exploring.
     - `QUIT` works as everywhere else. Merchants do NOT unlock ASCEND —
       only combat victories do.
-- **Stock generation** — 4 offers rolled from the section's allowed item
-  tiers (sorted pool; duplicates possible when the pool is smaller),
-  then ONE `Intn(100) < 35` check: on fire, ONE `Intn(4)` picks which
-  offer is replaced by a tier+1 item, capped at the registry's max tier
-  (an empty replacement pool keeps the original offer). The exact rng
-  order is a determinism contract, documented in `merchant.go`:
-  4 offer rolls → `Intn(100)` → on upgrade `Intn(4)` → replacement-pool
-  roll.
+- **Stock generation** — up to 4 DISTINCT offers rolled from the
+  section's allowed item tiers: each pick removes the item's id from the
+  pool before the next roll (one `Intn` per offer over the shrinking
+  pool — fewer offers only when the pool runs dry; never duplicates),
+  then ONE `Intn(100) < 35` check: on fire, ONE `Intn` over the stock
+  length picks which offer is replaced by a tier+1 item, capped at the
+  registry's max tier and EXCLUDING the ids already in stock (an empty
+  filtered pool keeps the original offer). The exact rng order is a
+  determinism contract, documented in `merchant.go`: one offer roll per
+  offer → `Intn(100)` → on upgrade `Intn(stock length)` →
+  replacement-pool roll.
 
 ## Types of encounters
 
@@ -264,9 +276,10 @@ an extra roll):
       holds it as `Engine.PendingLoot`, entering StateLoot — see "Items"
     - Does NOT unlock ASCEND
 - **MERCHANT** — a wandering shop; opens StateMerchant on EXPLORE:
-    - Stocks 4 offers from the section's allowed item tiers; one offer
-      may be upgraded to a tier+1 item (35%, capped at the registry's
-      max tier) — see "Gold & prices"
+    - Stocks up to 4 DISTINCT offers from the section's allowed item
+      tiers (the pool shrinks per pick); one offer may be upgraded to a
+      tier+1 item (35%, capped at the registry's max tier, never
+      duplicating the stock) — see "Gold & prices"
     - BUY / SELL / LEAVE (and QUIT); buying and selling never unlock
       ASCEND
     - Does NOT unlock ASCEND

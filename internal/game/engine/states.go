@@ -53,9 +53,9 @@ func AllowedCommands(s GameState) []CommandType {
 	case StateCombat:
 		return []CommandType{CmdAttack, CmdFlee, CmdQuit}
 	case StateLoot:
-		return []CommandType{CmdEquipLoot, CmdStashLoot, CmdDiscardLoot, CmdQuit}
+		return []CommandType{CmdWear, CmdStashLoot, CmdDiscardLoot, CmdQuit}
 	case StateInventory:
-		return []CommandType{CmdEquip, CmdDrop, CmdClose, CmdQuit}
+		return []CommandType{CmdWear, CmdDrop, CmdClose, CmdQuit}
 	case StateMerchant:
 		return []CommandType{CmdBuy, CmdSell, CmdLeave, CmdQuit}
 	case StateGameOver:

@@ -19,8 +19,8 @@ func TestAllowedCommandsMatrix(t *testing.T) {
 		{"exploring", StateExploring, []CommandType{CmdExplore, CmdAscend, CmdInventory, CmdQuit}},
 		{"encounter", StateEncounter, []CommandType{CmdFight, CmdSneak, CmdQuit}},
 		{"combat", StateCombat, []CommandType{CmdAttack, CmdFlee, CmdQuit}},
-		{"loot decision", StateLoot, []CommandType{CmdEquipLoot, CmdStashLoot, CmdDiscardLoot, CmdQuit}},
-		{"inventory", StateInventory, []CommandType{CmdEquip, CmdDrop, CmdClose, CmdQuit}},
+		{"loot decision", StateLoot, []CommandType{CmdWear, CmdStashLoot, CmdDiscardLoot, CmdQuit}},
+		{"inventory", StateInventory, []CommandType{CmdWear, CmdDrop, CmdClose, CmdQuit}},
 		{"merchant", StateMerchant, []CommandType{CmdBuy, CmdSell, CmdLeave, CmdQuit}},
 		{"game over", StateGameOver, []CommandType{CmdQuit}},
 	}
@@ -75,9 +75,9 @@ func TestInventoryOpensFromExploring(t *testing.T) {
 	}
 }
 
-// CmdEquip swaps a bag item into its slot; the displaced item takes the bag
-// item's old position. Equipping does NOT close the bag.
-func TestInventoryEquip(t *testing.T) {
+// CmdWear swaps a bag item into its slot; the displaced item takes the bag
+// item's old position. Wearing does NOT close the bag.
+func TestInventoryWear(t *testing.T) {
 	t.Run("swap sends the displaced item to the bag position", func(t *testing.T) {
 		e := newTestEngine()
 		oldSword := testBagItem("rusty_sword", "weapon")
@@ -86,7 +86,7 @@ func TestInventoryEquip(t *testing.T) {
 		e.Player.StashItem(newSword)
 		e.State = StateInventory
 
-		events := e.Process(Command{Type: CmdEquip, ItemIndex: 0})
+		events := e.Process(Command{Type: CmdWear, ItemIndex: 0})
 
 		if got := eventTypes(events); !typesEqual(got, EventItemEquipped) {
 			t.Fatalf("events = %v, want [item-equipped]", got)
@@ -109,13 +109,13 @@ func TestInventoryEquip(t *testing.T) {
 		}
 	})
 
-	t.Run("equipping over an empty slot just shrinks the bag", func(t *testing.T) {
+	t.Run("wearing over an empty slot just shrinks the bag", func(t *testing.T) {
 		e := newTestEngine()
 		helm := testBagItem("helm", "helmet")
 		e.Player.StashItem(helm)
 		e.State = StateInventory
 
-		events := e.Process(Command{Type: CmdEquip, ItemIndex: 0})
+		events := e.Process(Command{Type: CmdWear, ItemIndex: 0})
 
 		if got := eventTypes(events); !typesEqual(got, EventItemEquipped) {
 			t.Fatalf("events = %v, want [item-equipped]", got)
@@ -184,7 +184,7 @@ func TestInventoryInvalidIndex(t *testing.T) {
 		{"index past the end", 2, 2},
 		{"index into an empty bag", 0, 0},
 	}
-	for _, cmdType := range []CommandType{CmdEquip, CmdDrop} {
+	for _, cmdType := range []CommandType{CmdWear, CmdDrop} {
 		for _, tt := range tests {
 			t.Run(fmt.Sprintf("%v %s", cmdType, tt.name), func(t *testing.T) {
 				e := newTestEngine()
@@ -213,11 +213,13 @@ func TestInventoryInvalidIndex(t *testing.T) {
 }
 
 // Bag commands are only valid in StateInventory; anywhere else they are the
-// generic invalid-command event, whatever the index.
+// generic invalid-command event, whatever the index. CmdWear is also valid
+// in StateLoot, so it is covered by TestWearRejectedOutsideLootAndInventory
+// (below) instead of this matrix.
 func TestBagCommandsRejectedOutsideInventory(t *testing.T) {
 	states := []GameState{StateExploring, StateEncounter, StateCombat, StateLoot, StateGameOver}
 	for _, state := range states {
-		for _, cmdType := range []CommandType{CmdEquip, CmdDrop} {
+		for _, cmdType := range []CommandType{CmdDrop} {
 			t.Run(fmt.Sprintf("%v %v", state, cmdType), func(t *testing.T) {
 				e := newTestEngine()
 				e.Player.StashItem(testBagItem("filler", "amulet"))
@@ -236,12 +238,35 @@ func TestBagCommandsRejectedOutsideInventory(t *testing.T) {
 	}
 }
 
-// The loot decision state (StateLoot) is unreached until the chest flow
-// change, but its commands must already be rejected everywhere else.
+// CmdWear belongs to StateLoot and StateInventory only: anywhere else it is
+// the generic invalid-command event, whatever the index.
+func TestWearRejectedOutsideLootAndInventory(t *testing.T) {
+	states := []GameState{StateExploring, StateEncounter, StateCombat, StateMerchant, StateGameOver}
+	for _, state := range states {
+		t.Run(state.String(), func(t *testing.T) {
+			e := newTestEngine()
+			e.Player.StashItem(testBagItem("filler", "amulet"))
+			e.State = state
+
+			events := e.Process(Command{Type: CmdWear, ItemIndex: 0})
+
+			if got := eventTypes(events); len(got) != 1 || got[0] != EventMessage {
+				t.Errorf("events = %v, want a single [invalid command] message", got)
+			}
+			if e.State != state {
+				t.Errorf("state changed on a rejected command: %v", e.State)
+			}
+		})
+	}
+}
+
+// The stash/discard loot commands are only valid in StateLoot; anywhere
+// else — the open bag included — they are the generic invalid-command
+// event.
 func TestLootCommandsRejectedOutsideLootState(t *testing.T) {
 	states := []GameState{StateExploring, StateEncounter, StateCombat, StateInventory, StateGameOver}
 	for _, state := range states {
-		for _, cmdType := range []CommandType{CmdEquipLoot, CmdStashLoot, CmdDiscardLoot} {
+		for _, cmdType := range []CommandType{CmdStashLoot, CmdDiscardLoot} {
 			t.Run(fmt.Sprintf("%v %v", state, cmdType), func(t *testing.T) {
 				e := newTestEngine()
 				e.State = state

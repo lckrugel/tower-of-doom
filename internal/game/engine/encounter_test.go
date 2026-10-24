@@ -238,8 +238,10 @@ func TestAscendDoesNotResetFirstExploreFlag(t *testing.T) {
 
 	e.Process(Command{Type: CmdExplore}) // forced combat
 	e.Process(Command{Type: CmdSneak})   // away
-	if got := eventTypes(e.Process(Command{Type: CmdAscend})); !typesEqual(got, EventFloorEntered) {
-		t.Fatalf("ascend events = %v, want [floor-entered]", got)
+	// The test registry has no armor pieces: the ascend emits the
+	// floor event plus the empty-pool message, consuming no rng.
+	if got := eventTypes(e.Process(Command{Type: CmdAscend})); !typesEqual(got, EventFloorEntered, EventMessage) {
+		t.Fatalf("ascend events = %v, want [floor-entered message]", got)
 	}
 
 	events := e.Process(Command{Type: CmdExplore})
@@ -318,10 +320,11 @@ func TestThirdDifferentKindStillHappens(t *testing.T) {
 // overridden to combat — and the override skips the merchant entirely (no
 // stock is rolled).
 func TestMerchantStreakBecomesCombat(t *testing.T) {
-	// Merchant kind 30 twice (stock offers 0,1,0,1; upgrade check 99 →
-	// none — LEAVE consumes no rng), then a third merchant kind 30 →
-	// overridden; picks 104 → orc (5), 0 → goblin (3).
-	e := merchantEngine(30, 0, 1, 0, 1, 99, 30, 0, 1, 0, 1, 99, 30, 104, 0)
+	// Merchant kind 30 twice (the offer picks drain the shrinking pool —
+	// 0,1,0,0 are valid for Intn(4/3/2/1); upgrade check 99 → none; LEAVE
+	// consumes no rng), then a third merchant kind 30 → overridden; picks
+	// 104 → orc (5), 0 → goblin (3).
+	e := merchantEngine(30, 0, 1, 0, 0, 99, 30, 0, 1, 0, 0, 99, 30, 104, 0)
 	stub := e.rng.(*stubRng)
 
 	for range 2 {
@@ -358,9 +361,10 @@ func TestMerchantStreakBecomesCombat(t *testing.T) {
 // legitimately-rolled SANCTUARY still happens — only the third SAME kind
 // is blocked.
 func TestDifferentKindAfterMerchantPairHappens(t *testing.T) {
-	// Merchant kind 30 twice, then sanctuary kind 10 — a different
-	// non-combat kind, so no override.
-	e := merchantEngine(30, 0, 1, 0, 1, 99, 30, 0, 1, 0, 1, 99, 10)
+	// Merchant kind 30 twice (the offer picks drain the shrinking pool —
+	// 0,1,0,0 are valid for Intn(4/3/2/1); upgrade check 99 → none), then
+	// sanctuary kind 10 — a different non-combat kind, so no override.
+	e := merchantEngine(30, 0, 1, 0, 0, 99, 30, 0, 1, 0, 0, 99, 10)
 
 	for range 2 {
 		if got := eventTypes(e.Process(Command{Type: CmdExplore})); !typesEqual(got, EventMerchantFound) {
@@ -391,8 +395,10 @@ func TestKindHistorySurvivesAscension(t *testing.T) {
 
 	e.Process(Command{Type: CmdExplore}) // sanctuary #1
 	e.Process(Command{Type: CmdExplore}) // sanctuary #2
-	if got := eventTypes(e.Process(Command{Type: CmdAscend})); !typesEqual(got, EventFloorEntered) {
-		t.Fatalf("ascend events = %v, want [floor-entered]", got)
+	// The test registry has no armor pieces: the ascend emits the floor
+	// event plus the empty-pool message, consuming no rng.
+	if got := eventTypes(e.Process(Command{Type: CmdAscend})); !typesEqual(got, EventFloorEntered, EventMessage) {
+		t.Fatalf("ascend events = %v, want [floor-entered message]", got)
 	}
 
 	events := e.Process(Command{Type: CmdExplore}) // third sanctuary roll

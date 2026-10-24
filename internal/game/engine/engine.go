@@ -152,18 +152,19 @@ func (e *Engine) handleExploring(cmd Command) []Event {
 		e.CanAscend = false
 		sectionDef := e.currentSection()
 		events := []Event{NewFloorEntered(e.CurrentFloor, sectionDef.Name)}
+		// The ascend reward is a loot decision, not an auto-equip: the
+		// armor piece rolled from the NEW floor's section is held as
+		// PendingLoot and the player chooses in StateLoot (wear/stash/
+		// discard) — the very same flow as a chest.
 		if item := e.rollArmorReward(sectionDef.ItemTiers); item != nil {
-			// Ascend keeps auto-equipping (fast pacing by design), but the
-			// displaced gear is not lost anymore: it goes to the bag when
-			// there is room, else it is destroyed.
-			events = append(events, NewItemFound(item))
-			if displaced := e.Player.EquipItem(item); displaced != nil {
-				if e.Player.StashItem(displaced) {
-					events = append(events, NewItemStashed(displaced))
-				} else {
-					events = append(events, NewItemLost(displaced))
-				}
-			}
+			e.PendingLoot = item
+			e.State = StateLoot
+			events = append(events, NewLootFound(item))
+		} else {
+			// Empty armor pool (only possible for registries that skipped
+			// validation): behave like an empty chest — a message and no
+			// loot decision, never StateLoot holding a nil item.
+			events = append(events, NewMessage("No armor piece awaits on this floor."))
 		}
 		return events
 
@@ -211,12 +212,14 @@ func (e *Engine) handleCombat(cmd Command) []Event {
 	}
 }
 
-// handleLoot resolves the pending chest loot (StateLoot). Every branch
-// consumes the pending item (clears PendingLoot) and returns to exploring,
-// except a stash rejected by a full bag, which keeps the decision open.
+// handleLoot resolves the pending loot decision (StateLoot — chests and,
+// since the ascend rework, ascensions too). Every branch consumes the
+// pending item (clears PendingLoot) and returns to exploring, except a
+// stash rejected by a full bag, which keeps the decision open.
 func (e *Engine) handleLoot(cmd Command) []Event {
 	switch cmd.Type {
-	case CmdEquipLoot:
+	case CmdWear:
+		// The pending item is the only subject here: ItemIndex is ignored.
 		item := e.PendingLoot
 		displaced := e.Player.EquipItem(item)
 		events := []Event{NewItemEquipped(item, displaced)}
@@ -248,12 +251,12 @@ func (e *Engine) handleLoot(cmd Command) []Event {
 }
 
 // handleInventory manages the hero bag (StateInventory, reachable only
-// from StateExploring — no mid-combat bag access). Equip and drop index
+// from StateExploring — no mid-combat bag access). Wear and drop index
 // the bag; `isValidCommand` already guarantees a live bag slot, so the
 // handlers below index safely.
 func (e *Engine) handleInventory(cmd Command) []Event {
 	switch cmd.Type {
-	case CmdEquip:
+	case CmdWear:
 		item := e.Player.Bag()[cmd.ItemIndex]
 		displaced := e.Player.EquipFromBag(cmd.ItemIndex)
 		return []Event{NewItemEquipped(item, displaced)}
@@ -375,9 +378,8 @@ func (e *Engine) pickItem(accept func(entities.ItemSlot) bool, tiers []int) *ent
 
 // rollArmorReward rolls a random armor piece (helmet, body or boots) from
 // the registry as the reward for ascending, restricted to the section's
-// allowed item tiers (empty = unrestricted). The Hero auto-equips it (fast
-// pacing by design); whatever it displaced flows to the hero bag when
-// there is room, else it is destroyed.
+// allowed item tiers (empty = unrestricted). The piece is held as
+// PendingLoot: the player decides its fate in StateLoot, like any chest.
 func (e *Engine) rollArmorReward(tiers []int) *entities.Item {
 	return e.pickItem(entities.IsArmor, tiers)
 }
@@ -444,7 +446,14 @@ func (e *Engine) isValidCommand(cmd Command) bool {
 	// a generic invalid command with no state change (never a panic —
 	// the index is player-reachable): bag commands and selling at a bag
 	// item, buying at a stock offer.
-	if cmd.Type == CmdEquip || cmd.Type == CmdDrop || cmd.Type == CmdSell {
+	if cmd.Type == CmdDrop || cmd.Type == CmdSell {
+		if cmd.ItemIndex < 0 || cmd.ItemIndex >= len(e.Player.Bag()) {
+			return false
+		}
+	}
+	// CmdWear indexes the bag only from StateInventory: the StateLoot
+	// wear takes the pending item and ignores the index.
+	if cmd.Type == CmdWear && e.State == StateInventory {
 		if cmd.ItemIndex < 0 || cmd.ItemIndex >= len(e.Player.Bag()) {
 			return false
 		}
