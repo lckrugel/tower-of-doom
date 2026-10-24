@@ -1,6 +1,7 @@
 package entities
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/lckrugel/tower-of-doom/internal/game"
@@ -388,6 +389,207 @@ func TestHeroUnequipRescalesHP(t *testing.T) {
 
 		if h.CurrentHP != 60 || h.MaxHP() != 100 {
 			t.Errorf("CurrentHP = %d, MaxHP = %d, want 60/100", h.CurrentHP, h.MaxHP())
+		}
+	})
+}
+
+// A bag has a fixed capacity (InventoryCapacity); StashItem appends in
+// insertion order and refuses to overflow.
+func TestHeroBagStash(t *testing.T) {
+	t.Run("stash preserves insertion order", func(t *testing.T) {
+		h := NewPlayer()
+		a := newTestItem(game.ItemAsset{ID: "helm_a", Name: "Helm A", Slot: helmet})
+		b := newTestItem(game.ItemAsset{ID: "ring_b", Name: "Ring B", Slot: ring})
+		c := newTestItem(game.ItemAsset{ID: "sword_c", Name: "Sword C", Slot: weapon})
+
+		if !h.StashItem(a) || !h.StashItem(b) || !h.StashItem(c) {
+			t.Fatal("StashItem refused items on an empty bag")
+		}
+
+		bag := h.Bag()
+		if len(bag) != 3 || bag[0] != a || bag[1] != b || bag[2] != c {
+			t.Errorf("bag = %v, want [a b c] in insertion order", bag)
+		}
+	})
+
+	t.Run("bag is bounded by InventoryCapacity", func(t *testing.T) {
+		h := NewPlayer()
+		for i := 0; i < InventoryCapacity; i++ {
+			item := newTestItem(game.ItemAsset{
+				ID: fmt.Sprintf("item_%d", i), Name: "Filler", Slot: helmet,
+			})
+			if !h.StashItem(item) {
+				t.Fatalf("StashItem item %d refused with room to spare", i)
+			}
+		}
+
+		overflow := newTestItem(game.ItemAsset{ID: "overflow", Name: "Overflow", Slot: helmet})
+		if h.StashItem(overflow) {
+			t.Error("StashItem accepted an item beyond capacity")
+		}
+		if got := len(h.Bag()); got != InventoryCapacity {
+			t.Errorf("bag length = %d, want %d", got, InventoryCapacity)
+		}
+	})
+
+	t.Run("stashing nil is a no-op refusal", func(t *testing.T) {
+		h := NewPlayer()
+
+		if h.StashItem(nil) {
+			t.Error("StashItem(nil) reported success")
+		}
+		if got := len(h.Bag()); got != 0 {
+			t.Errorf("bag length = %d, want 0", got)
+		}
+	})
+}
+
+// BagRoom / HasBagRoom mirror the bag's distance from capacity.
+func TestHeroBagRoom(t *testing.T) {
+	h := NewPlayer()
+
+	if got := h.BagRoom(); got != InventoryCapacity {
+		t.Errorf("BagRoom on empty bag = %d, want %d", got, InventoryCapacity)
+	}
+	if !h.HasBagRoom() {
+		t.Error("HasBagRoom = false on an empty bag")
+	}
+
+	for i := 0; i < InventoryCapacity-1; i++ {
+		item := newTestItem(game.ItemAsset{
+			ID: fmt.Sprintf("item_%d", i), Name: "Filler", Slot: helmet,
+		})
+		h.StashItem(item)
+	}
+	if got := h.BagRoom(); got != 1 {
+		t.Errorf("BagRoom with one slot left = %d, want 1", got)
+	}
+
+	last := newTestItem(game.ItemAsset{ID: "last", Name: "Last", Slot: helmet})
+	h.StashItem(last)
+	if got := h.BagRoom(); got != 0 {
+		t.Errorf("BagRoom on a full bag = %d, want 0", got)
+	}
+	if h.HasBagRoom() {
+		t.Error("HasBagRoom = true on a full bag")
+	}
+}
+
+// EquipFromBag swaps a bag item into its equipment slot; the displaced item
+// takes the bag item's old position, so the bag count never grows.
+func TestHeroEquipFromBag(t *testing.T) {
+	t.Run("swap keeps the displaced item in the old bag position", func(t *testing.T) {
+		h := NewPlayer()
+		oldRing := newTestItem(game.ItemAsset{ID: "ring", Name: "Ring", Slot: ring, BonusDEF: 1})
+		h.EquipItem(oldRing)
+		bagA := newTestItem(game.ItemAsset{ID: "bag_a", Name: "Bag A", Slot: body})
+		bagB := newTestItem(game.ItemAsset{ID: "bag_b", Name: "Bag B", Slot: ring, BonusDEF: 5})
+		h.StashItem(bagA)
+		h.StashItem(bagB)
+
+		displaced := h.EquipFromBag(1)
+
+		if displaced != oldRing {
+			t.Errorf("displaced = %v, want the equipped ring", displaced)
+		}
+		if h.Ring != bagB {
+			t.Error("bag item not equipped in its slot")
+		}
+		bag := h.Bag()
+		if len(bag) != 2 || bag[0] != bagA || bag[1] != oldRing {
+			t.Errorf("bag = %v, want [bag_a ring] (displaced took the old position)", bag)
+		}
+	})
+
+	t.Run("equipping over an empty slot shrinks the bag", func(t *testing.T) {
+		h := NewPlayer()
+		helm := newTestItem(game.ItemAsset{ID: "helm", Name: "Helm", Slot: helmet})
+		h.StashItem(helm)
+
+		displaced := h.EquipFromBag(0)
+
+		if displaced != nil {
+			t.Errorf("displaced = %v, want nil (empty slot)", displaced)
+		}
+		if h.Head != helm {
+			t.Error("bag item not equipped in its slot")
+		}
+		if got := len(h.Bag()); got != 0 {
+			t.Errorf("bag length = %d, want 0 (item left the bag)", got)
+		}
+	})
+
+	t.Run("hp swap through the bag rescales current HP", func(t *testing.T) {
+		h := NewPlayer()
+		small := newTestItem(game.ItemAsset{ID: "collar_a", Name: "Collar A", Slot: amulet, BonusHP: 50})
+		h.EquipItem(small)
+		h.TakeDmg(75) // 75/150 = 50%
+		big := newTestItem(game.ItemAsset{ID: "collar_b", Name: "Collar B", Slot: amulet, BonusHP: 100})
+		h.StashItem(big)
+
+		displaced := h.EquipFromBag(0)
+
+		if displaced != small {
+			t.Errorf("displaced = %v, want the small collar", displaced)
+		}
+		if h.CurrentHP != 100 || h.MaxHP() != 200 {
+			t.Errorf("HP = %d/%d, want 100/200 (50%% of the new max)", h.CurrentHP, h.MaxHP())
+		}
+	})
+
+	t.Run("out-of-range index is a no-op, never a panic", func(t *testing.T) {
+		h := NewPlayer()
+		helm := newTestItem(game.ItemAsset{ID: "helm", Name: "Helm", Slot: helmet})
+		h.StashItem(helm)
+
+		for _, index := range []int{-1, 1, 100} {
+			if got := h.EquipFromBag(index); got != nil {
+				t.Errorf("EquipFromBag(%d) = %v, want nil", index, got)
+			}
+		}
+		if bag := h.Bag(); len(bag) != 1 || bag[0] != helm {
+			t.Errorf("bag changed on invalid index: %v", bag)
+		}
+		if h.Head != nil {
+			t.Error("invalid index equipped an item")
+		}
+	})
+}
+
+// DropFromBag removes the item at index; the caller owns its fate.
+func TestHeroDropFromBag(t *testing.T) {
+	t.Run("drop keeps the order of the remaining items", func(t *testing.T) {
+		h := NewPlayer()
+		a := newTestItem(game.ItemAsset{ID: "a", Name: "A", Slot: helmet})
+		b := newTestItem(game.ItemAsset{ID: "b", Name: "B", Slot: ring})
+		c := newTestItem(game.ItemAsset{ID: "c", Name: "C", Slot: weapon})
+		h.StashItem(a)
+		h.StashItem(b)
+		h.StashItem(c)
+
+		dropped := h.DropFromBag(1)
+
+		if dropped != b {
+			t.Errorf("dropped = %v, want B", dropped)
+		}
+		bag := h.Bag()
+		if len(bag) != 2 || bag[0] != a || bag[1] != c {
+			t.Errorf("bag = %v, want [a c]", bag)
+		}
+	})
+
+	t.Run("out-of-range index is a no-op, never a panic", func(t *testing.T) {
+		h := NewPlayer()
+		helm := newTestItem(game.ItemAsset{ID: "helm", Name: "Helm", Slot: helmet})
+		h.StashItem(helm)
+
+		for _, index := range []int{-1, 1, 100} {
+			if got := h.DropFromBag(index); got != nil {
+				t.Errorf("DropFromBag(%d) = %v, want nil", index, got)
+			}
+		}
+		if bag := h.Bag(); len(bag) != 1 || bag[0] != helm {
+			t.Errorf("bag changed on invalid index: %v", bag)
 		}
 	})
 }
