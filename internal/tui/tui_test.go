@@ -112,7 +112,7 @@ func TestEscapeClosesTheBag(t *testing.T) {
 // The loot decision is mandatory: esc must neither quit nor resolve the
 // pending item — the model stays exactly where it was.
 func TestEscapeIsANoOpWhileLooting(t *testing.T) {
-	m := chestModel()
+	m := chestModel(t)
 
 	logLen := len(m.log)
 	m, cmd := press(m, "esc")
