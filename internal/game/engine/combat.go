@@ -26,7 +26,7 @@ var (
 // `currentEnemy` returns the enemy currently engaged in combat —
 // the front of the encounter queue.
 func (e *Engine) currentEnemy() *entities.Monster {
-	return &e.CurrentEncounter[0]
+	return &e.CurrentEncounter.Monsters[0]
 }
 
 // resolveRound plays one full round of combat: whoever has the higher total
@@ -114,8 +114,8 @@ func (e *Engine) appendEnemyDefeat(events []Event) []Event {
 		events = append(events, NewLevelUp(e.Player.Lvl))
 	}
 
-	e.CurrentEncounter = e.CurrentEncounter[1:]
-	if len(e.CurrentEncounter) == 0 {
+	e.CurrentEncounter.Monsters = e.CurrentEncounter.Monsters[1:]
+	if len(e.CurrentEncounter.Monsters) == 0 {
 		e.CanAscend = true
 		e.State = StateExploring
 		events = append(events, NewVictory())

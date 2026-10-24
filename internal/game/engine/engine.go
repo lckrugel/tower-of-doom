@@ -18,11 +18,13 @@ const MAX_ENCOUNTER_SIZE = 6
 const starterItemID = "wooden_sword"
 
 type Engine struct {
-	State            GameState
-	Player           *entities.Hero
-	CurrentFloor     int
-	CanAscend        bool
-	CurrentEncounter []entities.Monster
+	State        GameState
+	Player       *entities.Hero
+	CurrentFloor int
+	CanAscend    bool
+	// CurrentEncounter is the encounter currently being dealt with: the
+	// enemy queue while in StateEncounter/StateCombat, zeroed otherwise.
+	CurrentEncounter Encounter
 	reg              *game.Registry
 	// rng é a fonte de aleatoriedade para decisões do engine
 	// (geração de encontros hoje; combates no futuro).
@@ -92,9 +94,16 @@ func (e *Engine) handleExploring(cmd Command) []Event {
 			panic(fmt.Sprintf("unreachable: GenerateEncounter failed for floor %d despite passing content validation: %v",
 				e.CurrentFloor, err))
 		}
+		if encounter.Type != EncounterCombat {
+			// Sanctuary and chest encounters resolve instantly, on the spot:
+			// no StateEncounter, no FIGHT/SNEAK choice, nothing held back —
+			// `CurrentEncounter` only ever holds the combat queue.
+			e.CurrentEncounter = Encounter{}
+			return e.resolveEncounter(encounter)
+		}
 		e.CurrentEncounter = encounter
 		e.State = StateEncounter
-		return []Event{NewEncounterFound(encounter)}
+		return []Event{NewEncounterFound(encounter.Monsters)}
 	case CmdAscend:
 		if !e.CanAscend {
 			return []Event{NewMessage("Cannot ascend yet")}
@@ -140,7 +149,7 @@ func (e *Engine) handleEncounter(cmd Command) []Event {
 func (e *Engine) resolveSneak() []Event {
 	// 50/50 for now, no stats involved.
 	if e.rng.Intn(2) == 0 {
-		e.CurrentEncounter = nil
+		e.CurrentEncounter = Encounter{}
 		e.State = StateExploring
 		return []Event{NewSneakSuccess()}
 	}
@@ -165,7 +174,7 @@ func (e *Engine) resolveFlee() []Event {
 	enemy := e.currentEnemy()
 	chance := fleeChance(e.Player.Speed(), enemy.Speed())
 	if e.rng.Intn(100) < chance {
-		e.CurrentEncounter = nil
+		e.CurrentEncounter = Encounter{}
 		e.State = StateExploring
 		return []Event{NewFled()}
 	}
@@ -179,15 +188,22 @@ func (e *Engine) handleGameOver(cmd Command) []Event {
 	}
 }
 
-// generateEncounter decides what actually spawns on a floor: finds the
-// section, computes its difficulty budget, then weighted-randomly picks
-// monsters from the spawn table until the budget runs out. Registry only
-// supplies the data (sections, spawn weights, monster stats) — every
+// generateEncounter decides what actually spawns on a floor: first it rolls
+// the encounter kind from the section's `encounter_types` weights
+// (an absent/zeroed table means combat-only — see rollEncounterType), then,
+// for combat, computes the section difficulty budget and weighted-randomly
+// picks monsters from the spawn table until the budget runs out. Registry
+// only supplies the data (sections, spawn weights, monster stats) — every
 // decision involving randomness happens here, in the engine.
-func (e *Engine) generateEncounter(floor int) ([]entities.Monster, error) {
+func (e *Engine) generateEncounter(floor int) (Encounter, error) {
 	section, err := e.reg.SectionForFloor(floor)
 	if err != nil {
-		return nil, err
+		return Encounter{}, err
+	}
+
+	kind := e.rollEncounterType(section.EncounterTypes)
+	if kind != EncounterCombat {
+		return Encounter{Type: kind}, nil
 	}
 	budget := section.FloorDifficulty(floor)
 
@@ -196,17 +212,18 @@ func (e *Engine) generateEncounter(floor int) ([]entities.Monster, error) {
 	for _, spawn := range section.Spawns {
 		m, ok := e.reg.Monsters[spawn.MonsterID]
 		if !ok {
-			return nil, fmt.Errorf("section %v references unknown monster %v", section.ID, spawn.MonsterID)
+			return Encounter{}, fmt.Errorf("section %v references unknown monster %v", section.ID, spawn.MonsterID)
 		}
 		allDefs = append(allDefs, m)
 		allWeights = append(allWeights, spawn.Weight)
 	}
 	if len(allDefs) == 0 {
-		return nil, fmt.Errorf("section %v has no spawn table", section.ID)
+		return Encounter{}, fmt.Errorf("section %v has no spawn table", section.ID)
 	}
 
-	var encounter []entities.Monster
-	for budget > 0 && len(encounter) < MAX_ENCOUNTER_SIZE {
+	var encounter Encounter
+	encounter.Type = EncounterCombat
+	for budget > 0 && len(encounter.Monsters) < MAX_ENCOUNTER_SIZE {
 		// Considera apenas monstros com difficulty >= 1: cada iteração ou
 		// adiciona um monstro (reduzindo o budget) ou não acha candidato e
 		// para. Na prática a garantia real vem da validação de conteúdo
@@ -224,35 +241,48 @@ func (e *Engine) generateEncounter(floor int) ([]entities.Monster, error) {
 			break // nothing left affordable — stop here
 		}
 
-		def := e.weightedPick(candidates, weights)
-		encounter = append(encounter, entities.NewMonsterFromAsset(def))
+		def := weightedPick(e.rng, candidates, weights)
+		encounter.Monsters = append(encounter.Monsters, entities.NewMonsterFromAsset(def))
 		budget -= def.Difficulty
 	}
-	if len(encounter) == 0 {
+	if len(encounter.Monsters) == 0 {
 		log.Printf("generated empty encounter for floor %v ", floor)
 	}
 	return encounter, nil
 }
 
-// rollArmorReward rolls a random armor piece (helmet, body or boots) from
-// the registry as the reward for ascending — a temporary stand-in for the
-// full gold/item drops. Returns nil when the registry defines no armor.
-// The Hero auto-equips it (there is no inventory); whatever it replaced is
-// gone. The armor list is built from sorted IDs so the roll is deterministic
-// under a seeded rng.
-func (e *Engine) rollArmorReward() *entities.Item {
+// pickItem rolls a random item from the registry whose slot passes the
+// `accept` filter. The candidate pool is built from sorted IDs, so the roll
+// is deterministic under a seeded rng. Returns nil when no registry entry
+// matches the filter.
+func (e *Engine) pickItem(accept func(entities.ItemSlot) bool) *entities.Item {
 	ids := slices.Sorted(maps.Keys(e.reg.Items))
-	armor := make([]string, 0, len(ids))
+	pool := make([]string, 0, len(ids))
 	for _, id := range ids {
-		if entities.IsArmor(entities.ItemSlot(e.reg.Items[id].Slot)) {
-			armor = append(armor, id)
+		if accept(entities.ItemSlot(e.reg.Items[id].Slot)) {
+			pool = append(pool, id)
 		}
 	}
-	if len(armor) == 0 {
+	if len(pool) == 0 {
 		return nil
 	}
-	item := entities.NewItemFromAsset(e.reg.Items[armor[e.rng.Intn(len(armor))]])
+	item := entities.NewItemFromAsset(e.reg.Items[pool[e.rng.Intn(len(pool))]])
 	return &item
+}
+
+// rollArmorReward rolls a random armor piece (helmet, body or boots) from
+// the registry as the reward for ascending — a temporary stand-in for the
+// full gold/item drops. The Hero auto-equips it (there is no inventory);
+// whatever it replaced is gone.
+func (e *Engine) rollArmorReward() *entities.Item {
+	return e.pickItem(entities.IsArmor)
+}
+
+// rollItemReward rolls a random item from the whole registry (any slot) as
+// the reward for a chest of riches. The Hero auto-equips it on the spot —
+// whatever it replaced is gone (there is no inventory).
+func (e *Engine) rollItemReward() *entities.Item {
+	return e.pickItem(func(entities.ItemSlot) bool { return true })
 }
 
 // weightedPick escolhe um item aleatoriamente, proporcional ao seu peso.
@@ -260,7 +290,7 @@ func (e *Engine) rollArmorReward() *entities.Item {
 // Panics se nenhum peso for positivo: a validação de conteúdo garante
 // weight >= 1, então isso é defesa em profundidade para chamadores que
 // pularem a validação.
-func (e *Engine) weightedPick(items []game.MonsterAsset, weights []int) game.MonsterAsset {
+func weightedPick[T any](r rng, items []T, weights []int) T {
 	total := 0
 	for _, w := range weights {
 		total += w
@@ -268,11 +298,11 @@ func (e *Engine) weightedPick(items []game.MonsterAsset, weights []int) game.Mon
 	if total <= 0 {
 		panic(fmt.Sprintf("weightedPick: nenhum peso positivo (total=%d)", total))
 	}
-	r := e.rng.Intn(total)
 	cumulative := 0
+	rand := r.Intn(total)
 	for i, w := range weights {
 		cumulative += w
-		if r < cumulative {
+		if rand < cumulative {
 			return items[i]
 		}
 	}

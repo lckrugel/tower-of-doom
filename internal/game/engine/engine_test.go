@@ -111,7 +111,7 @@ func TestWeightedPickHonorsRngSequence(t *testing.T) {
 	e.rng = &stubRng{values: []int{0}} // sempre o primeiro candidato
 
 	items := []game.MonsterAsset{testMonsters()["goblin"], testMonsters()["orc"]}
-	if got := e.weightedPick(items, []int{100, 5}); got.ID != "goblin" {
+	if got := weightedPick(e.rng, items, []int{100, 5}); got.ID != "goblin" {
 		t.Errorf("weightedPick(rng=0) = %q, want goblin", got.ID)
 	}
 }
@@ -122,7 +122,7 @@ func TestWeightedPickHonorsCumulativeWeights(t *testing.T) {
 	e.rng = &stubRng{values: []int{104}}
 
 	items := []game.MonsterAsset{testMonsters()["goblin"], testMonsters()["orc"]}
-	if got := e.weightedPick(items, []int{100, 5}); got.ID != "orc" {
+	if got := weightedPick(e.rng, items, []int{100, 5}); got.ID != "orc" {
 		t.Errorf("weightedPick(rng=104, weights=[100,5]) = %q, want orc", got.ID)
 	}
 }
@@ -136,7 +136,7 @@ func TestWeightedPickPanicsWithoutPositiveWeights(t *testing.T) {
 			t.Fatal("weightedPick(weights all zero) did not panic")
 		}
 	}()
-	e.weightedPick([]game.MonsterAsset{testMonsters()["goblin"]}, []int{0})
+	weightedPick(e.rng, []game.MonsterAsset{testMonsters()["goblin"]}, []int{0})
 }
 
 func TestGenerateEncounter(t *testing.T) {
@@ -148,14 +148,17 @@ func TestGenerateEncounter(t *testing.T) {
 		}
 
 		total := 0
-		for _, m := range encounter {
+		for _, m := range encounter.Monsters {
 			total += m.Difficulty
 		}
 		if total > 9 {
 			t.Errorf("encounter with total difficulty %d exceeded budget 9", total)
 		}
-		if len(encounter) == 0 {
+		if len(encounter.Monsters) == 0 {
 			t.Fatal("encounter was empty for a floor with valid content")
+		}
+		if encounter.Type != EncounterCombat {
+			t.Errorf("encounter type = %v, want combat (section has no encounter types table)", encounter.Type)
 		}
 	})
 
@@ -168,7 +171,7 @@ func TestGenerateEncounter(t *testing.T) {
 			t.Fatalf("generateEncounter: %v", err)
 		}
 
-		got := monsterIDs(encounter)
+		got := monsterIDs(encounter.Monsters)
 		if !idsEqual(got, "orc", "goblin") {
 			t.Errorf("encounter = %v, want [orc goblin]", got)
 		}
@@ -183,8 +186,8 @@ func TestGenerateEncounter(t *testing.T) {
 			t.Fatalf("generateEncounter: %v", err)
 		}
 
-		if len(encounter) != MAX_ENCOUNTER_SIZE {
-			t.Errorf("encounter size = %d, want capped at %d", len(encounter), MAX_ENCOUNTER_SIZE)
+		if len(encounter.Monsters) != MAX_ENCOUNTER_SIZE {
+			t.Errorf("encounter size = %d, want capped at %d", len(encounter.Monsters), MAX_ENCOUNTER_SIZE)
 		}
 	})
 
@@ -195,7 +198,7 @@ func TestGenerateEncounter(t *testing.T) {
 			t.Fatalf("generateEncounter: %v", err)
 		}
 
-		for _, m := range encounter {
+		for _, m := range encounter.Monsters {
 			if m.ID != "goblin" && m.ID != "orc" {
 				t.Errorf("encounter contains monster %q, which is not in the section's spawn table", m.ID)
 			}
@@ -212,8 +215,8 @@ func TestGenerateEncounter(t *testing.T) {
 			t.Fatalf("generateEncounter: %v", err)
 		}
 
-		if len(encounter) != 0 {
-			t.Errorf("encounter = %v, want empty (nothing affordable)", monsterIDs(encounter))
+		if len(encounter.Monsters) != 0 {
+			t.Errorf("encounter = %v, want empty (nothing affordable)", monsterIDs(encounter.Monsters))
 		}
 	})
 }
@@ -225,7 +228,7 @@ func TestExploringFlow(t *testing.T) {
 	if len(events) == 0 || events[0].Type != EventEncounterFound {
 		t.Fatalf("exploring produced %v, want an encounter event", events)
 	}
-	if len(e.CurrentEncounter) == 0 {
+	if len(e.CurrentEncounter.Monsters) == 0 {
 		t.Error("engine state holds no encounter after explore")
 	}
 }

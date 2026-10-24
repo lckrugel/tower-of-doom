@@ -19,6 +19,7 @@ const (
 	// Hero's damage taken.
 	EventCombatDamageTaken
 	EventEnemyHealed
+	// Hero healed outside of combat (sanctuary encounters).
 	EventHeroHealed
 	EventEnemyDefeated
 	// Hero died.
@@ -66,6 +67,19 @@ func NewEncounterFound(monsters []entities.Monster) Event {
 		Type: EventEncounterFound,
 		Data: map[string]any{
 			"monsters": monsters,
+		},
+	}
+}
+
+// NewHeroHealed reports a sanctuary-style heal that happened instantly
+// outside of combat: how much HP was actually restored (0 when the Hero was
+// already at full health) and the Hero's resulting HP percentage.
+func NewHeroHealed(healed, heroHPPercent int) Event {
+	return Event{
+		Type: EventHeroHealed,
+		Data: map[string]any{
+			"healed":   healed,
+			"hero_hp":  heroHPPercent,
 		},
 	}
 }

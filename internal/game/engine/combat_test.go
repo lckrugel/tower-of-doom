@@ -10,7 +10,7 @@ import (
 // Helper: puts the engine into StateEncounter with the given monster queue
 // (spawn order) before choosing FIGHT/SNEAK.
 func startEncounter(e *Engine, monsters ...entities.Monster) {
-	e.CurrentEncounter = monsters
+	e.CurrentEncounter = Encounter{Type: EncounterCombat, Monsters: monsters}
 	e.State = StateEncounter
 	e.CanAscend = false
 }
@@ -78,7 +78,7 @@ func TestFightResolvesFirstRound(t *testing.T) {
 			EventCombatDamageDealt, EventCombatDamageTaken) {
 			t.Errorf("events = %v, want [dealt taken (tie = hero first)]", got)
 		}
-		if hp := e.CurrentEncounter[0].CurrentHP; hp != 25 {
+		if hp := e.CurrentEncounter.Monsters[0].CurrentHP; hp != 25 {
 			t.Errorf("goblin HP = %d, want 25", hp)
 		}
 		if hp := e.Player.CurrentHP; hp != 98 {
@@ -125,7 +125,7 @@ func TestAttackResolvesOneRoundPerCommand(t *testing.T) {
 		EventCombatDamageDealt, EventCombatDamageTaken) {
 		t.Errorf("events = %v, want [dealt taken]", got)
 	}
-	if hp := e.CurrentEncounter[0].CurrentHP; hp != 25 {
+	if hp := e.CurrentEncounter.Monsters[0].CurrentHP; hp != 25 {
 		t.Errorf("goblin HP = %d, want 25 (one hit per command)", hp)
 	}
 }
@@ -150,9 +150,9 @@ func TestAttackKillsEnemyAndAdvancesQueue(t *testing.T) {
 	if xp := evt.Data["xp_gained"]; xp != 12 {
 		t.Errorf("xp_gained = %v, want 12", xp)
 	}
-	if e.State != StateCombat || len(e.CurrentEncounter) != 1 || e.CurrentEncounter[0].ID != "orc" {
+	if e.State != StateCombat || len(e.CurrentEncounter.Monsters) != 1 || e.CurrentEncounter.Monsters[0].ID != "orc" {
 		t.Errorf("queue did not advance: state = %v, encounter = %v (want combat with [orc])",
-			e.State, monsterIDs(e.CurrentEncounter))
+			e.State, monsterIDs(e.CurrentEncounter.Monsters))
 	}
 }
 
@@ -173,8 +173,8 @@ func TestVictoryOnLastEnemyKill(t *testing.T) {
 	if !e.CanAscend {
 		t.Error("victory did not unlock ascending")
 	}
-	if len(e.CurrentEncounter) != 0 {
-		t.Errorf("encounter = %v, want empty after victory", monsterIDs(e.CurrentEncounter))
+	if len(e.CurrentEncounter.Monsters) != 0 {
+		t.Errorf("encounter = %v, want empty after victory", monsterIDs(e.CurrentEncounter.Monsters))
 	}
 }
 
@@ -198,9 +198,9 @@ func TestMidCombatLevelUp(t *testing.T) {
 		t.Errorf("level event data = %v, want 2", lvl)
 	}
 	// Combat continues with the next enemy, still in StateCombat.
-	if e.State != StateCombat || e.CurrentEncounter[0].ID != "orc" {
+	if e.State != StateCombat || e.CurrentEncounter.Monsters[0].ID != "orc" {
 		t.Errorf("combat broken after level up: state = %v, encounter = %v",
-			e.State, monsterIDs(e.CurrentEncounter))
+			e.State, monsterIDs(e.CurrentEncounter.Monsters))
 	}
 }
 
@@ -236,8 +236,8 @@ func TestSneak(t *testing.T) {
 		if e.State != StateExploring {
 			t.Errorf("state after successful sneak = %v, want StateExploring", e.State)
 		}
-		if len(e.CurrentEncounter) != 0 {
-			t.Errorf("encounter = %v, want discarded", monsterIDs(e.CurrentEncounter))
+		if len(e.CurrentEncounter.Monsters) != 0 {
+			t.Errorf("encounter = %v, want discarded", monsterIDs(e.CurrentEncounter.Monsters))
 		}
 		if e.CanAscend {
 			t.Error("sneaking past must not unlock ascending (only victory does)")
@@ -262,8 +262,8 @@ func TestSneak(t *testing.T) {
 		if hp := e.Player.CurrentHP; hp != 98 {
 			t.Errorf("hero HP = %d, want 98 (one free goblin hit)", hp)
 		}
-		if len(e.CurrentEncounter) != 1 {
-			t.Errorf("encounter = %v, want intact after failed sneak", monsterIDs(e.CurrentEncounter))
+		if len(e.CurrentEncounter.Monsters) != 1 {
+			t.Errorf("encounter = %v, want intact after failed sneak", monsterIDs(e.CurrentEncounter.Monsters))
 		}
 	})
 }
@@ -307,8 +307,8 @@ func TestFlee(t *testing.T) {
 		if e.State != StateExploring {
 			t.Errorf("state after fleeing = %v, want StateExploring", e.State)
 		}
-		if len(e.CurrentEncounter) != 0 {
-			t.Errorf("encounter = %v, want discarded", monsterIDs(e.CurrentEncounter))
+		if len(e.CurrentEncounter.Monsters) != 0 {
+			t.Errorf("encounter = %v, want discarded", monsterIDs(e.CurrentEncounter.Monsters))
 		}
 		if e.Player.Xp != 0 {
 			t.Errorf("xp = %d, want 0 (fleeing grants no reward)", e.Player.Xp)
@@ -448,7 +448,7 @@ func TestDefenseMitigationInCombat(t *testing.T) {
 		e.Process(Command{Type: CmdFight})
 
 		// hero swing 5 mitigated by monster DEF 5: 5×45/50 = 4.
-		if hp := e.CurrentEncounter[0].CurrentHP; hp != 26 {
+		if hp := e.CurrentEncounter.Monsters[0].CurrentHP; hp != 26 {
 			t.Errorf("monster HP = %d, want 26 (5 dmg mitigated to 4)", hp)
 		}
 	})
@@ -612,7 +612,7 @@ func TestHeroCritInCombat(t *testing.T) {
 	if crit, _ := dealt.Data["crit"].(bool); !crit {
 		t.Error("damage event crit flag = false, want true")
 	}
-	if hp := e.CurrentEncounter[0].CurrentHP; hp != 20 {
+	if hp := e.CurrentEncounter.Monsters[0].CurrentHP; hp != 20 {
 		t.Errorf("goblin HP = %d, want 20", hp)
 	}
 	if crit, _ := taken.Data["crit"].(bool); crit {
