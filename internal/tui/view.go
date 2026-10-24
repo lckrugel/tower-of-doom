@@ -27,6 +27,12 @@ const (
 	logColWidth  = 50
 	mainColWidth = contentWidth - logColWidth
 
+	// Equipped panel geometry: the slot-label column and where an
+	// occupied slot's second line (the bonus list) starts — gutter +
+	// label column + gap.
+	equippedLabelWidth = 4 // the longest of Head/Body/Feet/Wpn/Ring/Amu
+	equippedIndent     = 2 + equippedLabelWidth + 2
+
 	// Middle bands: header (1) and action bar (1) frame the workspace.
 	middleHeight = contentHeight - 2
 
@@ -79,7 +85,7 @@ func (m Model) View() string {
 		slot(m.heroPanel(), mainColWidth, heroHeight, lipgloss.Top),
 	)
 	right := styleLogColumn.Render(
-		slot(m.logPanel(), logColWidth-1, middleHeight, lipgloss.Bottom),
+		slot(m.rightColumn(), logColWidth-1, middleHeight, m.rightAnchor()),
 	)
 
 	content := lipgloss.JoinVertical(lipgloss.Left,
@@ -88,6 +94,39 @@ func (m Model) View() string {
 		slot(m.actionBar(), contentWidth, 1, lipgloss.Top),
 	)
 	return styleWindow.Render(content)
+}
+
+// rightColumn is the right band's content: the event log console
+// everywhere, except the three trade states (loot, bag, merchant)
+// where the equipped panel takes over — gear decisions are what those
+// screens are for, and the log is least useful exactly then.
+func (m Model) rightColumn() string {
+	if m.showsEquipment() {
+		return m.equippedPanel()
+	}
+	return m.logPanel()
+}
+
+// rightAnchor picks the right band's vertical anchor: the log grows
+// from the bottom like a console; the equipped panel is a titled table
+// and reads from the top.
+func (m Model) rightAnchor() lipgloss.Position {
+	if m.showsEquipment() {
+		return lipgloss.Top
+	}
+	return lipgloss.Bottom
+}
+
+// showsEquipment reports whether the current state swaps the log for
+// the equipped panel: the trade states where the hero faces gear
+// choices (chest decision, bag, shop).
+func (m Model) showsEquipment() bool {
+	switch m.engine.State {
+	case engine.StateLoot, engine.StateInventory, engine.StateMerchant:
+		return true
+	default:
+		return false
+	}
 }
 
 // tooSmall reports whether a WindowSizeMsg has arrived and the terminal
@@ -428,6 +467,34 @@ func (m Model) logPanel() string {
 	return strings.Join(m.log, "\n")
 }
 
+// equippedPanel is the right column during the trade states: every
+// equipment slot in fixed order. Occupied slots spend TWO lines — the
+// item name, then its full bonus list dim beneath it — because the
+// worst shipped asset ("Armadura de Escamas de Dragão
+// (+30 HP, +20 DEF, -10 SPD)", 56 runes) cannot fit one 49-char column
+// line; empty slots spend one dim row. Worst case: title + 6×2 = 13
+// lines, well inside the middle band's 20, and both lines of an
+// occupied slot are width-guarded — nothing leans on slot() to clip.
+func (m Model) equippedPanel() string {
+	rows := []string{stylePanelTitle.Render("◈ EQUIPPED")}
+	for _, s := range equippedSlots(m.engine.Player) {
+		label := padRight(s.label, equippedLabelWidth)
+		if s.item == nil {
+			rows = append(rows, styleDim.Render(fmt.Sprintf("  %s  — (empty)", label)))
+			continue
+		}
+		// The width guard only ever bites on a modded asset longer than
+		// any shipped name; the bonus list cannot overflow the rest.
+		rows = append(rows, fmt.Sprintf("  %s  %s",
+			label, truncateRunes(s.item.Name, logColWidth-1-equippedIndent)))
+		if bonus := itemBonusList(s.item); bonus != "" {
+			rows = append(rows, styleDim.Render(
+				strings.Repeat(" ", equippedIndent)+truncateRunes(bonus, logColWidth-1-equippedIndent)))
+		}
+	}
+	return strings.Join(rows, "\n")
+}
+
 // actionBar renders the current state's options with the cursor
 // highlighted; the controls hint closes the line.
 func (m Model) actionBar() string {
@@ -461,19 +528,28 @@ func (m Model) actionBar() string {
 	return lipgloss.JoinHorizontal(lipgloss.Center, strings.Join(spots, "   "), styleDim.Render(hint))
 }
 
-// gearList names everything currently equipped.
-func gearList(p *entities.Hero) string {
-	slots := []struct {
-		name string
-		item *entities.Item
-	}{
+// gearSlot pairs an equipment slot's short panel label with the item
+// worn there (nil = empty).
+type gearSlot struct {
+	label string
+	item  *entities.Item
+}
+
+// equippedSlots is the hero's equipment in the fixed order every gear
+// rendering shares: Head, Body, Feet, Wpn, Ring, Amu.
+func equippedSlots(p *entities.Hero) []gearSlot {
+	return []gearSlot{
 		{"Head", p.Head}, {"Body", p.Body}, {"Feet", p.Feet},
 		{"Wpn", p.Weapon}, {"Ring", p.Ring}, {"Amu", p.Amulet},
 	}
+}
+
+// gearList names everything currently equipped.
+func gearList(p *entities.Hero) string {
 	var worn []string
-	for _, s := range slots {
+	for _, s := range equippedSlots(p) {
 		if s.item != nil {
-			worn = append(worn, fmt.Sprintf("%s %s%s", s.name, s.item.Name, itemBonusList(s.item)))
+			worn = append(worn, fmt.Sprintf("%s %s%s", s.label, s.item.Name, itemBonusList(s.item)))
 		}
 	}
 	if len(worn) == 0 {
