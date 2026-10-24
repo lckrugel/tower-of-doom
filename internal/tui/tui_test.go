@@ -11,6 +11,10 @@ import (
 	"github.com/lckrugel/tower-of-doom/internal/game/engine/entities"
 )
 
+// wideEnough is a terminal size comfortably above minWidth/minHeight, for
+// tests that want the full game canvas on screen.
+var wideEnough = tea.WindowSizeMsg{Width: 160, Height: 50}
+
 // press sends a key string through the model as a bubbletea KeyMsg.
 func press(m Model, raw string) (Model, tea.Cmd) {
 	var keyMsg tea.KeyMsg
@@ -73,6 +77,20 @@ func TestEscapeAlsoQuits(t *testing.T) {
 
 	if cmd == nil {
 		t.Error("esc did not request a quit")
+	}
+}
+
+// An unknown state must keep the badge visible and name itself: a
+// silently empty chip would hide a broken FSM from the player.
+func TestBadgeFallbackForUnknownStates(t *testing.T) {
+	e := testEngine()
+	e.State = engine.GameState(99) // not part of the FSM
+	m := New(e)
+
+	view := stripControls(stripANSI(m.View()))
+
+	if !strings.Contains(view, "UNKNOWN") {
+		t.Errorf("unknown state rendered without a visible badge:\n%s", view)
 	}
 }
 
@@ -216,7 +234,7 @@ func stripControls(s string) string {
 // View tests (kept in the same file — they exercise the same state helpers).
 func TestViewExploring(t *testing.T) {
 	m := New(testEngine())
-	next, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	next, _ := m.Update(wideEnough)
 	model := modelOf(next, t)
 
 	view := stripControls(stripANSI(model.View()))
@@ -237,8 +255,12 @@ func encounterWithQueue(state engine.GameState) Model {
 	e.CurrentEncounter = engine.Encounter{
 		Type: engine.EncounterCombat,
 		Monsters: []entities.Monster{
-			entities.NewMonsterFromAsset(game.MonsterAsset{ID: "goblin", Name: "Goblin", HP: 30}),
-			entities.NewMonsterFromAsset(game.MonsterAsset{ID: "orc", Name: "Orc", HP: 50}),
+			entities.NewMonsterFromAsset(game.MonsterAsset{
+				ID: "goblin", Name: "Goblin", HP: 30, Damage: 2, Speed: 10, Crit: 5, Difficulty: 3,
+			}),
+			entities.NewMonsterFromAsset(game.MonsterAsset{
+				ID: "orc", Name: "Orc", HP: 50, Damage: 8, Speed: 8, Crit: 10, Difficulty: 5,
+			}),
 		},
 	}
 	e.State = state
@@ -258,6 +280,25 @@ func TestViewEncounterShowsTheFullQueue(t *testing.T) {
 	if !strings.Contains(view, "[F] Fight") || !strings.Contains(view, "[S] Sneak") {
 		t.Errorf("encounter action bar incomplete:\n%s", view)
 	}
+
+	// Every queued monster carries its stat line: the planning screen
+	// should tell the player what it is up against, per enemy.
+	for _, want := range []string{
+		"⚔ 2 · ⛨ 0 · » 10 · ✦ 5% · ⬆ 3", // goblin
+		"⚔ 8 · ⛨ 0 · » 8 · ✦ 10% · ⬆ 5", // orc
+	} {
+		if !strings.Contains(view, want) {
+			t.Errorf("encounter view missing stat line %q:\n%s", want, view)
+		}
+	}
+
+	// The stat lines are drawn in the left column: they must fit the
+	// column's width instead of silently leaning on slot() to clip them.
+	for i, line := range viewLines(m.encounterPanel()) {
+		if w := ansiLen(line); w > mainColWidth {
+			t.Errorf("encounter body line %d is %d wide, overflows the %d-col column:\n%q", i, w, mainColWidth, line)
+		}
+	}
 }
 
 // Combat focuses on the front enemy; the rest of the queue is only a
@@ -276,17 +317,57 @@ func TestViewCombatShowsOnlyTheCurrentEnemy(t *testing.T) {
 	if !strings.Contains(view, "1 more") {
 		t.Errorf("combat view should hint at the waiting enemies:\n%s", view)
 	}
+
+	// The engaged enemy gets its stat line too — crit chance and defense
+	// are worth watching mid-fight — but only the front enemy's.
+	front := "⚔ 2 · ⛨ 0 · » 10 · ✦ 5% · ⬆ 3"
+	if !strings.Contains(view, front) {
+		t.Errorf("combat view missing the front enemy's stat line %q:\n%s", front, view)
+	}
+	if strings.Contains(view, "⚔ 8") {
+		t.Errorf("combat view leaked a queued enemy's stats:\n%s", view)
+	}
+	// Same column-width discipline as the encounter panel.
+	for i, line := range viewLines(m.combatPanel()) {
+		if w := ansiLen(line); w > mainColWidth {
+			t.Errorf("combat body line %d is %d wide, overflows the %d-col column:\n%q", i, w, mainColWidth, line)
+		}
+	}
 	if !strings.Contains(view, "[A] Attack") || !strings.Contains(view, "[R] Flee") {
 		t.Errorf("combat action bar incomplete:\n%s", view)
 	}
 }
 
-func TestViewGameOverBanner(t *testing.T) {
+// After death the body must recap the run: the floor/section where the
+// climb ended and who the hero was. The header badge alone says nothing
+// about the run.
+func TestViewGameOverRecap(t *testing.T) {
 	e := testEngine()
 	e.State = engine.StateGameOver
+	e.CurrentFloor = 7
+	e.Player.Lvl = 3
+	e.Player.Xp = 40
 	m := New(e)
 
-	if view := stripControls(stripANSI(m.View())); !strings.Contains(view, "YOU DIED") {
-		t.Errorf("game over view missing a death banner:\n%s", view)
+	view := stripControls(stripANSI(m.View()))
+
+	for _, want := range []string{
+		"YOU DIED",       // the banner stays
+		"Floor 7",        // where it ended
+		"Goblin Pits",    // the section, via SectionName
+		"Level 3",        // hero level
+		"40 XP gathered", // xp accumulated before death
+	} {
+		if !strings.Contains(view, want) {
+			t.Errorf("game over view missing %q:\n%s", want, view)
+		}
+	}
+
+	// The recap lives in the left column: no line may lean on slot()
+	// to be clipped.
+	for i, line := range viewLines(m.gameOverPanel()) {
+		if w := ansiLen(line); w > mainColWidth {
+			t.Errorf("game over body line %d is %d wide, overflows the %d-col column:\n%q", i, w, mainColWidth, line)
+		}
 	}
 }

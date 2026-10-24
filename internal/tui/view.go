@@ -36,6 +36,15 @@ const (
 	bodyHeight = middleHeight - heroHeight
 )
 
+// Minimum usable terminal geometry: the canvas (contentWidth x
+// contentHeight) needs room for the window border and its horizontal
+// padding around it. Anything smaller is unusable — nothing would fit
+// without clipping or wrapping.
+const (
+	minWidth  = contentWidth + 4  // border (2) + horizontal padding (2)
+	minHeight = contentHeight + 2 // border (2)
+)
+
 var (
 	// HP fills the gradient from red (low) to green (high). The component's
 	// built-in percentage is off: bars keep their full width and the text
@@ -58,7 +67,13 @@ var (
 // Every region sits in a rigid slot, so the geometry never reflows: the
 // hero vitals stay directly above the shortcuts, the log readout is
 // bottom-anchored like a console, and nothing shifts with content.
+// Terminals that can't hold the fixed canvas get the bare fallback
+// screen instead of a clipped frame.
 func (m Model) View() string {
+	if m.tooSmall() {
+		return tooSmallView(m.width, m.height)
+	}
+
 	left := lipgloss.JoinVertical(lipgloss.Left,
 		slot(m.body(), mainColWidth, bodyHeight, lipgloss.Top),
 		slot(m.heroPanel(), mainColWidth, heroHeight, lipgloss.Top),
@@ -73,6 +88,32 @@ func (m Model) View() string {
 		slot(m.actionBar(), contentWidth, 1, lipgloss.Top),
 	)
 	return styleWindow.Render(content)
+}
+
+// tooSmall reports whether a WindowSizeMsg has arrived and the terminal
+// can't hold the fixed canvas. No size reported yet (tests, first frame)
+// counts as fine: the model renders its canvas and learns the truth with
+// the first resize event.
+func (m Model) tooSmall() bool {
+	if m.width == 0 {
+		return false
+	}
+	return m.width < minWidth || m.height < minHeight
+}
+
+// tooSmallView is the fallback for terminals smaller than the canvas:
+// a bare, centered notice — no game frame, no action bar, nothing that
+// could overflow or wrap. Details are added only while they fit: the
+// notice must stay inside a terminal that may be arbitrarily narrow.
+func tooSmallView(w, h int) string {
+	msg := fmt.Sprintf("Terminal too small — needs %dx%d", minWidth, minHeight)
+	if got := fmt.Sprintf(", got %dx%d", w, h); w >= len([]rune(msg))+len([]rune(got)) {
+		msg += got
+	}
+	if w < len([]rune(msg)) {
+		msg = string([]rune(msg)[:max(w, 1)])
+	}
+	return lipgloss.Place(max(w, 1), max(h, 1), lipgloss.Center, lipgloss.Center, styleDim.Render(msg))
 }
 
 // slot clamps a section's width and pads it to its exact height. Clamping
@@ -104,7 +145,8 @@ func (m Model) locationLabel() string {
 	return fmt.Sprintf("Floor %d", m.engine.CurrentFloor)
 }
 
-// badge marks the current state for a quick state read.
+// badge marks the current state for a quick state read. Unknown states
+// fall onto their own style so a broken FSM never renders a blank chip.
 func (m Model) badge() string {
 	var style lipgloss.Style
 	switch m.engine.State {
@@ -116,6 +158,8 @@ func (m Model) badge() string {
 		style = styleBadgeCombat
 	case engine.StateGameOver:
 		style = styleBadgeOver
+	default:
+		style = styleBadgeUnknown
 	}
 	return style.MarginLeft(2).Render(badgeText(m.engine.State))
 }
@@ -141,14 +185,30 @@ func (m Model) body() string {
 	case engine.StateCombat: // only the front enemy matters mid-fight
 		return m.combatPanel()
 	case engine.StateGameOver:
-		return styleDeath.Render("☠ YOU DIED — the tower claims another soul.")
+		return m.gameOverPanel()
 	default:
 		return ""
 	}
 }
 
+// gameOverPanel is the body after death: the banner, then the run's
+// recap — where the climb ended (floor + section) and which hero fell.
+// All of the data is already on the engine: CurrentFloor, SectionName
+// and the player's level/XP.
+func (m Model) gameOverPanel() string {
+	p := m.engine.Player
+	var b strings.Builder
+	b.WriteString(styleDeath.Render("☠ YOU DIED — the tower claims another soul.") + "\n\n")
+	b.WriteString("  Reached " + styleLocation.Render(m.locationLabel()) + "\n")
+	b.WriteString(styleDim.Render(fmt.Sprintf("  Level %d · %d XP gathered", p.Lvl, p.Xp)))
+	return b.String()
+}
+
 // encounterPanel lists every enemy in the queue. Nothing is engaged yet,
 // so there is no ▶ marker — this is the planning screen for FIGHT/SNEAK.
+// Each enemy spends two lines: name + HP, then its combat profile — the
+// queue holds at most MAX_ENCOUNTER_SIZE enemies, so both stay inside
+// the body slot's height.
 func (m Model) encounterPanel() string {
 	var b strings.Builder
 	b.WriteString(stylePanelTitle.Render("⚔ ENEMIES") + "\n")
@@ -162,12 +222,14 @@ func (m Model) encounterPanel() string {
 		mon := monsters[i]
 		b.WriteString("  " + styleAction.Render(padRight(mon.Name(), nameWidth)) +
 			"  " + hpBar(mon.CurrentHP, mon.MaxHP()) + "\n")
+		b.WriteString("    " + statLine(mon) + "\n")
 	}
 	return b.String()
 }
 
 // combatPanel narrows the screen to the enemy currently in front of the
-// hero; the rest of the queue appears only as a counter.
+// hero; the rest of the queue appears only as a counter. Just like the
+// encounter panel it shows the engaged enemy's stat line.
 func (m Model) combatPanel() string {
 	var b strings.Builder
 	b.WriteString(stylePanelTitle.Render("⚔ ENEMIES") + "\n")
@@ -178,10 +240,22 @@ func (m Model) combatPanel() string {
 	front := monsters[0]
 	b.WriteString("▶ " + stylePanelTitle.Render(front.Name()) +
 		"  " + hpBar(front.CurrentHP, front.MaxHP()) + "\n")
+	b.WriteString("  " + statLine(front) + "\n")
 	if waiting := len(monsters) - 1; waiting > 0 {
 		b.WriteString(styleDim.Render(fmt.Sprintf("  · %d more waiting", waiting)) + "\n")
 	}
 	return b.String()
+}
+
+// statLine is a monster's combat profile on one compact, dim line:
+// damage, defense, speed, crit chance and difficulty — the same
+// DMG→DEF→SPD order the hero panel uses, prefixed with the ⚔ combat
+// icon of the panel titles. Compact by design: it must never overflow
+// the left column's width (mainColWidth), which slot() would silently
+// clip.
+func statLine(mon entities.Monster) string {
+	return styleDim.Render(fmt.Sprintf("⚔ %d · ⛨ %d · » %d · ✦ %d%% · ⬆ %d",
+		mon.Damage(), mon.Defense(), mon.Speed(), mon.CritThreshold(), mon.Difficulty))
 }
 
 // maxNameWidth is the longest (rune-wise) monster name in the queue.
