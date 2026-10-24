@@ -47,9 +47,9 @@ func TestActionsPerState(t *testing.T) {
 		state    engine.GameState
 		wantKeys []string
 	}{
-		{"exploring", engine.StateExploring, []string{"e", "a", "q"}},
+		{"exploring", engine.StateExploring, []string{"e", "u", "q"}},
 		{"encounter", engine.StateEncounter, []string{"f", "s", "q"}},
-		{"combat", engine.StateCombat, []string{"a", "f", "q"}},
+		{"combat", engine.StateCombat, []string{"a", "r", "q"}},
 		{"game over", engine.StateGameOver, []string{"q"}},
 	}
 	for _, tt := range tests {
@@ -68,6 +68,25 @@ func TestActionsPerState(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// No shortcut may change meaning across states: combat muscle memory
+// (spamming attack) must never leak into a different command.
+func TestShortcutsAreGloballyUnique(t *testing.T) {
+	byKey := make(map[string]engine.CommandType)
+	states := []engine.GameState{
+		engine.StateExploring, engine.StateEncounter, engine.StateCombat, engine.StateGameOver,
+	}
+	for _, state := range states {
+		e := testEngine()
+		e.State = state
+		for _, a := range actionsFor(e) {
+			if prev, dup := byKey[a.key]; dup && prev != a.cmd {
+				t.Errorf("state %v: key %q maps to both %v and %v", state, a.key, prev, a.cmd)
+			}
+			byKey[a.key] = a.cmd
+		}
 	}
 }
 

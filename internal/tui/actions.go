@@ -23,17 +23,21 @@ type action struct {
 // orderedOptions is the canonical display/d Dispatch order for every action
 // across all states; each state's bar shows only what AllowedCommands
 // permits, in this order.
+// Shortcut keys are assigned once per command and never overlap between
+// states: the same key must always mean the same action, so combat
+// muscle memory (e.g. spamming Attack) can't spill into another command
+// once the state changes.
 var orderedOptions = []struct {
 	key   string
 	label string
 	cmd   engine.CommandType
 }{
 	{"e", "Explore", engine.CmdExplore},
-	{"a", "Ascend", engine.CmdAscend},
+	{"u", "Ascend", engine.CmdAscend}, // u for "up"
 	{"f", "Fight", engine.CmdFight},
 	{"s", "Sneak", engine.CmdSneak},
 	{"a", "Attack", engine.CmdAttack},
-	{"f", "Flee", engine.CmdFlee},
+	{"r", "Flee", engine.CmdFlee}, // r for "run"
 	{"q", "Quit", engine.CmdQuit},
 }
 

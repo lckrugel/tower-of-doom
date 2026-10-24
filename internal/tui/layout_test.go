@@ -1,10 +1,13 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
 	"github.com/lckrugel/tower-of-doom/internal/game"
+
+	// MAX_ENCOUNTER_SIZE drives the body slot height in the layout tests.
 	"github.com/lckrugel/tower-of-doom/internal/game/engine"
 	"github.com/lckrugel/tower-of-doom/internal/game/engine/entities"
 )
@@ -47,12 +50,39 @@ func viewModels() map[string]Model {
 	}
 
 	return map[string]Model{
-		"exploring": New(testEngine()),
-		"geared":    geared(),
-		"encounter": encounter(engine.StateEncounter),
-		"combat":    combat,
-		"game over": gameOver(),
+		"exploring":  New(testEngine()),
+		"geared":     geared(),
+		"encounter":  encounter(engine.StateEncounter),
+		"combat":     combat,
+		"game over":  gameOver(),
+		"full queue": fullQueue(),
+		"long log":   longLog(),
 	}
+}
+
+// fullQueue stacks the maximum allowed enemies — the fattest body the
+// game can produce.
+func fullQueue() Model {
+	e := testEngine()
+	e.Player = entities.NewPlayer()
+	monsters := make([]entities.Monster, engine.MAX_ENCOUNTER_SIZE)
+	for i := range monsters {
+		monsters[i] = entities.NewMonsterFromAsset(game.MonsterAsset{
+			ID: "goblin", Name: "Goblin", Difficulty: 3, HP: 30, Damage: 2, Speed: 10,
+		})
+	}
+	e.CurrentEncounter = engine.Encounter{Type: engine.EncounterCombat, Monsters: monsters}
+	e.State = engine.StateCombat
+	return New(e)
+}
+
+// longLog fills the event log to its cap.
+func longLog() Model {
+	m := New(testEngine())
+	for i := range maxLogLines {
+		m.log = append(m.log, fmt.Sprintf("log line %d", i))
+	}
+	return m
 }
 
 // viewLines is the plain-text view split into lines, ready for
@@ -88,4 +118,37 @@ func TestViewHasAConstantFixedSize(t *testing.T) {
 // (after stripANSI there should be none left).
 func ansiLen(s string) int {
 	return len([]rune(s))
+}
+
+// The action bar carries the instructions; it must sit on the bottom row
+// of the frame in every state — growing logs or queues must push blank
+// space, never the controls.
+func TestActionBarStaysOnTheBottomRow(t *testing.T) {
+	bottomRows := make(map[string]int)
+	for name, m := range viewModels() {
+		lines := viewLines(m.View())
+
+		bottomRow := -1
+		for i, line := range lines {
+			if strings.Contains(line, "[Q] Quit") {
+				bottomRow = i
+				break
+			}
+		}
+		if bottomRow < 0 {
+			t.Fatalf("%s: no action bar in view:\n%s", name, strings.Join(lines, "\n"))
+		}
+		if want := len(lines) - 2; bottomRow != want { // above the bottom border
+			t.Errorf("%s: action bar on row %d, want the bottom row %d", name, bottomRow, want)
+		}
+
+		// All states share the same fixed height, so every bar must land
+		// on the same index.
+		bottomRows[name] = bottomRow
+	}
+	for name, row := range bottomRows {
+		if row != bottomRows["exploring"] {
+			t.Errorf("%s: action bar on row %d, want %d (exploring's row)", name, row, bottomRows["exploring"])
+		}
+	}
 }

@@ -15,10 +15,13 @@ const barWidth = 10
 
 // The canvas the UI occupies in every state. Content is fitted to it, so
 // the window never changes size as the game progresses.
-const (
-	contentWidth  = 72
-	contentHeight = 18
-)
+const contentWidth = 72
+
+// bodySlotHeight reserves room for the worst-case body: the ENEMIES
+// title, a full queue, a blank separator and the 5-line hero panel.
+// Early floors (resp. most content) are far below it; that slack is
+// blank space below the panels, by design.
+var bodySlotHeight = engine.MAX_ENCOUNTER_SIZE + 7
 
 var (
 	// HP fills the gradient from red (low) to green (high). The component's
@@ -37,26 +40,31 @@ var (
 	)
 )
 
-// View assembles the full screen: header, state-dependent body, event log
-// and action bar — all fitted onto one constant-size canvas inside a
-// rounded window, so the frame is a stable fixture of the terminal.
+// View assembles the full screen from rigid vertical slots — header,
+// body, event log and action bar — each padded to its exact reserved
+// height. The frame geometry never reflows, and the action bar stays on
+// the bottom row no matter how busy the log or the enemy queue get.
 func (m Model) View() string {
 	content := lipgloss.JoinVertical(lipgloss.Left,
-		m.header(),
-		m.body(),
-		m.logPanel(),
-		m.actionBar(),
+		slot(m.header(), 1),
+		slot(m.body(), bodySlotHeight),
+		slot(m.logPanel(), maxLogLines),
+		slot(m.actionBar(), 1),
 	)
-	// Wordy gear lists or log lines may exceed the canvas; truncate them
-	// instead of letting that one state stretch the window.
-	content = fitContent.Render(content)
-	fitted := lipgloss.Place(contentWidth, contentHeight, lipgloss.Top, lipgloss.Left, content)
-	return styleWindow.Render(fitted)
+	return styleWindow.Render(content)
 }
 
-// fitContent clamps any state's output to the canvas; lipgloss truncate is
-// ANSI-aware, so styled lines keep their color codes.
-var fitContent = lipgloss.NewStyle().MaxWidth(contentWidth).MaxHeight(contentHeight)
+// slot clamps a section's width and pads it to its exact height. Clamping
+// width per section (ANSI-aware) keeps a wordy line in one slot from
+// breaking the shared frame; the height padding keeps the section in its
+// own reserved rows.
+func slot(content string, height int) string {
+	fitted := lipgloss.NewStyle().
+		MaxWidth(contentWidth).
+		MaxHeight(height).
+		Render(content)
+	return lipgloss.Place(contentWidth, height, lipgloss.Top, lipgloss.Left, fitted)
+}
 
 func (m Model) header() string {
 	return lipgloss.JoinHorizontal(lipgloss.Center,

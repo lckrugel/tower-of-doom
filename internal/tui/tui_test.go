@@ -223,7 +223,7 @@ func TestViewExploring(t *testing.T) {
 
 	for _, want := range []string{
 		"Tower of Doom", "Floor 1", "Goblin Pits", "EXPLORING",
-		"HP", "DMG", "[E] Explore", "[A] Ascend", "[Q] Quit",
+		"HP", "DMG", "[E] Explore", "[U] Ascend", "[Q] Quit",
 	} {
 		if !strings.Contains(view, want) {
 			t.Errorf("view missing %q in:\n%s", want, view)
@@ -252,7 +252,7 @@ func TestViewEncounterHighlightsTheQueue(t *testing.T) {
 	if !strings.Contains(view, "▶") {
 		t.Error("view must mark the current enemy with ▶")
 	}
-	if !strings.Contains(view, "[A] Attack") || !strings.Contains(view, "[F] Flee") {
+	if !strings.Contains(view, "[A] Attack") || !strings.Contains(view, "[R] Flee") {
 		t.Errorf("combat action bar incomplete:\n%s", view)
 	}
 }
