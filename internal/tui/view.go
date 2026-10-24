@@ -499,8 +499,14 @@ func (m Model) equippedPanel() string {
 }
 
 // actionBar renders the current state's options with the cursor
-// highlighted; the controls hint closes the line.
+// highlighted; the controls hint closes the line. While the quit
+// confirmation is armed the whole bar is replaced by the Really-quit
+// prompt — no options, no hint: the only way out of the prompt is
+// choosing it (y) or cancelling (any other key).
 func (m Model) actionBar() string {
+	if m.confirmQuit {
+		return styleSelected.Render("Really quit? [Y] Yes / [N] No")
+	}
 	actions := m.barActions()
 	spots := make([]string, 0, len(actions))
 	for i, a := range actions {

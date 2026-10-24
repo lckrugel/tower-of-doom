@@ -27,6 +27,8 @@ func press(m Model, raw string) (Model, tea.Cmd) {
 		keyMsg = tea.KeyMsg{Type: tea.KeyLeft}
 	case "right":
 		keyMsg = tea.KeyMsg{Type: tea.KeyRight}
+	case "ctrl+c":
+		keyMsg = tea.KeyMsg{Type: tea.KeyCtrlC}
 	default:
 		keyMsg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(raw)}
 	}
@@ -55,21 +57,7 @@ func TestExploreShortcutStartsEncounter(t *testing.T) {
 	}
 }
 
-func TestQuitShortcutWorksInEveryState(t *testing.T) {
-	for _, state := range []engine.GameState{
-		engine.StateExploring, engine.StateEncounter, engine.StateCombat, engine.StateGameOver,
-		engine.StateLoot, engine.StateInventory, engine.StateMerchant,
-	} {
-		m := New(testEngine())
-		m.engine.State = state
-
-		_, cmd := press(m, "q")
-
-		if cmd == nil {
-			t.Errorf("state %v: 'q' did not request a quit", state)
-		}
-	}
-}
+// The quit-confirmation tests live in quit_test.go.
 
 // esc quits everywhere except where it has a closer meaning: it closes
 // the bag (StateInventory) and is a deliberate no-op while a chest loot
