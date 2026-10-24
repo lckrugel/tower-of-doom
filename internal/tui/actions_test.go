@@ -6,6 +6,7 @@ import (
 
 	"github.com/lckrugel/tower-of-doom/internal/game"
 	"github.com/lckrugel/tower-of-doom/internal/game/engine"
+	"github.com/lckrugel/tower-of-doom/internal/game/engine/entities"
 )
 
 func testEngine() *engine.Engine {
@@ -41,20 +42,38 @@ func keysEqual(got []string, want ...string) bool {
 	return true
 }
 
+// stashTestItem puts a fresh item directly into the hero's bag, so state
+// fixtures can render the bag actions enabled.
+func stashTestItem(e *engine.Engine) *entities.Item {
+	item := entities.NewItemFromAsset(game.ItemAsset{
+		ID: "spare_charm", Name: "Spare Charm", Slot: "ring", BonusDEF: 1, Durability: 10,
+	})
+	e.Player.StashItem(&item)
+	return &item
+}
+
 func TestActionsPerState(t *testing.T) {
 	tests := []struct {
 		name     string
 		state    engine.GameState
+		withBag  bool
 		wantKeys []string
 	}{
-		{"exploring", engine.StateExploring, []string{"e", "u", "q"}},
-		{"encounter", engine.StateEncounter, []string{"f", "s", "q"}},
-		{"combat", engine.StateCombat, []string{"a", "r", "q"}},
-		{"game over", engine.StateGameOver, []string{"q"}},
+		{"exploring", engine.StateExploring, false, []string{"e", "u", "i", "q"}},
+		{"encounter", engine.StateEncounter, false, []string{"f", "s", "q"}},
+		{"combat", engine.StateCombat, false, []string{"a", "r", "q"}},
+		{"loot", engine.StateLoot, false, []string{"g", "b", "d", "q"}},
+		{"inventory", engine.StateInventory, true, []string{"w", "x", "c", "q"}},
+		{"game over", engine.StateGameOver, false, []string{"q"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			e := testEngine()
+			if tt.withBag {
+				// An empty bag renders WEAR/DROP disabled; the enabled
+				// invariant below needs a stocked bag.
+				stashTestItem(e)
+			}
 			e.State = tt.state
 
 			actions := actionsFor(e)
@@ -71,12 +90,34 @@ func TestActionsPerState(t *testing.T) {
 	}
 }
 
+// An empty bag can't wear or drop anything: both actions render disabled.
+// Dispatching them anyway still reaches the engine, which explains the
+// rejection as a log message.
+func TestBagActionsAreDisabledOnAnEmptyBag(t *testing.T) {
+	e := testEngine()
+	e.State = engine.StateInventory
+
+	for _, a := range actionsFor(e) {
+		switch a.cmd {
+		case engine.CmdEquip, engine.CmdDrop:
+			if a.enabled {
+				t.Errorf("action %q enabled with an empty bag", a.key)
+			}
+		default:
+			if !a.enabled {
+				t.Errorf("action %q unexpectedly disabled", a.key)
+			}
+		}
+	}
+}
+
 // No shortcut may change meaning across states: combat muscle memory
 // (spamming attack) must never leak into a different command.
 func TestShortcutsAreGloballyUnique(t *testing.T) {
 	byKey := make(map[string]engine.CommandType)
 	states := []engine.GameState{
 		engine.StateExploring, engine.StateEncounter, engine.StateCombat, engine.StateGameOver,
+		engine.StateLoot, engine.StateInventory,
 	}
 	for _, state := range states {
 		e := testEngine()
@@ -106,5 +147,25 @@ func TestAscendEnabledFollowsCanAscend(t *testing.T) {
 	unlocked := actionsFor(e)[slices.IndexFunc(actionsFor(e), func(a action) bool { return a.cmd == engine.CmdAscend })]
 	if !unlocked.enabled {
 		t.Error("ascend still disabled after a victory")
+	}
+}
+
+// Only the bag commands index into the bag: the model must flag exactly
+// those, so dispatch knows when to carry the selected row — and no other
+// action ever sends an index.
+func TestOnlyBagActionsUseTheIndex(t *testing.T) {
+	states := []engine.GameState{
+		engine.StateExploring, engine.StateEncounter, engine.StateCombat,
+		engine.StateGameOver, engine.StateLoot, engine.StateInventory,
+	}
+	for _, state := range states {
+		e := testEngine()
+		e.State = state
+		for _, a := range actionsFor(e) {
+			want := a.cmd == engine.CmdEquip || a.cmd == engine.CmdDrop
+			if a.usesIndex != want {
+				t.Errorf("state %v: action %q usesIndex = %v, want %v", state, a.key, a.usesIndex, want)
+			}
+		}
 	}
 }
