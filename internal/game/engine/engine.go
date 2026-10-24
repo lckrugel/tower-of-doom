@@ -51,6 +51,12 @@ type Engine struct {
 	// decideEncounterKind), so a sanctuary/chest/merchant can never open
 	// a run. Per run: ascension does not reset it.
 	firstExploreDone bool
+	// recentKinds holds the encounter kinds resolved by the last two kind
+	// decisions (recentKinds[1] is the most recent), feeding the "no
+	// three identical non-combat kinds in a row" pacing rule. The zero
+	// value is combat, so a fresh engine's empty history can never
+	// satisfy the non-combat streak and false-trigger the override.
+	recentKinds [2]EncounterType
 }
 
 // `rng` é a fonte de aleatoriedade usada pelo engine.

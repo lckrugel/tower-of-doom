@@ -251,3 +251,157 @@ func TestAscendDoesNotResetFirstExploreFlag(t *testing.T) {
 		t.Errorf("rng calls = %d, want 5 (3 picks + sneak + kind roll)", stub.calls)
 	}
 }
+
+// ——— Pacing rules: non-combat kind streaks ———
+
+// A kind roll landing on the same non-combat kind as the previous two is
+// overridden to combat: three identical non-combat kinds in a row never
+// happen. The override is not a reroll — the original roll's single Intn
+// stays the only rng consumed for that kind decision.
+func TestThirdIdenticalSanctuaryBecomesCombat(t *testing.T) {
+	// Forced combat: 3 picks (0,0,0); sneak away (0); kind 10 → sanctuary
+	// twice; the third 10 is overridden to combat; picks 104 → orc (5),
+	// 0 → goblin (3).
+	e := newKindEngine(0, 0, 0, 0, 10, 10, 10, 104, 0)
+	stub := e.rng.(*stubRng)
+
+	e.Process(Command{Type: CmdExplore}) // forced combat
+	e.Process(Command{Type: CmdSneak})   // away
+	if got := eventTypes(e.Process(Command{Type: CmdExplore})); !typesEqual(got, EventHeroHealed) {
+		t.Fatalf("second explore events = %v, want [hero-healed] (sanctuary #1)", got)
+	}
+	if got := eventTypes(e.Process(Command{Type: CmdExplore})); !typesEqual(got, EventHeroHealed) {
+		t.Fatalf("third explore events = %v, want [hero-healed] (sanctuary #2 — a pair is fine)", got)
+	}
+
+	events := e.Process(Command{Type: CmdExplore}) // third sanctuary roll
+
+	if got := eventTypes(events); !typesEqual(got, EventEncounterFound) {
+		t.Fatalf("events = %v, want [encounter-found] (overridden to combat)", got)
+	}
+	if e.State != StateEncounter {
+		t.Errorf("state = %v, want StateEncounter", e.State)
+	}
+	if !idsEqual(monsterIDs(e.CurrentEncounter.Monsters), "orc", "goblin") {
+		t.Errorf("encounter = %v, want [orc goblin] (the picks followed the ONE kind Intn)", monsterIDs(e.CurrentEncounter.Monsters))
+	}
+	// 9 = 3 forced-combat picks + sneak + 3 kind rolls + 2 monster picks;
+	// an extra (reroll) or missing kind Intn would shift this count.
+	if stub.calls != 9 {
+		t.Errorf("rng calls = %d, want 9 (no extra rng for the override)", stub.calls)
+	}
+}
+
+// The streak rule only blocks the third SAME kind: after two sanctuaries
+// a legitimately-rolled chest still happens.
+func TestThirdDifferentKindStillHappens(t *testing.T) {
+	// Forced combat (0,0,0) + sneak (0); sanctuaries (10, 10); chest kind
+	// 20; gold check 0 < 40 → gold chest (no item registry needed).
+	e := newKindEngine(0, 0, 0, 0, 10, 10, 20, 0)
+
+	e.Process(Command{Type: CmdExplore}) // forced combat
+	e.Process(Command{Type: CmdSneak})   // away
+	e.Process(Command{Type: CmdExplore}) // sanctuary #1
+	e.Process(Command{Type: CmdExplore}) // sanctuary #2
+
+	events := e.Process(Command{Type: CmdExplore}) // chest roll
+
+	if got := eventTypes(events); !typesEqual(got, EventGoldGained) {
+		t.Fatalf("events = %v, want [gold-gained] (the chest happened)", got)
+	}
+	if e.State != StateExploring {
+		t.Errorf("state = %v, want StateExploring (gold chest pays on the spot)", e.State)
+	}
+}
+
+// The streak rule is kind-specific: two merchants then a MERCHANT roll is
+// overridden to combat — and the override skips the merchant entirely (no
+// stock is rolled).
+func TestMerchantStreakBecomesCombat(t *testing.T) {
+	// Merchant kind 30 twice (stock offers 0,1,0; upgrade check 99 → none
+	// — LEAVE consumes no rng), then a third merchant kind 30 →
+	// overridden; picks 104 → orc (5), 0 → goblin (3).
+	e := merchantEngine(30, 0, 1, 0, 99, 30, 0, 1, 0, 99, 30, 104, 0)
+	stub := e.rng.(*stubRng)
+
+	for range 2 {
+		if got := eventTypes(e.Process(Command{Type: CmdExplore})); !typesEqual(got, EventMerchantFound) {
+			t.Fatalf("explore events = %v, want [merchant-found]", got)
+		}
+		if got := eventTypes(e.Process(Command{Type: CmdLeave})); len(got) != 1 || got[0] != EventMessage {
+			t.Fatalf("leave events = %v, want a single message", got)
+		}
+	}
+
+	events := e.Process(Command{Type: CmdExplore}) // third merchant roll
+
+	if got := eventTypes(events); !typesEqual(got, EventEncounterFound) {
+		t.Fatalf("events = %v, want [encounter-found] (overridden to combat)", got)
+	}
+	if e.State != StateEncounter {
+		t.Errorf("state = %v, want StateEncounter", e.State)
+	}
+	if len(e.MerchantStock) != 0 {
+		t.Errorf("stock = %v, want empty (the override skips the merchant)", e.MerchantStock)
+	}
+	if !idsEqual(monsterIDs(e.CurrentEncounter.Monsters), "orc", "goblin") {
+		t.Errorf("encounter = %v, want [orc goblin]", monsterIDs(e.CurrentEncounter.Monsters))
+	}
+	// 13 = 2 × (kind + 3 offers + upgrade check) + the overridden kind's
+	// one Intn + 2 monster picks; a reroll would shift the count.
+	if stub.calls != 13 {
+		t.Errorf("rng calls = %d, want 13 (no extra rng for the override)", stub.calls)
+	}
+}
+
+// ...and the mirror of the chest case: after a merchant pair, a
+// legitimately-rolled SANCTUARY still happens — only the third SAME kind
+// is blocked.
+func TestDifferentKindAfterMerchantPairHappens(t *testing.T) {
+	// Merchant kind 30 twice, then sanctuary kind 10 — a different
+	// non-combat kind, so no override.
+	e := merchantEngine(30, 0, 1, 0, 99, 30, 0, 1, 0, 99, 10)
+
+	for range 2 {
+		if got := eventTypes(e.Process(Command{Type: CmdExplore})); !typesEqual(got, EventMerchantFound) {
+			t.Fatalf("explore events = %v, want [merchant-found]", got)
+		}
+		e.Process(Command{Type: CmdLeave})
+	}
+
+	events := e.Process(Command{Type: CmdExplore}) // sanctuary roll
+
+	if got := eventTypes(events); !typesEqual(got, EventHeroHealed) {
+		t.Fatalf("events = %v, want [hero-healed] (a different kind is not blocked)", got)
+	}
+	if e.State != StateExploring {
+		t.Errorf("state = %v, want StateExploring", e.State)
+	}
+}
+
+// The kind history feeding the streak rule survives ascension (it is per
+// run, like the first-explore flag) — while a fresh engine's zero-value
+// history [combat, combat] can never satisfy the non-combat streak, so
+// nothing overrides before any kind was recorded (TestExploreSanctuary).
+func TestKindHistorySurvivesAscension(t *testing.T) {
+	// Two sanctuaries (history full), then ASCEND (empty armor pool → no
+	// rng), then a third sanctuary roll must still be overridden.
+	e := pastFirstExplore(newKindEngine(10, 10, 10, 104, 0))
+	e.CanAscend = true
+
+	e.Process(Command{Type: CmdExplore}) // sanctuary #1
+	e.Process(Command{Type: CmdExplore}) // sanctuary #2
+	if got := eventTypes(e.Process(Command{Type: CmdAscend})); !typesEqual(got, EventFloorEntered) {
+		t.Fatalf("ascend events = %v, want [floor-entered]", got)
+	}
+
+	events := e.Process(Command{Type: CmdExplore}) // third sanctuary roll
+
+	if got := eventTypes(events); !typesEqual(got, EventEncounterFound) {
+		t.Fatalf("events = %v, want [encounter-found] (history survived ascension)", got)
+	}
+	// Floor 2 difficulty is 12: orc (5), then two goblins (3 + 3).
+	if !idsEqual(monsterIDs(e.CurrentEncounter.Monsters), "orc", "goblin", "goblin") {
+		t.Errorf("encounter = %v, want [orc goblin goblin]", monsterIDs(e.CurrentEncounter.Monsters))
+	}
+}
