@@ -40,7 +40,7 @@ type Encounter struct {
 
 // sanctuaryHealPercent is how much of the Hero's base max HP a sanctuary
 // restores, as a percentage.
-const sanctuaryHealPercent = 20
+const sanctuaryHealPercent = 35
 
 // rollEncounterType sorteia o tipo do encontro a partir dos pesos da seção.
 //
