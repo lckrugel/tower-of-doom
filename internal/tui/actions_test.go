@@ -64,7 +64,7 @@ func TestActionsPerState(t *testing.T) {
 		{"encounter", engine.StateEncounter, false, false, []string{"f", "s", "q"}},
 		{"combat", engine.StateCombat, false, false, []string{"a", "r", "q"}},
 		{"loot", engine.StateLoot, false, false, []string{"g", "b", "d", "q"}},
-		{"inventory", engine.StateInventory, true, false, []string{"w", "x", "c", "q"}},
+		{"inventory", engine.StateInventory, true, false, []string{"g", "x", "c", "q"}},
 		{"merchant", engine.StateMerchant, true, true, []string{"p", "v", "l", "q"}},
 		{"game over", engine.StateGameOver, false, false, []string{"q"}},
 	}
@@ -106,7 +106,7 @@ func TestBagActionsAreDisabledOnAnEmptyBag(t *testing.T) {
 
 	for _, a := range actionsFor(e) {
 		switch a.cmd {
-		case engine.CmdEquip, engine.CmdDrop:
+		case engine.CmdWear, engine.CmdDrop:
 			if a.enabled {
 				t.Errorf("action %q enabled with an empty bag", a.key)
 			}
@@ -170,7 +170,7 @@ func TestIndexedCommandsUseTheRowCursor(t *testing.T) {
 		e := testEngine()
 		e.State = state
 		for _, a := range actionsFor(e) {
-			want := a.cmd == engine.CmdEquip || a.cmd == engine.CmdDrop ||
+			want := a.cmd == engine.CmdWear || a.cmd == engine.CmdDrop ||
 				a.cmd == engine.CmdBuy || a.cmd == engine.CmdSell
 			if a.usesIndex != want {
 				t.Errorf("state %v: action %q usesIndex = %v, want %v", state, a.key, a.usesIndex, want)

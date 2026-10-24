@@ -41,12 +41,11 @@ var orderedOptions = []struct {
 	{"f", "Fight", engine.CmdFight},
 	{"s", "Sneak", engine.CmdSneak},
 	{"a", "Attack", engine.CmdAttack},
-	{"r", "Flee", engine.CmdFlee},      // r for "run"
-	{"g", "Grab", engine.CmdEquipLoot}, // g for "grab": wear the chest loot
-	{"b", "Bag", engine.CmdStashLoot},  // stash the chest loot in the bag
+	{"r", "Flee", engine.CmdFlee},     // r for "run"
+	{"g", "Wear", engine.CmdWear},     // wears the chest loot or the selected bag item
+	{"b", "Bag", engine.CmdStashLoot}, // stash the chest loot in the bag
 	{"d", "Discard", engine.CmdDiscardLoot},
-	{"w", "Wear", engine.CmdEquip}, // wear the selected bag item
-	{"x", "Drop", engine.CmdDrop},  // destroy the selected bag item
+	{"x", "Drop", engine.CmdDrop}, // destroy the selected bag item
 	{"c", "Close", engine.CmdClose},
 	{"p", "Buy", engine.CmdBuy},   // buy the offer under the shop cursor
 	{"v", "Sell", engine.CmdSell}, // sell the selected bag item
@@ -66,10 +65,13 @@ func actionsFor(e *engine.Engine) []action {
 		switch opt.cmd {
 		case engine.CmdAscend:
 			enabled = e.CanAscend
-		case engine.CmdEquip, engine.CmdDrop:
-			// An empty bag has nothing to wear or drop; dispatching
-			// anyway still reaches the engine, which rejects it in the log.
-			enabled = len(e.Player.Bag()) > 0
+		case engine.CmdWear, engine.CmdDrop:
+			// Only the bag-state wear/drop act on the bag: an empty bag
+			// has nothing to wear or drop there. The loot-state wear (the
+			// pending chest item) is never gated — it is only offered
+			// while an item pends. Dispatching a disabled action still
+			// reaches the engine, which rejects it in the log.
+			enabled = e.State == engine.StateLoot || len(e.Player.Bag()) > 0
 		case engine.CmdBuy:
 			// Static floor (the shop cursor refines these in barActions):
 			// a bought-out merchant has nothing to sell.
@@ -79,7 +81,7 @@ func actionsFor(e *engine.Engine) []action {
 		}
 		actions = append(actions, action{
 			key: opt.key, label: opt.label, cmd: opt.cmd, enabled: enabled,
-			usesIndex: opt.cmd == engine.CmdEquip || opt.cmd == engine.CmdDrop ||
+			usesIndex: opt.cmd == engine.CmdWear || opt.cmd == engine.CmdDrop ||
 				opt.cmd == engine.CmdBuy || opt.cmd == engine.CmdSell,
 		})
 	}

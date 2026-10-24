@@ -248,10 +248,10 @@ func TestWearEquipsTheSelectedBagItem(t *testing.T) {
 		t.Fatalf("bag cursor after right = %d, want 1", m.bagCursor)
 	}
 
-	m, _ = press(m, "w")
+	m, _ = press(m, "g")
 
 	if m.engine.State != engine.StateInventory {
-		t.Fatalf("state after 'w' = %v, want the bag to stay open", m.engine.State)
+		t.Fatalf("state after wear = %v, want the bag to stay open", m.engine.State)
 	}
 	if m.engine.Player.Weapon != &iron {
 		t.Errorf("weapon = %q, want the selected Iron Staff", m.engine.Player.Weapon.Name)

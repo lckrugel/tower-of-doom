@@ -137,18 +137,19 @@ func TestExploreOnAChestOpensTheLootDecision(t *testing.T) {
 	}
 }
 
-// GRAB wears the pending loot and returns to exploring.
-func TestGrabEquipsThePendingLoot(t *testing.T) {
+// WEAR (loot-state key g until the bar is rekeyed) equips the pending
+// loot and returns to exploring.
+func TestWearEquipsThePendingLoot(t *testing.T) {
 	m := chestModel(t)
 	item := m.engine.PendingLoot
 
 	m, _ = press(m, "g")
 
 	if m.engine.State != engine.StateExploring {
-		t.Errorf("state after 'g' = %v, want StateExploring", m.engine.State)
+		t.Errorf("state after wear = %v, want StateExploring", m.engine.State)
 	}
 	if m.engine.PendingLoot != nil {
-		t.Error("'g' left the loot pending")
+		t.Error("wear left the loot pending")
 	}
 	if !isWorn(m.engine.Player, item) {
 		t.Errorf("the pending item %q is not worn after 'g'", item.Name)
@@ -235,7 +236,7 @@ func TestViewInventoryListsTheBag(t *testing.T) {
 	for _, want := range []string{
 		"◈ BAG (3/10)",
 		"Spare Charm",
-		"[W] Wear", "[X] Drop", "[C] Close", "[Q] Quit",
+		"[G] Wear", "[X] Drop", "[C] Close", "[Q] Quit",
 	} {
 		if !strings.Contains(view, want) {
 			t.Errorf("bag view missing %q:\n%s", want, view)
@@ -308,10 +309,10 @@ func TestWearFromTheOpenBagEquipsTheSelection(t *testing.T) {
 	m := New(e)
 	m, _ = press(m, "i")
 	m, _ = press(m, "right") // selects bag[1]: Hero's Blade
-	m, _ = press(m, "w")
+	m, _ = press(m, "g")
 
 	if m.engine.State != engine.StateInventory {
-		t.Fatalf("state after 'w' = %v, want the bag to stay open", m.engine.State)
+		t.Fatalf("state after wear = %v, want the bag to stay open", m.engine.State)
 	}
 	if !isWorn(m.engine.Player, blade) {
 		t.Errorf("weapon = %q, want the selected Hero's Blade", m.engine.Player.Weapon.Name)
@@ -339,7 +340,7 @@ func TestViewLootPanel(t *testing.T) {
 		"◈ CHEST LOOT",
 		m.engine.PendingLoot.Name,
 		"decide — wear it, bag it, or let it go.",
-		"[G] Grab", "[B] Bag", "[D] Discard",
+		"[G] Wear", "[B] Bag", "[D] Discard",
 	} {
 		if !strings.Contains(view, want) {
 			t.Errorf("loot view missing %q:\n%s", want, view)

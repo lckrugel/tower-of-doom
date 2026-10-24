@@ -48,8 +48,6 @@ func eventText(ev engine.Event) string {
 		return "You fled the combat successfully."
 	case engine.EventHeroHealed:
 		return heroHealedText(ev.Data)
-	case engine.EventItemFound:
-		return itemFoundText(ev.Data)
 	case engine.EventLootFound:
 		return lootFoundText(ev.Data)
 	case engine.EventItemEquipped:
@@ -138,18 +136,6 @@ func heroHealedText(data map[string]any) string {
 	}
 	return fmt.Sprintf("While exploring, you find an ancient sanctuary and rest. You recover %v HP (%v%% HP left).",
 		healed, data["hero_hp"])
-}
-
-func itemFoundText(data map[string]any) string {
-	item, ok := data["item"].(*entities.Item)
-	if !ok {
-		return "You found some gear, but the tower swallowed it."
-	}
-	// No indefinite article: "You find a Espada..." shows the article
-	// bug for vowels, and English articles can't be derived from a
-	// multilingual item name. Sentence-style naming is article-free and
-	// reads the same for every asset.
-	return fmt.Sprintf("You find %v%s and put it on.", item.Name, itemBonusList(item))
 }
 
 // itemOf reads an event's item payload, treating a missing key and a

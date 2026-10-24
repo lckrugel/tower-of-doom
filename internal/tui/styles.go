@@ -110,8 +110,6 @@ func toneOf(ev engine.Event) lipgloss.Style {
 		return styleMerchant
 	case engine.EventItemBought, engine.EventItemSold:
 		return styleLoot
-	case engine.EventItemFound:
-		return styleLoot
 	case engine.EventLootFound, engine.EventItemEquipped, engine.EventItemStashed:
 		return styleLoot
 	case engine.EventItemDiscarded:
