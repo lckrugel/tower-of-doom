@@ -182,10 +182,23 @@ func (m Model) body() string {
 	case engine.StateCombat: // only the front enemy matters mid-fight
 		return m.combatPanel()
 	case engine.StateGameOver:
-		return styleDeath.Render("☠ YOU DIED — the tower claims another soul.")
+		return m.gameOverPanel()
 	default:
 		return ""
 	}
+}
+
+// gameOverPanel is the body after death: the banner, then the run's
+// recap — where the climb ended (floor + section) and which hero fell.
+// All of the data is already on the engine: CurrentFloor, SectionName
+// and the player's level/XP.
+func (m Model) gameOverPanel() string {
+	p := m.engine.Player
+	var b strings.Builder
+	b.WriteString(styleDeath.Render("☠ YOU DIED — the tower claims another soul.") + "\n\n")
+	b.WriteString("  Reached " + styleLocation.Render(m.locationLabel()) + "\n")
+	b.WriteString(styleDim.Render(fmt.Sprintf("  Level %d · %d XP gathered", p.Lvl, p.Xp)))
+	return b.String()
 }
 
 // encounterPanel lists every enemy in the queue. Nothing is engaged yet,

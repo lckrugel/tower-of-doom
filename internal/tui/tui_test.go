@@ -324,12 +324,36 @@ func TestViewCombatShowsOnlyTheCurrentEnemy(t *testing.T) {
 	}
 }
 
-func TestViewGameOverBanner(t *testing.T) {
+// After death the body must recap the run: the floor/section where the
+// climb ended and who the hero was. The header badge alone says nothing
+// about the run.
+func TestViewGameOverRecap(t *testing.T) {
 	e := testEngine()
 	e.State = engine.StateGameOver
+	e.CurrentFloor = 7
+	e.Player.Lvl = 3
+	e.Player.Xp = 40
 	m := New(e)
 
-	if view := stripControls(stripANSI(m.View())); !strings.Contains(view, "YOU DIED") {
-		t.Errorf("game over view missing a death banner:\n%s", view)
+	view := stripControls(stripANSI(m.View()))
+
+	for _, want := range []string{
+		"YOU DIED",       // the banner stays
+		"Floor 7",        // where it ended
+		"Goblin Pits",    // the section, via SectionName
+		"Level 3",        // hero level
+		"40 XP gathered", // xp accumulated before death
+	} {
+		if !strings.Contains(view, want) {
+			t.Errorf("game over view missing %q:\n%s", want, view)
+		}
+	}
+
+	// The recap lives in the left column: no line may lean on slot()
+	// to be clipped.
+	for i, line := range viewLines(m.gameOverPanel()) {
+		if w := ansiLen(line); w > mainColWidth {
+			t.Errorf("game over body line %d is %d wide, overflows the %d-col column:\n%q", i, w, mainColWidth, line)
+		}
 	}
 }
