@@ -63,7 +63,8 @@ func TestExploreTransitionsToEncounter(t *testing.T) {
 
 func TestFightResolvesFirstRound(t *testing.T) {
 	t.Run("tie on speed: hero acts first", func(t *testing.T) {
-		e := newTestEngine()
+		// stub [1, 50] = average spread (no crit) per strike, cycling.
+		e := newTestEngine(1, 50)
 		heroWithDamage(e, 5)
 		startEncounter(e, monsterFromFixture("goblin")) // SPD 10 == hero SPD 10
 
@@ -113,7 +114,7 @@ func TestFightResolvesFirstRound(t *testing.T) {
 }
 
 func TestAttackResolvesOneRoundPerCommand(t *testing.T) {
-	e := newTestEngine()
+	e := newTestEngine(1, 50) // average spread (no crit) per strike
 	heroWithDamage(e, 5)
 	startEncounter(e, monsterFromFixture("goblin"))
 	e.State = StateCombat
@@ -244,7 +245,8 @@ func TestSneak(t *testing.T) {
 	})
 
 	t.Run("failure starts combat with a free enemy turn", func(t *testing.T) {
-		e := newTestEngine(1) // Intn(2) = 1 → failure
+		// Intn(2) = 1 → failure; then the free strike rolls average spread, no crit.
+		e := newTestEngine(1, 1, 50)
 		heroWithDamage(e, 5)
 		startEncounter(e, monsterFromFixture("goblin"))
 
@@ -314,7 +316,8 @@ func TestFlee(t *testing.T) {
 	})
 
 	t.Run("failure gives the enemy a free turn", func(t *testing.T) {
-		e := newTestEngine(99) // Intn(100) = 99 >= chance 50 → failure
+		// Intn(100) = 99 → flee fails; then the free strike rolls average spread, no crit.
+		e := newTestEngine(99, 1, 50)
 		heroWithDamage(e, 5)
 		startEncounter(e, monsterFromFixture("goblin"))
 		e.State = StateCombat
@@ -426,5 +429,110 @@ func TestInvalidCommandInWrongState(t *testing.T) {
 	// State must be untouched by rejected commands.
 	if e.State != StateCombat {
 		t.Errorf("state = %v, want StateCombat (rejected command must not transition)", e.State)
+	}
+}
+
+// rollDamage consumes two rng values per strike: spread, then crit roll.
+func TestRollDamageSpread(t *testing.T) {
+	tests := []struct {
+		name     string
+		stat     int
+		spread   int // Intn(3) result
+		critRoll int // Intn(100) result
+		want     int
+		wantCrit bool
+	}{
+		{"spread 0 rolls below the stat", 5, 0, 50, 4, false},
+		{"spread 1 rolls the exact stat", 5, 1, 50, 5, false},
+		{"spread 2 rolls above the stat", 5, 2, 50, 6, false},
+		{"damage is floored at 1", 1, 0, 50, 1, false},
+		{"a weaponless fighter still chips for 1", 0, 0, 50, 1, false},
+		{"crit doubles the swung damage", 5, 1, 0, 10, true},
+		{"roll equal to the threshold is not a crit", 5, 1, 10, 5, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e := newTestEngine(tt.spread, tt.critRoll)
+			heroWithDamage(e, tt.stat)
+
+			got, crit := e.rollDamage(e.Player)
+
+			if got != tt.want {
+				t.Errorf("damage = %d, want %d", got, tt.want)
+			}
+			if crit != tt.wantCrit {
+				t.Errorf("crit = %v, want %v", crit, tt.wantCrit)
+			}
+		})
+	}
+}
+
+// The hero's fixed 10% threshold fires in an actual round.
+func TestHeroCritInCombat(t *testing.T) {
+	// hero strike: spread 1 → swing 5, crit roll 0 < 10 → 10 dealt;
+	// enemy strike: spread 1 → swing 2, crit roll 50 → no crit.
+	e := newTestEngine(1, 0, 1, 50)
+	heroWithDamage(e, 5)
+	startEncounter(e, monsterFromFixture("goblin"))
+
+	events := e.Process(Command{Type: CmdFight})
+
+	dealt, taken := events[0], events[1]
+	if dmg := dealt.Data["damage_dealt"]; dmg != 10 {
+		t.Errorf("damage_dealt = %v, want 10 (crit doubled)", dmg)
+	}
+	if crit, _ := dealt.Data["crit"].(bool); !crit {
+		t.Error("damage event crit flag = false, want true")
+	}
+	if hp := e.CurrentEncounter[0].CurrentHP; hp != 20 {
+		t.Errorf("goblin HP = %d, want 20", hp)
+	}
+	if crit, _ := taken.Data["crit"].(bool); crit {
+		t.Error("hero took a crit, want none")
+	}
+	if hp := e.Player.CurrentHP; hp != 98 {
+		t.Errorf("hero HP = %d, want 98", hp)
+	}
+}
+
+// Monsters use their own crit attribute, from the spawn asset.
+func TestMonsterCritInCombat(t *testing.T) {
+	// hero strike: spread 1, crit 50 → plain 5 dealt;
+	// enemy strike: spread 1 → swing 2, crit roll 0 < 50 → 4 taken.
+	e := newTestEngine()
+	e.rng = &stubRng{values: []int{1, 50, 1, 0}}
+	heroWithDamage(e, 5)
+	critter := entities.NewMonsterFromAsset(game.MonsterAsset{
+		ID: "critter", Name: "Critter", Difficulty: 2, HP: 30, Damage: 2, Speed: 5, Crit: 50,
+	})
+	startEncounter(e, critter)
+
+	events := e.Process(Command{Type: CmdFight})
+
+	taken := events[1]
+	if dmg := taken.Data["damage_taken"]; dmg != 4 {
+		t.Errorf("damage_taken = %v, want 4 (monster crit doubled)", dmg)
+	}
+	if crit, _ := taken.Data["crit"].(bool); !crit {
+		t.Error("damage event crit flag = false, want true")
+	}
+	if hp := e.Player.CurrentHP; hp != 96 {
+		t.Errorf("hero HP = %d, want 96", hp)
+	}
+}
+
+// A 0% threshold can never crit, even on a 0 roll.
+func TestCritNeverFiresWithZeroThreshold(t *testing.T) {
+	e := newTestEngine(1, 0)
+
+	goblin := monsterFromFixture("goblin") // crit asset value absent → 0
+	got, crit := e.rollDamage(&goblin)
+
+	if crit {
+		t.Error("crit fired with a 0 threshold")
+	}
+	if got != 2 {
+		t.Errorf("damage = %d, want 2", got)
 	}
 }

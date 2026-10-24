@@ -39,7 +39,23 @@
 
 ### RNG
 
+All combat randomness flows through the engine's injectable `rng` seam
+(`Intn(n)`), so tests stay deterministic. The crypto-based `game.RollD*`
+helpers are for non-engine use only (e.g. item durability).
+
+- **Attack resolution (per strike):** no hit/miss roll — every attack lands.
+    1. Damage spread: `max(1, DMG − 1 + Intn(3))` (±1 around the attack stat).
+    2. Critical hit: crit if `Intn(100) < CritThreshold()` (a percentage),
+       doubling the swung damage of that hit.
+    - The Hero has a fixed 10% crit threshold; each monster has its own
+      `crit` asset value (0 = never crits, validated in [0, 100]).
+- **SNEAK:** 50/50 (`Intn(2)`), no stats involved.
+- **FLEE:** chance = `50% + 5% × (hero SPD − enemy SPD)`, clamped to [5, 95].
+
 ### Defense
+
+Deferred for now: `Defense()` exists on the Combatant interface but is not
+consumed by the combat math yet.
 
 ## Items
 

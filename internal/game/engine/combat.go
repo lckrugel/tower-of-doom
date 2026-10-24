@@ -63,18 +63,31 @@ func (e *Engine) resolveRound(heroAttack bool) []Event {
 	return events
 }
 
+// rollDamage resolves an attacker's strike: the attack stat with a small
+// ±1 spread (floored at 1, no misses), doubled on a critical hit.
+// Crit chance is the attacker's CritThreshold read as a percentage
+// (rng.Intn(100) < threshold).
+func (e *Engine) rollDamage(attacker Combatant) (dmg int, crit bool) {
+	dmg = max(1, attacker.Damage()-1+e.rng.Intn(3))
+	crit = e.rng.Intn(100) < attacker.CritThreshold()
+	if crit {
+		dmg *= 2
+	}
+	return dmg, crit
+}
+
 // heroStrike performs the Hero's attack against the current enemy.
 func (e *Engine) heroStrike() []Event {
 	enemy := e.currentEnemy()
-	dmg := enemy.TakeDmg(e.Player.Damage())
-	return []Event{NewDamageDealt(enemy, dmg)}
+	dmg, crit := e.rollDamage(e.Player)
+	return []Event{NewDamageDealt(enemy, enemy.TakeDmg(dmg), crit)}
 }
 
 // enemyStrike performs the current enemy's attack against the Hero.
 func (e *Engine) enemyStrike() []Event {
 	enemy := e.currentEnemy()
-	dmg := e.Player.TakeDmg(enemy.Damage())
-	return []Event{NewDamageTaken(e.Player, dmg)}
+	dmg, crit := e.rollDamage(enemy)
+	return []Event{NewDamageTaken(e.Player, e.Player.TakeDmg(dmg), crit)}
 }
 
 // enemyFreeTurn is the single enemy attack granted by a failed sneak or a

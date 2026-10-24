@@ -68,7 +68,7 @@ func NewEncounterFound(monsters []entities.Monster) Event {
 	}
 }
 
-func NewDamageDealt(enemy Combatant, dmgDealt int) Event {
+func NewDamageDealt(enemy Combatant, dmgDealt int, crit bool) Event {
 	return Event{
 		Type: EventCombatDamageDealt,
 		Data: map[string]any{
@@ -76,11 +76,12 @@ func NewDamageDealt(enemy Combatant, dmgDealt int) Event {
 			"enemy_hp":     enemy.CurrentHPPercent(),
 			"enemy_alive":  enemy.IsAlive(),
 			"damage_dealt": dmgDealt,
+			"crit":         crit,
 		},
 	}
 }
 
-func NewDamageTaken(hero Combatant, dmgTaken int) Event {
+func NewDamageTaken(hero Combatant, dmgTaken int, crit bool) Event {
 	return Event{
 		Type: EventCombatDamageTaken,
 		Data: map[string]any{
@@ -88,6 +89,7 @@ func NewDamageTaken(hero Combatant, dmgTaken int) Event {
 			"hero_hp":      hero.CurrentHPPercent(),
 			"hero_alive":   hero.IsAlive(),
 			"damage_taken": dmgTaken,
+			"crit":         crit,
 		},
 	}
 }

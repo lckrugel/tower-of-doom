@@ -141,20 +141,34 @@ func renderEvent(ev engine.Event) string {
 }
 
 func renderDamageDealt(data map[string]any) string {
-	dmg := data["damage_dealt"]
+	var b strings.Builder
 	enemy := data["enemy"]
-	if alive, _ := data["enemy_alive"].(bool); alive {
-		return fmt.Sprintf("You hit the %v for %v damage (%v%% HP left).", enemy, dmg, data["enemy_hp"])
+	dmg := data["damage_dealt"]
+
+	if crit, _ := data["crit"].(bool); crit {
+		fmt.Fprintf(&b, "You land a devastating blow on the %v — CRIT! %v damage", enemy, dmg)
+	} else {
+		fmt.Fprintf(&b, "You hit the %v for %v damage", enemy, dmg)
 	}
-	return fmt.Sprintf("You hit the %v for %v damage — a killing blow!", enemy, dmg)
+
+	if alive, _ := data["enemy_alive"].(bool); alive {
+		fmt.Fprintf(&b, " (%v%% HP left).", data["enemy_hp"])
+	} else {
+		b.WriteString(" — a killing blow!")
+	}
+	return b.String()
 }
 
 func renderDamageTaken(data map[string]any) string {
 	dmg := data["damage_taken"]
-	if alive, _ := data["hero_alive"].(bool); alive {
-		return fmt.Sprintf("You take %v damage (%v%% HP left).", dmg, data["hero_hp"])
+	prefix := ""
+	if crit, _ := data["crit"].(bool); crit {
+		prefix = "A crushing hit lands on you — CRIT! "
 	}
-	return fmt.Sprintf("You take %v damage and your vision fades...", dmg)
+	if alive, _ := data["hero_alive"].(bool); alive {
+		return fmt.Sprintf("%vYou take %v damage (%v%% HP left).", prefix, dmg, data["hero_hp"])
+	}
+	return fmt.Sprintf("%vYou take %v damage and your vision fades...", prefix, dmg)
 }
 
 // describeMonsters renders the spawned encounter, e.g. "Goblin (30 HP), Orc (50 HP)".
