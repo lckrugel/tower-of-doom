@@ -14,9 +14,13 @@ const (
 )
 
 type Item struct {
-	ID                string
-	Slot              ItemSlot
-	Name              string
+	ID   string
+	Slot ItemSlot
+	Name string
+	// Tier places the item on the progression ladder (1 = earliest). It
+	// gates which sections can roll the item as a reward/stock and what a
+	// merchant may upgrade an offer to.
+	Tier              int
 	BonusHP           int
 	BonusDMG          int
 	BonusDEF          int
@@ -36,6 +40,7 @@ func NewItemFromAsset(asset game.ItemAsset) Item {
 		ID:                asset.ID,
 		Name:              asset.Name,
 		Slot:              ItemSlot(asset.Slot),
+		Tier:              max(1, asset.Tier),
 		BonusHP:           asset.BonusHP,
 		BonusDMG:          asset.BonusDMG,
 		BonusDEF:          asset.BonusDEF,
@@ -67,4 +72,15 @@ func (i *Item) Use() {
 			i.CurrentDurability--
 		}
 	}
+}
+
+// BuyPrice is what a merchant charges for the item: its full value.
+func (i *Item) BuyPrice() int {
+	return int(i.Value())
+}
+
+// SellValue is what a merchant pays for the item: half its value, floored
+// at 1 so even junk sells for something.
+func (i *Item) SellValue() int {
+	return max(1, int(i.Value())/2)
 }

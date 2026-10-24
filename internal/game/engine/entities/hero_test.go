@@ -48,6 +48,13 @@ func TestHeroGiveXP(t *testing.T) {
 	}
 }
 
+// A new game starts with an empty purse: gold only comes from playing.
+func TestNewPlayerStartsWithNoGold(t *testing.T) {
+	if got := NewPlayer().Gold; got != 0 {
+		t.Errorf("fresh hero gold = %d, want 0", got)
+	}
+}
+
 func TestHeroGiveXP_DeadHeroIsNoOp(t *testing.T) {
 	h := NewPlayer()
 	h.TakeDmg(h.BaseMaxHP)

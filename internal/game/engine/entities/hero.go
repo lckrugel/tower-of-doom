@@ -32,6 +32,9 @@ type Hero struct {
 	BaseDEF   int
 	// Vida atual, persistida entre combates
 	CurrentHP int
+	// Gold is the hero's purse. It starts empty on a new game and only
+	// grows through playing (kill/chest rewards, selling to merchants).
+	Gold int
 	// Itens equipados atualmente
 	Head   *Item
 	Body   *Item
@@ -49,6 +52,7 @@ func NewPlayer(starterItems ...*Item) *Hero {
 	hero := &Hero{
 		Lvl:       1,
 		Xp:        0,
+		Gold:      0,
 		BaseMaxHP: baseHp,
 		CurrentHP: baseHp,
 		BaseDMG:   baseDmg,

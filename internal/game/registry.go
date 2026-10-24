@@ -18,14 +18,18 @@ var embeddedAssets embed.FS
 //
 // Usado para spawnar uma instância de `Item` no jogo.
 type ItemAsset struct {
-	ID         string `json:"id"`
-	Name       string `json:"name"`
-	Slot       string `json:"slot"`
-	BonusHP    int    `json:"bonus_hp"`
-	BonusDMG   int    `json:"bonus_dmg"`
-	BonusDEF   int    `json:"bonus_def"`
-	BonusSPD   int    `json:"bonus_spd"`
-	Durability int    `json:"durability"`
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	Slot string `json:"slot"`
+	// Tier places the item on the progression ladder (1 = earliest gear).
+	// An absent field means tier 1, so older assets/mods keep working.
+	Tier int `json:"tier"`
+
+	BonusHP    int `json:"bonus_hp"`
+	BonusDMG   int `json:"bonus_dmg"`
+	BonusDEF   int `json:"bonus_def"`
+	BonusSPD   int `json:"bonus_spd"`
+	Durability int `json:"durability"`
 }
 
 // Definição de um asset para monstro.
