@@ -143,7 +143,7 @@ func (e *Engine) appendHeroDefeat(events []Event) []Event {
 // defCurveK tunes the defense mitigation curve — mitigation per hit is
 // DEF/(DEF+K), so a defender with DEF == K halves incoming damage.
 // Easily tweakable: lower K makes armor stronger, higher K weaker.
-const defCurveK = 45
+const defCurveK = 35
 
 // effectiveDamage applies the defender's mitigation to a swung hit:
 // swing × K/(DEF+K), floored at 1 so no landed hit is fully nullified.

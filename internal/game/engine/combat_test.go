@@ -436,11 +436,13 @@ func TestEffectiveDamage(t *testing.T) {
 		want  int
 	}{
 		{"no defense is a clean hit", 5, 0, 5},
-		{"single leather armor mitigates a chunk", 5, 5, 4},
-		{"full leather set mitigates a third", 5, 15, 3},
+		{"single leather armor mitigates 12.5%", 5, 5, 4}, // 5×35/40
+		{"full leather set mitigates 30%", 5, 15, 3},      // 5×35/50
+		{"DEF 21 mitigates 37.5%", 5, 21, 3},              // 5×35/56
 		{"half mitigation exactly at DEF == K", 10, defCurveK, 5},
+		{"armor bites harder at low K", 9, 5, 7}, // 9×35/40 = 7.875 (8 under K 45)
 		{"armor cannot fully nullify weak hits", 1, 100, 1},
-		{"heavy monsters take less from the same swing", 5, 3, 4}, // 5×45/48
+		{"heavy monsters take less from the same swing", 5, 3, 4}, // 5×35/38
 	}
 
 	for _, tt := range tests {
@@ -466,7 +468,7 @@ func TestDefenseMitigationInCombat(t *testing.T) {
 
 		e.Process(Command{Type: CmdFight})
 
-		// goblin swing 2 mitigated by DEF 5: 2×45/50 = 1.
+		// goblin swing 2 mitigated by DEF 5: 2×35/40 = 1.
 		if hp := e.Player.CurrentHP; hp != 99 {
 			t.Errorf("hero HP = %d, want 99 (2 dmg mitigated to 1)", hp)
 		}
@@ -482,7 +484,7 @@ func TestDefenseMitigationInCombat(t *testing.T) {
 
 		e.Process(Command{Type: CmdFight})
 
-		// hero swing 5 mitigated by monster DEF 5: 5×45/50 = 4.
+		// hero swing 5 mitigated by monster DEF 5: 5×35/40 = 4.
 		if hp := e.CurrentEncounter.Monsters[0].CurrentHP; hp != 26 {
 			t.Errorf("monster HP = %d, want 26 (5 dmg mitigated to 4)", hp)
 		}
