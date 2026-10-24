@@ -3,7 +3,6 @@ package engine
 import (
 	"fmt"
 	"log"
-	"maps"
 	"math/rand"
 	"slices"
 
@@ -132,15 +131,9 @@ func (e *Engine) handleExploring(cmd Command) []Event {
 		}
 		e.CurrentFloor++
 		e.CanAscend = false
-		sectionDef, err := e.reg.SectionForFloor(e.CurrentFloor)
-		if err != nil {
-			// Must be unreachable while the tower is infinite:
-			// there is a section with max_floor == -1 covering all floors
-			// above the last finite one, and initialization validates that.
-			panic(fmt.Sprintf("unreachable: no section covers floor %d despite passing content validation: %v", e.CurrentFloor, err))
-		}
+		sectionDef := e.currentSection()
 		events := []Event{NewFloorEntered(e.CurrentFloor, sectionDef.Name)}
-		if item := e.rollArmorReward(); item != nil {
+		if item := e.rollArmorReward(sectionDef.ItemTiers); item != nil {
 			// Ascend keeps auto-equipping (fast pacing by design), but the
 			// displaced gear is not lost anymore: it goes to the bag when
 			// there is room, else it is destroyed.
@@ -342,13 +335,13 @@ func (e *Engine) generateEncounter(floor int) (Encounter, error) {
 }
 
 // pickItem rolls a random item from the registry whose slot passes the
-// `accept` filter. The candidate pool is built from sorted IDs, so the roll
+// `accept` filter and whose tier is one of `tiers` (empty/nil tiers =
+// unrestricted). The candidate pool is built from sorted ids, so the roll
 // is deterministic under a seeded rng. Returns nil when no registry entry
-// matches the filter.
-func (e *Engine) pickItem(accept func(entities.ItemSlot) bool) *entities.Item {
-	ids := slices.Sorted(maps.Keys(e.reg.Items))
-	pool := make([]string, 0, len(ids))
-	for _, id := range ids {
+// matches the filters (an empty pool consumes no rng).
+func (e *Engine) pickItem(accept func(entities.ItemSlot) bool, tiers []int) *entities.Item {
+	pool := make([]string, 0, len(e.reg.Items))
+	for _, id := range e.reg.ItemIDsForTiers(tiers) {
 		if accept(entities.ItemSlot(e.reg.Items[id].Slot)) {
 			pool = append(pool, id)
 		}
@@ -361,20 +354,20 @@ func (e *Engine) pickItem(accept func(entities.ItemSlot) bool) *entities.Item {
 }
 
 // rollArmorReward rolls a random armor piece (helmet, body or boots) from
-// the registry as the reward for ascending — a temporary stand-in for the
-// full gold/item drops. The Hero auto-equips it (fast pacing by design);
-// whatever it displaced flows to the hero bag when there is room, else it
-// is destroyed.
-func (e *Engine) rollArmorReward() *entities.Item {
-	return e.pickItem(entities.IsArmor)
+// the registry as the reward for ascending, restricted to the section's
+// allowed item tiers (empty = unrestricted). The Hero auto-equips it (fast
+// pacing by design); whatever it displaced flows to the hero bag when
+// there is room, else it is destroyed.
+func (e *Engine) rollArmorReward(tiers []int) *entities.Item {
+	return e.pickItem(entities.IsArmor, tiers)
 }
 
 // rollItemReward rolls a random item from the whole registry (any slot) as
-// the reward for a chest of riches. The roll is the same as it ever was —
-// the engine now holds the item as PendingLoot instead of auto-equipping
-// it, letting the player decide in StateLoot.
-func (e *Engine) rollItemReward() *entities.Item {
-	return e.pickItem(func(entities.ItemSlot) bool { return true })
+// the reward for a chest of riches, restricted to the section's allowed
+// item tiers (empty = unrestricted). The engine holds the item as
+// PendingLoot, letting the player decide in StateLoot.
+func (e *Engine) rollItemReward(tiers []int) *entities.Item {
+	return e.pickItem(func(entities.ItemSlot) bool { return true }, tiers)
 }
 
 // weightedPick escolhe um item aleatoriamente, proporcional ao seu peso.
@@ -409,6 +402,17 @@ func (e *Engine) SectionName(floor int) string {
 		return ""
 	}
 	return section.Name
+}
+
+// currentSection returns the section covering the current floor. The error
+// is unreachable: the floor was just resolved or validated at startup, and
+// Validate guarantees full coverage up to the infinite top floor.
+func (e *Engine) currentSection() game.SectionAsset {
+	section, err := e.reg.SectionForFloor(e.CurrentFloor)
+	if err != nil {
+		panic(fmt.Sprintf("unreachable: no section covers floor %d despite passing content validation: %v", e.CurrentFloor, err))
+	}
+	return section
 }
 
 func (e *Engine) isValidCommand(cmd Command) bool {

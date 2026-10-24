@@ -3,6 +3,7 @@ package game
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -208,6 +209,149 @@ func TestFloorDifficulty(t *testing.T) {
 				t.Errorf("FloorDifficulty(%d) = %d, want %d", tt.floor, got, tt.want)
 			}
 		})
+	}
+}
+
+// regWithItems fills the registry's item index (makeReg leaves it empty).
+func regWithItems(items []ItemAsset, sections []SectionAsset) *Registry {
+	r := makeReg(validMonsters(), sections)
+	for _, it := range items {
+		r.Items[it.ID] = it
+	}
+	return r
+}
+
+// tierItems is a small item registry spanning tiers 1–3.
+func tierItems() []ItemAsset {
+	return []ItemAsset{
+		{ID: "sword", Name: "Sword", Slot: "weapon", BonusDMG: 5, Durability: 10, Tier: 1},
+		{ID: "ring", Name: "Ring", Slot: "ring", BonusDEF: 1, Durability: -1, Tier: 1},
+		{ID: "crown", Name: "Crown", Slot: "helmet", BonusDEF: 9, Durability: 10, Tier: 2},
+		{ID: "dragon_mail", Name: "Dragon Mail", Slot: "body_armor", BonusDEF: 20, Durability: 10, Tier: 3},
+	}
+}
+
+// ItemIDsForTiers is the lookup the engine rolls rewards and merchant
+// stock from: sorted ids of every item in the allowed tiers, unrestricted
+// when no tier is listed, and an empty (never an error) result when
+// nothing matches.
+func TestItemIDsForTiers(t *testing.T) {
+	r := regWithItems(tierItems(), validSections())
+
+	tests := []struct {
+		name  string
+		tiers []int
+		want  []string
+	}{
+		{"nil tiers is unrestricted", nil, []string{"crown", "dragon_mail", "ring", "sword"}},
+		{"empty tiers is unrestricted", []int{}, []string{"crown", "dragon_mail", "ring", "sword"}},
+		{"single tier", []int{1}, []string{"ring", "sword"}},
+		{"union of tiers, sorted", []int{3, 1}, []string{"dragon_mail", "ring", "sword"}},
+		{"unmatched tier is an empty pool", []int{9}, []string{}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := r.ItemIDsForTiers(tt.tiers)
+			if !slices.Equal(got, tt.want) {
+				t.Errorf("ItemIDsForTiers(%v) = %v, want %v", tt.tiers, got, tt.want)
+			}
+		})
+	}
+}
+
+// Tier-related content validation: bad item tiers, bad item_tiers values
+// and sections listing tiers the registry cannot fill (typo protection).
+func TestValidateItemTiers(t *testing.T) {
+	spawns := []SpawnEntry{{MonsterID: "rat", Weight: 1}}
+	tests := []struct {
+		name     string
+		items    []ItemAsset
+		sections []SectionAsset
+		wantErr  string
+	}{
+		{
+			"negative item tier",
+			[]ItemAsset{{ID: "broken", Name: "B", Slot: "weapon", Tier: -1, Durability: 1}},
+			validSections(),
+			"tier",
+		},
+		{
+			"item_tiers value below 1",
+			tierItems(),
+			[]SectionAsset{{ID: "s", Name: "S", MinFloor: 1, MaxFloor: -1,
+				Spawns: spawns, ItemTiers: []int{1, 0}}},
+			"item_tiers",
+		},
+		{
+			"item_tiers referencing an empty tier (typo)",
+			tierItems(), // no tier-9 item exists
+			[]SectionAsset{{ID: "s", Name: "S", MinFloor: 1, MaxFloor: -1,
+				Spawns: spawns, ItemTiers: []int{1, 9}}},
+			"no items of that tier",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := regWithItems(tt.items, tt.sections).Validate(10)
+
+			if err == nil {
+				t.Fatalf("Validate = nil, want error containing %q", tt.wantErr)
+			}
+			if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Errorf("error = %v, want it to contain %q", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+// item_tiers listing populated tiers — or absent entirely — validates fine.
+func TestValidateAcceptsTieredContent(t *testing.T) {
+	restricted := []SectionAsset{{ID: "s", Name: "S", BaseDifficulty: 5, MinFloor: 1, MaxFloor: -1,
+		Spawns:    []SpawnEntry{{MonsterID: "rat", Weight: 1}},
+		ItemTiers: []int{1, 2}}}
+	if err := regWithItems(tierItems(), restricted).Validate(10); err != nil {
+		t.Errorf("Validate(item_tiers [1 2]) = %v, want nil", err)
+	}
+
+	// No item_tiers field: unrestricted, the mods' status quo.
+	if err := regWithItems(tierItems(), validSections()).Validate(10); err != nil {
+		t.Errorf("Validate(without item_tiers) = %v, want nil", err)
+	}
+}
+
+// An asset without a tier field defaults to tier 1 after Load — the
+// tier-less embedded assets and older mods must keep working.
+func TestLoadDefaultsAbsentTierToOne(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, content string) {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("monsters.json", `[
+		{"id": "rat", "name": "Rat", "difficulty": 1, "hp": 10, "dmg": 1, "spd": 5}
+	]`)
+	write("items.json", `[
+		{"id": "sword", "slot": "weapon", "name": "Sword", "bonus_dmg": 5, "durability": 10},
+		{"id": "crown", "slot": "helmet", "name": "Crown", "bonus_def": 9, "durability": 10, "tier": 2}
+	]`)
+	write("sections.json", `[
+		{"id": "s", "name": "S", "base_difficulty": 1, "min_floor": 1, "max_floor": -1,
+		 "spawns": [{"monster_id": "rat", "weight": 1}]}
+	]`)
+
+	r, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if err := r.Validate(100); err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+	if got := r.Items["sword"].Tier; got != 1 {
+		t.Errorf("tier-less asset loaded with tier %d, want 1 (absent = first tier)", got)
+	}
+	if got := r.Items["crown"].Tier; got != 2 {
+		t.Errorf("explicit tier loaded as %d, want 2", got)
 	}
 }
 

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 )
 
 // Arquivos .json na pasta `assets/` serão compilados juntamente do executável da aplicação.
@@ -77,6 +78,10 @@ type SectionAsset struct {
 	MaxFloor           int                  `json:"max_floor"`
 	Spawns             []SpawnEntry         `json:"spawns"`
 	EncounterTypes     EncounterTypeWeights `json:"encounter_types"`
+	// ItemTiers restricts which item tiers this section can roll as
+	// rewards or merchant stock. Absent/empty means NO restriction, so
+	// older sections/mods keep rolling the whole registry.
+	ItemTiers []int `json:"item_tiers"`
 }
 
 // Registro de todos os assets carregados em memória.
@@ -96,6 +101,27 @@ func (r *Registry) SectionForFloor(floor int) (SectionAsset, error) {
 		}
 	}
 	return SectionAsset{}, fmt.Errorf("no section found for floor %d", floor)
+}
+
+// ItemIDsForTiers returns the sorted ids of every registry item whose tier
+// is one of `tiers`. Empty/nil `tiers` lifts the restriction: every item
+// id is returned. A pool with no matches comes back empty — never an
+// error; the caller decides what an empty pool means (empty chest,
+// unstockable shop, ...).
+func (r *Registry) ItemIDsForTiers(tiers []int) []string {
+	restricted := len(tiers) > 0
+	allowed := make(map[int]bool, len(tiers))
+	for _, tier := range tiers {
+		allowed[tier] = true
+	}
+	ids := make([]string, 0, len(r.Items))
+	for id, asset := range r.Items {
+		if !restricted || allowed[asset.Tier] {
+			ids = append(ids, id)
+		}
+	}
+	slices.Sort(ids)
+	return ids
 }
 
 // Calcula a dificuldade para o andar com base na seção atual.
@@ -131,6 +157,7 @@ func Load(externalDir string) (*Registry, error) {
 	if err != nil {
 		return nil, fmt.Errorf("loading items: %w", err)
 	}
+	defaultAbsentItemTiers(itemsMap)
 
 	r := &Registry{
 		Monsters: monstersMap,
@@ -148,6 +175,17 @@ func Load(externalDir string) (*Registry, error) {
 // content bug (bad JSON), not something a player can hit by playing —
 // so the caller should treat it as fatal and refuse to start.
 func (r *Registry) Validate(topFloor int) error {
+	// Item tiers must be real. Load defaults the absent field to 1, so a
+	// non-positive tier here is a content bug, not a missing field.
+	for _, item := range r.Items {
+		if item.Tier < 1 {
+			return fmt.Errorf(
+				"content validation: item %q has tier %d, want >= 1 (absent/0 defaults to tier 1)",
+				item.ID, item.Tier,
+			)
+		}
+	}
+
 	for _, s := range r.Sections {
 		if len(s.Spawns) == 0 {
 			return fmt.Errorf("content validation: section %q has no spawn table", s.ID)
@@ -159,6 +197,27 @@ func (r *Registry) Validate(topFloor int) error {
 				"content validation: section %q has a negative encounter type weight, want >= 0",
 				s.ID,
 			)
+		}
+		// item_tiers: every listed value must be a real tier, and each
+		// listed tier must have at least one item in the registry — a
+		// listed tier with no items is a typo.
+		listed := make(map[int]bool, len(s.ItemTiers))
+		for _, tier := range s.ItemTiers {
+			if tier < 1 {
+				return fmt.Errorf(
+					"content validation: section %q has item_tiers value %d, want >= 1",
+					s.ID, tier,
+				)
+			}
+			listed[tier] = true
+		}
+		for tier := range listed {
+			if len(r.ItemIDsForTiers([]int{tier})) == 0 {
+				return fmt.Errorf(
+					"content validation: section %q allows item tier %d, but the registry has no items of that tier",
+					s.ID, tier,
+				)
+			}
 		}
 		for _, spawn := range s.Spawns {
 			m, ok := r.Monsters[spawn.MonsterID]
@@ -292,4 +351,17 @@ func indexBy[T any](items []T, keyFn func(T) string) (map[string]T, error) {
 		out[key] = item
 	}
 	return out, nil
+}
+
+// defaultAbsentItemTiers applies the item tier default in place: JSON
+// cannot tell an explicit "tier": 0 from an absent field, and both mean
+// tier 1. After this, every registry item carries a real tier and
+// Validate's "tier >= 1" rule only rejects genuine content bugs.
+func defaultAbsentItemTiers(items map[string]ItemAsset) {
+	for id, asset := range items {
+		if asset.Tier == 0 {
+			asset.Tier = 1
+			items[id] = asset
+		}
+	}
 }

@@ -76,8 +76,9 @@ func (e *Engine) resolveEncounter(encounter Encounter) []Event {
 		return []Event{NewHeroHealedExact(e.Player, healed, e.Player.CurrentHPPercent())}
 	case EncounterChest:
 		// The rng roll stays exactly as before; only the disposition of
-		// the rolled item changed (no auto-equip anymore).
-		if item := e.rollItemReward(); item != nil {
+		// the rolled item changed (no auto-equip anymore). The pool is
+		// gated by the section's item_tiers (empty = unrestricted).
+		if item := e.rollItemReward(e.currentSection().ItemTiers); item != nil {
 			e.PendingLoot = item
 			e.State = StateLoot
 			return []Event{NewLootFound(item)}
