@@ -63,6 +63,10 @@ type EncounterTypeWeights struct {
 	Combat    int `json:"combat"`
 	Sanctuary int `json:"sanctuary"`
 	Chest     int `json:"chest"`
+	// Merchant weights the wandering-shop encounter (StateMerchant).
+	// Absent/zero keeps every existing rng sequence identical: the
+	// merchant bucket only exists when the weight is positive.
+	Merchant int `json:"merchant"`
 }
 
 // Define um asset para uma seção da torre.
@@ -122,6 +126,16 @@ func (r *Registry) ItemIDsForTiers(tiers []int) []string {
 	}
 	slices.Sort(ids)
 	return ids
+}
+
+// MaxItemTier reports the highest item tier in the registry (0 when the
+// registry holds no items). The merchant's tier+1 upgrade caps at it.
+func (r *Registry) MaxItemTier() int {
+	maxTier := 0
+	for _, asset := range r.Items {
+		maxTier = max(maxTier, asset.Tier)
+	}
+	return maxTier
 }
 
 // Calcula a dificuldade para o andar com base na seção atual.
@@ -192,7 +206,8 @@ func (r *Registry) Validate(topFloor int) error {
 		}
 		// Negativos distorceriam o sorteio do tipo de encontro. Pesos zerados
 		// (ou o campo ausente) são válidos: significam "apenas combate".
-		if s.EncounterTypes.Combat < 0 || s.EncounterTypes.Sanctuary < 0 || s.EncounterTypes.Chest < 0 {
+		if s.EncounterTypes.Combat < 0 || s.EncounterTypes.Sanctuary < 0 ||
+			s.EncounterTypes.Chest < 0 || s.EncounterTypes.Merchant < 0 {
 			return fmt.Errorf(
 				"content validation: section %q has a negative encounter type weight, want >= 0",
 				s.ID,
@@ -218,6 +233,16 @@ func (r *Registry) Validate(topFloor int) error {
 					s.ID, tier,
 				)
 			}
+		}
+		// A merchant section must be able to stock its shop: at least one
+		// registry item in the allowed tiers (unrestricted when no
+		// item_tiers). Tier+1 upgrades only REPLACE offers, so they can
+		// never stock an otherwise-empty shop.
+		if s.EncounterTypes.Merchant > 0 && len(r.ItemIDsForTiers(s.ItemTiers)) == 0 {
+			return fmt.Errorf(
+				"content validation: section %q has a merchant weight but no items to stock it (allowed tiers: %v)",
+				s.ID, s.ItemTiers,
+			)
 		}
 		for _, spawn := range s.Spawns {
 			m, ok := r.Monsters[spawn.MonsterID]

@@ -55,6 +55,13 @@ const (
 	EventBagFull
 	// Gold was added to the hero's purse ("source": "kill" or "chest").
 	EventGoldGained
+	// A merchant was found and opened shop (StateMerchant): the offers
+	// are held in Engine.MerchantStock.
+	EventMerchantFound
+	// An item was bought from a merchant (it lands in the hero bag).
+	EventItemBought
+	// An item was sold to a merchant (it is destroyed).
+	EventItemSold
 )
 
 // `Event` é o que o jogo envia após processar um `Command`.
@@ -365,6 +372,50 @@ func NewGoldGained(amount int, source string) Event {
 		Data: map[string]any{
 			"amount": amount,
 			"source": source,
+		},
+	}
+}
+
+// NewMerchantFound reports a merchant encounter: the shop is open in
+// StateMerchant with its offers held in Engine.MerchantStock.
+//
+// Payload:
+//   - "count": how many offers the merchant stocks.
+func NewMerchantFound(count int) Event {
+	return Event{
+		Type: EventMerchantFound,
+		Data: map[string]any{
+			"count": count,
+		},
+	}
+}
+
+// NewItemBought reports an item bought from a merchant.
+//
+// Payload:
+//   - "item": the bought item (now in the hero bag).
+//   - "price": the gold paid (the item's BuyPrice).
+func NewItemBought(item *entities.Item, price int) Event {
+	return Event{
+		Type: EventItemBought,
+		Data: map[string]any{
+			"item":  item,
+			"price": price,
+		},
+	}
+}
+
+// NewItemSold reports an item sold to a merchant.
+//
+// Payload:
+//   - "item": the sold item (destroyed — gone for good).
+//   - "price": the gold received (the item's SellValue).
+func NewItemSold(item *entities.Item, price int) Event {
+	return Event{
+		Type: EventItemSold,
+		Data: map[string]any{
+			"item":  item,
+			"price": price,
 		},
 	}
 }

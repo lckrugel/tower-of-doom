@@ -21,6 +21,7 @@ func TestAllowedCommandsMatrix(t *testing.T) {
 		{"combat", StateCombat, []CommandType{CmdAttack, CmdFlee, CmdQuit}},
 		{"loot decision", StateLoot, []CommandType{CmdEquipLoot, CmdStashLoot, CmdDiscardLoot, CmdQuit}},
 		{"inventory", StateInventory, []CommandType{CmdEquip, CmdDrop, CmdClose, CmdQuit}},
+		{"merchant", StateMerchant, []CommandType{CmdBuy, CmdSell, CmdLeave, CmdQuit}},
 		{"game over", StateGameOver, []CommandType{CmdQuit}},
 	}
 	for _, tt := range tests {

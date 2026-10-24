@@ -355,6 +355,46 @@ func TestLoadDefaultsAbsentTierToOne(t *testing.T) {
 	}
 }
 
+// A merchant section that could never stock its shop is a content bug:
+// offers roll from the allowed tiers only (tier+1 upgrades can only
+// REPLACE offers, so they cannot stock an empty shop).
+func TestValidateMerchantStockability(t *testing.T) {
+	spawns := []SpawnEntry{{MonsterID: "rat", Weight: 1}}
+	merchant := func(itemTiers []int) []SectionAsset {
+		return []SectionAsset{{ID: "s", Name: "S", BaseDifficulty: 5, MinFloor: 1, MaxFloor: -1,
+			Spawns: spawns, ItemTiers: itemTiers,
+			EncounterTypes: EncounterTypeWeights{Combat: 10, Merchant: 5}}}
+	}
+
+	t.Run("no items at all in an unrestricted section", func(t *testing.T) {
+		err := makeReg(validMonsters(), merchant(nil)).Validate(10)
+		if err == nil || !strings.Contains(err.Error(), "stock it") {
+			t.Errorf("Validate = %v, want a stockability error", err)
+		}
+	})
+
+	// Note: a RESTRICTED section that lists an unpopulated tier already
+	// fails the item_tiers typo check above, so the merchant rule only
+	// ever fires when the effective allowed pool is empty — an item-less
+	// registry (e.g. a mod shipping merchant sections without items).
+
+	t.Run("stockable merchant section validates", func(t *testing.T) {
+		if err := regWithItems(tierItems(), merchant([]int{1})).Validate(10); err != nil {
+			t.Errorf("Validate = %v, want nil", err)
+		}
+	})
+
+	t.Run("negative merchant weight", func(t *testing.T) {
+		sections := []SectionAsset{{ID: "s", Name: "S", BaseDifficulty: 5, MinFloor: 1, MaxFloor: -1,
+			Spawns:         spawns,
+			EncounterTypes: EncounterTypeWeights{Combat: 10, Merchant: -1}}}
+		err := makeReg(validMonsters(), sections).Validate(10)
+		if err == nil || !strings.Contains(err.Error(), "encounter type weight") {
+			t.Errorf("Validate = %v, want a negative-weight error", err)
+		}
+	})
+}
+
 func TestIndexByRejectsDuplicateIDs(t *testing.T) {
 	dupes := []MonsterAsset{
 		{ID: "goblin", Name: "Goblin One"},

@@ -35,7 +35,12 @@ type Engine struct {
 	// chest opens and cleared on every resolution path; it is meaningful
 	// only while State == StateLoot.
 	PendingLoot *entities.Item
-	reg         *game.Registry
+	// MerchantStock holds the merchant's offers while State ==
+	// StateMerchant (like PendingLoot for chests). Buying removes an
+	// offer; leaving discards them all; it is meaningful only while the
+	// shop is open.
+	MerchantStock []*entities.Item
+	reg           *game.Registry
 	// rng é a fonte de aleatoriedade para decisões do engine
 	// (geração de encontros hoje; combates no futuro).
 	// Testes injetam um rng determinístico.
@@ -88,6 +93,8 @@ func (e *Engine) Process(cmd Command) []Event {
 		return e.handleLoot(cmd)
 	case StateInventory:
 		return e.handleInventory(cmd)
+	case StateMerchant:
+		return e.handleMerchant(cmd)
 	case StateGameOver:
 		return e.handleGameOver(cmd)
 	default:
@@ -420,11 +427,17 @@ func (e *Engine) isValidCommand(cmd Command) bool {
 	if !slices.Contains(allowed, cmd.Type) {
 		return false
 	}
-	// Bag commands carry a bag index: it must point at a real bag slot,
-	// otherwise it is a generic invalid command with no state change
-	// (never a panic — the index is player-reachable).
-	if cmd.Type == CmdEquip || cmd.Type == CmdDrop {
+	// Index-carrying commands must point at a real slot, otherwise it is
+	// a generic invalid command with no state change (never a panic —
+	// the index is player-reachable): bag commands and selling at a bag
+	// item, buying at a stock offer.
+	if cmd.Type == CmdEquip || cmd.Type == CmdDrop || cmd.Type == CmdSell {
 		if cmd.ItemIndex < 0 || cmd.ItemIndex >= len(e.Player.Bag()) {
+			return false
+		}
+	}
+	if cmd.Type == CmdBuy {
+		if cmd.ItemIndex < 0 || cmd.ItemIndex >= len(e.MerchantStock) {
 			return false
 		}
 	}
