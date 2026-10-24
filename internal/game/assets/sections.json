@@ -8,8 +8,12 @@
     "max_floor": 3,
     "encounter_types": {
       "combat": 100,
-      "sanctuary": 40
+      "sanctuary": 40,
+      "merchant": 10
     },
+    "item_tiers": [
+      1
+    ],
     "spawns": [
       {
         "weight": 100,
@@ -69,8 +73,13 @@
     "encounter_types": {
       "combat": 100,
       "sanctuary": 20,
-      "chest": 10
-    }
+      "chest": 10,
+      "merchant": 15
+    },
+    "item_tiers": [
+      1,
+      2
+    ]
   },
   {
     "id": "underdark_reaches",
@@ -116,8 +125,12 @@
     "encounter_types": {
       "combat": 100,
       "sanctuary": 10,
-      "chest": 20
-    }
+      "chest": 20,
+      "merchant": 15
+    },
+    "item_tiers": [
+      2
+    ]
   },
   {
     "id": "wraithfall_bastion",
@@ -163,8 +176,13 @@
     "encounter_types": {
       "combat": 100,
       "sanctuary": 30,
-      "chest": 10
-    }
+      "chest": 10,
+      "merchant": 20
+    },
+    "item_tiers": [
+      2,
+      3
+    ]
   },
   {
     "id": "dragon_hoard",
@@ -198,7 +216,12 @@
     "encounter_types": {
       "combat": 120,
       "sanctuary": 10,
-      "chest": 30
-    }
+      "chest": 30,
+      "merchant": 15
+    },
+    "item_tiers": [
+      3,
+      4
+    ]
   }
 ]
