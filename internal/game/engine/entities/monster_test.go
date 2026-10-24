@@ -90,6 +90,32 @@ func TestMonsterHeal(t *testing.T) {
 	}
 }
 
+// Table: hpPercent = floor(CurrentHP / MaxHP * 100).
+func TestMonsterCurrentHPPercent(t *testing.T) {
+	tests := []struct {
+		name      string
+		currentHP int
+		wantPct   int
+	}{
+		{"full health", 30, 100},
+		{"half health", 15, 50},
+		{"fraction floors down", 29, 96},
+		{"one hp left", 1, 3},
+		{"dead", 0, 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := newTestMonster()
+			m.CurrentHP = tt.currentHP
+
+			if got := m.CurrentHPPercent(); got != tt.wantPct {
+				t.Errorf("CurrentHPPercent = %d, want %d", got, tt.wantPct)
+			}
+		})
+	}
+}
+
 func TestMonsterGetKillXp(t *testing.T) {
 	tests := []struct {
 		name       string

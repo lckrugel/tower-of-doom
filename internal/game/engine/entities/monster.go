@@ -40,7 +40,7 @@ func (m *Monster) CritThreshold() int { return 10 }
 func (m *Monster) Name() string       { return m.name }
 
 func (m *Monster) CurrentHPPercent() int {
-	return int(math.Floor(float64(m.CurrentHP)/float64(m.MaxHP()))) * 100
+	return int(math.Floor(float64(m.CurrentHP) / float64(m.MaxHP()) * 100))
 }
 
 func (m *Monster) TakeDmg(dmg int) int {

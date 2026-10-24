@@ -107,6 +107,42 @@ func TestHeroLevelUp_RescalesHPWithEquippedItem(t *testing.T) {
 	}
 }
 
+// Table: hpPercent = floor(CurrentHP / MaxHP * 100).
+func TestHeroCurrentHPPercent(t *testing.T) {
+	tests := []struct {
+		name      string
+		currentHP int
+		itemBonus int
+		wantPct   int
+	}{
+		{"full health", baseHp, 0, 100},
+		{"half health", baseHp / 2, 0, 50},
+		{"third of health", baseHp / 3, 0, 33},
+		{"fraction floors down", 99, 0, 99},
+		{"dead", 0, 0, 0},
+		{"item bonus hp counts in max", 50, 50, 33}, // 50/150
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := NewPlayer()
+			if tt.itemBonus != 0 {
+				h.EquipItem(newTestItem(game.ItemAsset{
+					ID:      "collar",
+					Name:    "Test Collar",
+					Slot:    amulet,
+					BonusHP: tt.itemBonus,
+				}))
+			}
+			h.CurrentHP = tt.currentHP
+
+			if got := h.CurrentHPPercent(); got != tt.wantPct {
+				t.Errorf("CurrentHPPercent = %d, want %d", got, tt.wantPct)
+			}
+		})
+	}
+}
+
 func TestHeroTakeDmg(t *testing.T) {
 	tests := []struct {
 		name          string

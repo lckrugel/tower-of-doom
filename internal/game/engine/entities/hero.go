@@ -101,7 +101,7 @@ func (h *Hero) Defense() int {
 }
 
 func (h *Hero) CurrentHPPercent() int {
-	return int(math.Floor(float64(h.CurrentHP)/float64(h.MaxHP()))) * 100
+	return int(math.Floor(float64(h.CurrentHP) / float64(h.MaxHP()) * 100))
 }
 
 func (h *Hero) CritThreshold() int {
