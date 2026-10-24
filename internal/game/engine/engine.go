@@ -141,8 +141,17 @@ func (e *Engine) handleExploring(cmd Command) []Event {
 		}
 		events := []Event{NewFloorEntered(e.CurrentFloor, sectionDef.Name)}
 		if item := e.rollArmorReward(); item != nil {
-			e.Player.EquipItem(item)
+			// Ascend keeps auto-equipping (fast pacing by design), but the
+			// displaced gear is not lost anymore: it goes to the bag when
+			// there is room, else it is destroyed.
 			events = append(events, NewItemFound(item))
+			if displaced := e.Player.EquipItem(item); displaced != nil {
+				if e.Player.StashItem(displaced) {
+					events = append(events, NewItemStashed(displaced))
+				} else {
+					events = append(events, NewItemLost(displaced))
+				}
+			}
 		}
 		return events
 
@@ -353,8 +362,9 @@ func (e *Engine) pickItem(accept func(entities.ItemSlot) bool) *entities.Item {
 
 // rollArmorReward rolls a random armor piece (helmet, body or boots) from
 // the registry as the reward for ascending — a temporary stand-in for the
-// full gold/item drops. The Hero auto-equips it (there is no inventory);
-// whatever it replaced is gone.
+// full gold/item drops. The Hero auto-equips it (fast pacing by design);
+// whatever it displaced flows to the hero bag when there is room, else it
+// is destroyed.
 func (e *Engine) rollArmorReward() *entities.Item {
 	return e.pickItem(entities.IsArmor)
 }
