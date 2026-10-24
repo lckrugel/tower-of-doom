@@ -34,6 +34,20 @@ var (
 	styleVictory = lipgloss.NewStyle().
 			Bold(true).
 			Foreground(lipgloss.Color("228"))
+
+	// State badges.
+	styleBadgeOk = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("114")) // green: calm exploration
+	styleBadgeWarn = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("215")) // amber: something found
+	styleBadgeCombat = lipgloss.NewStyle().
+				Bold(true).
+				Foreground(lipgloss.Color("196")) // red: in combat
+	styleBadgeOver = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("245")) // gray: it's over
 	styleDeath = lipgloss.NewStyle().
 			Bold(true).
 			Foreground(lipgloss.Color("196"))

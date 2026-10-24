@@ -10,8 +10,10 @@ import (
 
 func testEngine() *engine.Engine {
 	return engine.NewEngine(&game.Registry{
-		Monsters: map[string]game.MonsterAsset{},
-		Items:    map[string]game.ItemAsset{},
+		Monsters: map[string]game.MonsterAsset{
+			"goblin": {ID: "goblin", Name: "Goblin", Difficulty: 3, HP: 30, Damage: 2, Speed: 10, Crit: 5},
+		},
+		Items: map[string]game.ItemAsset{},
 		Sections: []game.SectionAsset{{
 			ID: "pits", Name: "Goblin Pits", MinFloor: 1, MaxFloor: -1,
 			Spawns: []game.SpawnEntry{{MonsterID: "goblin", Weight: 1}},
