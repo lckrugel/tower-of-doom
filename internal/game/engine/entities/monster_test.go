@@ -151,8 +151,14 @@ func TestMonsterGetKillXp(t *testing.T) {
 		wantXp     int
 	}{
 		{"pi-point kill xp", 1, 4},
-		{"standard goblin", 3, 12},
-		{"orc", 5, 20},
+		{"cheap rat", 2, 11},
+		{"standard goblin", 3, 21},
+		{"orc", 5, 45},
+		{"elite pack", 9, 108},
+		{"warlord", 12, 166},
+		{"beholder", 16, 256},
+		{"young red dragon", 24, 470},
+		{"ancient red dragon", 40, 1012},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

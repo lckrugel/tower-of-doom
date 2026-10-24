@@ -71,6 +71,10 @@ func (m *Monster) IsAlive() bool {
 	return m.CurrentHP > 0
 }
 
+// GetKillXp reports the instant XP reward for defeating the monster.
+// The reward grows with difficulty^1.5 — the same exponent as the hero's
+// XP-cost curve (`requiredXpGrowth`) — so the time to level stays flat
+// per floor tier instead of ballooning as content difficulty rises.
 func (m *Monster) GetKillXp() int {
-	return 4 * m.Difficulty
+	return int(math.Round(4 * math.Pow(float64(m.Difficulty), 1.5)))
 }

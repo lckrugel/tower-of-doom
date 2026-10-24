@@ -147,8 +147,8 @@ func TestAttackKillsEnemyAndAdvancesQueue(t *testing.T) {
 	if name := evt.Data["enemy"]; name != "Goblin" {
 		t.Errorf("defeated enemy = %v, want Goblin", name)
 	}
-	if xp := evt.Data["xp_gained"]; xp != 12 {
-		t.Errorf("xp_gained = %v, want 12", xp)
+	if xp := evt.Data["xp_gained"]; xp != 21 {
+		t.Errorf("xp_gained = %v, want 21", xp)
 	}
 	if e.State != StateCombat || len(e.CurrentEncounter.Monsters) != 1 || e.CurrentEncounter.Monsters[0].ID != "orc" {
 		t.Errorf("queue did not advance: state = %v, encounter = %v (want combat with [orc])",
@@ -181,7 +181,7 @@ func TestVictoryOnLastEnemyKill(t *testing.T) {
 func TestMidCombatLevelUp(t *testing.T) {
 	e := newTestEngine()
 	heroWithDamage(e, 40)
-	e.Player.Xp = 95 // goblin kill (diff 3 → 12 XP) crosses the 100 threshold
+	e.Player.Xp = 95 // goblin kill (diff 3 → 21 XP) crosses the 100 threshold
 	startEncounter(e, monsterFromFixture("goblin"), monsterFromFixture("orc"))
 	e.State = StateCombat
 
