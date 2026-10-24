@@ -27,6 +27,10 @@ const (
 	EventFled
 	// Defeated all enemies in an encounter.
 	EventVictory
+	// Hero gained a level (mid-combat level ups included).
+	EventLevelUp
+	// Quit requested the game.
+	EventQuit
 	// Generic game message.
 	EventMessage
 )
@@ -74,4 +78,64 @@ func NewDamageDealt(enemy Combatant, dmgDealt int) Event {
 			"damage_dealt": dmgDealt,
 		},
 	}
+}
+
+func NewDamageTaken(hero Combatant, dmgTaken int) Event {
+	return Event{
+		Type: EventCombatDamageTaken,
+		Data: map[string]any{
+			"hero":         hero.Name(),
+			"hero_hp":      hero.CurrentHPPercent(),
+			"hero_alive":   hero.IsAlive(),
+			"damage_taken": dmgTaken,
+		},
+	}
+}
+
+func NewSneakSuccess() Event {
+	return Event{Type: EventSneakSuccess}
+}
+
+func NewSneakFailed() Event {
+	return Event{Type: EventSneakFailed}
+}
+
+func NewFled() Event {
+	return Event{Type: EventFled}
+}
+
+func NewVictory() Event {
+	return Event{Type: EventVictory}
+}
+
+// NewEnemyDefeated reports a defeated enemy and the instant XP reward
+// (mid-combat kills included).
+func NewEnemyDefeated(monsterName string, xp int) Event {
+	return Event{
+		Type: EventEnemyDefeated,
+		Data: map[string]any{
+			"enemy":     monsterName,
+			"xp_gained": xp,
+		},
+	}
+}
+
+func NewHeroDefeated() Event {
+	return Event{Type: EventHeroDefeated}
+}
+
+// NewLevelUp reports that the Hero gained at least one level.
+// `lvl` is the level reached after all pending level ups.
+func NewLevelUp(lvl int) Event {
+	return Event{
+		Type: EventLevelUp,
+		Data: map[string]any{
+			"level": lvl,
+		},
+	}
+}
+
+// NewQuit tells the caller to stop the game loop and exit.
+func NewQuit() Event {
+	return Event{Type: EventQuit}
 }
