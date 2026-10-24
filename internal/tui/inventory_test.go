@@ -35,10 +35,15 @@ func chestEngine() *engine.Engine {
 }
 
 // chestModel explores once through the real key path, landing the model
-// in StateLoot with the chest's pending item.
+// in StateLoot with the chest's pending item. Chests can now also pay out
+// gold (engine economy, 40%): retry until one yields an item, so the
+// tests below always exercise the loot decision.
 func chestModel() Model {
 	m := New(chestEngine())
 	m, _ = press(m, "e")
+	for m.engine.PendingLoot == nil {
+		m, _ = press(m, "e")
+	}
 	return m
 }
 
@@ -152,6 +157,11 @@ func TestBagFullStashKeepsTheDecisionOpen(t *testing.T) {
 	}
 	m := New(e)
 	m, _ = press(m, "e")
+	// A chest may pay gold instead (engine economy): retry until one
+	// yields an item and opens the loot decision.
+	for m.engine.PendingLoot == nil {
+		m, _ = press(m, "e")
+	}
 	if m.engine.State != engine.StateLoot {
 		t.Fatal("setup: the chest did not open")
 	}

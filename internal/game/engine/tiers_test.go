@@ -42,7 +42,7 @@ func tieredEngine(tiers []int, rngValues ...int) *Engine {
 // four items here).
 func TestChestRollsOnlyAllowedTiers(t *testing.T) {
 	for _, pick := range []int{0, 1, 2, 3} {
-		e := tieredEngine([]int{1}, 20, pick)
+		e := tieredEngine([]int{1}, 20, 50, pick)
 
 		events := e.Process(Command{Type: CmdExplore})
 
@@ -59,7 +59,7 @@ func TestChestRollsOnlyAllowedTiers(t *testing.T) {
 // Without item_tiers the section rolls the whole registry, tier-2 items
 // included — proving the restriction above is what gates the pool.
 func TestUnrestrictedSectionRollsEveryTier(t *testing.T) {
-	e := tieredEngine(nil, 20, 0) // first sorted id → adamant_crown (tier 2)
+	e := tieredEngine(nil, 20, 50, 0) // first sorted id → adamant_crown (tier 2)
 
 	events := e.Process(Command{Type: CmdExplore})
 
@@ -104,7 +104,7 @@ func TestAscendArmorUnrestrictedReachesEveryTier(t *testing.T) {
 // A runtime-empty allowed pool (only possible for chests — merchant
 // sections are validated stockable) degrades to the empty-chest message.
 func TestChestWithEmptyAllowedTierPoolIsEmpty(t *testing.T) {
-	e := tieredEngine([]int{7}, 20, 0) // no tier-7 item exists; registry skips validation
+	e := tieredEngine([]int{7}, 20, 50, 0) // no tier-7 item exists; registry skips validation
 
 	events := e.Process(Command{Type: CmdExplore})
 

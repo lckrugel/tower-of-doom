@@ -140,8 +140,8 @@ func TestAttackKillsEnemyAndAdvancesQueue(t *testing.T) {
 
 	// Hero kills on its strike: the enemy never gets its turn this round
 	// and the next enemy in the queue steps in with normal initiative.
-	if got := eventTypes(events); !typesEqual(got, EventCombatDamageDealt, EventEnemyDefeated) {
-		t.Errorf("events = %v, want [dealt defeated]", got)
+	if got := eventTypes(events); !typesEqual(got, EventCombatDamageDealt, EventEnemyDefeated, EventGoldGained) {
+		t.Errorf("events = %v, want [dealt defeated gold-gained]", got)
 	}
 	evt := events[1]
 	if name := evt.Data["enemy"]; name != "Goblin" {
@@ -164,8 +164,8 @@ func TestVictoryOnLastEnemyKill(t *testing.T) {
 
 	events := e.Process(Command{Type: CmdAttack})
 
-	if got := eventTypes(events); !typesEqual(got, EventCombatDamageDealt, EventEnemyDefeated, EventVictory) {
-		t.Errorf("events = %v, want [dealt defeated victory]", got)
+	if got := eventTypes(events); !typesEqual(got, EventCombatDamageDealt, EventEnemyDefeated, EventGoldGained, EventVictory) {
+		t.Errorf("events = %v, want [dealt defeated gold-gained victory]", got)
 	}
 	if e.State != StateExploring {
 		t.Errorf("state after victory = %v, want StateExploring", e.State)
@@ -188,13 +188,13 @@ func TestMidCombatLevelUp(t *testing.T) {
 	events := e.Process(Command{Type: CmdAttack})
 
 	if got := eventTypes(events); !typesEqual(got,
-		EventCombatDamageDealt, EventEnemyDefeated, EventLevelUp) {
-		t.Errorf("events = %v, want [dealt defeated level-up]", got)
+		EventCombatDamageDealt, EventEnemyDefeated, EventGoldGained, EventLevelUp) {
+		t.Errorf("events = %v, want [dealt defeated gold-gained level-up]", got)
 	}
 	if e.Player.Lvl != 2 {
 		t.Errorf("hero level = %d, want 2 (mid-combat level up)", e.Player.Lvl)
 	}
-	if lvl := events[2].Data["level"]; lvl != 2 {
+	if lvl := events[3].Data["level"]; lvl != 2 {
 		t.Errorf("level event data = %v, want 2", lvl)
 	}
 	// Combat continues with the next enemy, still in StateCombat.

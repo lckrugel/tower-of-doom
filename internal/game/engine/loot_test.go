@@ -8,10 +8,11 @@ import (
 )
 
 // chestEngine returns an engine whose rng rolls a chest (20 → chest in the
-// mixed section) and then `wantPick` for the item pool, plus a mixed-section
-// registry with two items: sorted pool [rusty_ring, shiny_sword].
+// mixed section), then an ITEM chest (50 ≥ chestGoldChance), then
+// `wantPick` for the item pool, plus a mixed-section registry with two
+// items: sorted pool [rusty_ring, shiny_sword].
 func chestEngine(wantPick int, rngValues ...int) *Engine {
-	values := append([]int{20, wantPick}, rngValues...)
+	values := append([]int{20, 50, wantPick}, rngValues...)
 	e := newKindEngine(values...)
 	e.reg.Items = map[string]game.ItemAsset{
 		"shiny_sword": {ID: "shiny_sword", Name: "Shiny Sword", Slot: "weapon", BonusDMG: 5},

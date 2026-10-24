@@ -53,6 +53,8 @@ const (
 	EventItemLost
 	// A stash attempt was rejected because the hero bag is full.
 	EventBagFull
+	// Gold was added to the hero's purse ("source": "kill" or "chest").
+	EventGoldGained
 )
 
 // `Event` é o que o jogo envia após processar um `Command`.
@@ -340,4 +342,29 @@ func NewItemLost(item *entities.Item) Event {
 // item is visible as PendingLoot.
 func NewBagFull() Event {
 	return Event{Type: EventBagFull}
+}
+
+// Gold sources for EventGoldGained's "source" payload.
+const (
+	// GoldSourceKill — gold granted for defeating a monster.
+	GoldSourceKill = "kill"
+	// GoldSourceChest — gold granted by a chest that paid out coins
+	// instead of holding an item.
+	GoldSourceChest = "chest"
+)
+
+// NewGoldGained reports gold added to the hero's purse.
+//
+// Payload:
+//   - "amount": the gold gained.
+//   - "source": where it came from — GoldSourceKill (enemy defeated) or
+//     GoldSourceChest (a chest paid out coins instead of an item).
+func NewGoldGained(amount int, source string) Event {
+	return Event{
+		Type: EventGoldGained,
+		Data: map[string]any{
+			"amount": amount,
+			"source": source,
+		},
+	}
 }

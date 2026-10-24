@@ -44,6 +44,14 @@ type Encounter struct {
 // restores, as a percentage.
 const sanctuaryHealPercent = 35
 
+// chestGoldChance is the chance (percentage) that a chest pays out gold
+// instead of holding an item.
+const chestGoldChance = 40
+
+// goldPerDifficulty is the economy's gold coefficient: kills pay it per
+// unit of enemy difficulty, gold chests per unit of floor difficulty.
+const goldPerDifficulty = 5
+
 // rollEncounterType sorteia o tipo do encontro a partir dos pesos da seção.
 //
 // A ordem dentro do sorteio é [combat, sanctuary, chest], o que torna a
@@ -75,10 +83,20 @@ func (e *Engine) resolveEncounter(encounter Encounter) []Event {
 		healed := e.restAtSanctuary()
 		return []Event{NewHeroHealedExact(e.Player, healed, e.Player.CurrentHPPercent())}
 	case EncounterChest:
-		// The rng roll stays exactly as before; only the disposition of
-		// the rolled item changed (no auto-equip anymore). The pool is
-		// gated by the section's item_tiers (empty = unrestricted).
-		if item := e.rollItemReward(e.currentSection().ItemTiers); item != nil {
+		section := e.currentSection()
+		// One extra roll right after the kind roll decides gold-vs-item: a
+		// gold chest pays out on the spot and skips the loot decision
+		// entirely — exploring continues directly.
+		if e.rng.Intn(100) < chestGoldChance {
+			amount := goldPerDifficulty * section.FloorDifficulty(e.CurrentFloor)
+			e.Player.Gold += amount
+			return []Event{NewGoldGained(amount, GoldSourceChest)}
+		}
+		// The rng roll for the item stays exactly as before; only the
+		// disposition of the rolled item changed (no auto-equip anymore).
+		// The pool is gated by the section's item_tiers (empty =
+		// unrestricted).
+		if item := e.rollItemReward(section.ItemTiers); item != nil {
 			e.PendingLoot = item
 			e.State = StateLoot
 			return []Event{NewLootFound(item)}
