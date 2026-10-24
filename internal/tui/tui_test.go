@@ -385,9 +385,10 @@ func TestViewExploring(t *testing.T) {
 }
 
 // The purse sits on the hero panel's stats line: DMG/DEF/SPD grow a
-// GOLD segment, and the panel keeps its five rows — the layout
+// GOLD segment, and the panel keeps its four rows — the layout
 // invariant (vitals directly above the shortcut bar) depends on that
-// count.
+// count. The gear list is not part of the panel: the equipped panel in
+// the trade states is the only gear view.
 func TestHeroPanelShowsGold(t *testing.T) {
 	e := testEngine()
 	e.Player.Gold = 123
@@ -395,14 +396,17 @@ func TestHeroPanelShowsGold(t *testing.T) {
 
 	lines := viewLines(m.heroPanel())
 
-	if len(lines) != heroHeight {
-		t.Fatalf("hero panel has %d lines, want %d", len(lines), heroHeight)
+	if len(lines) != 4 {
+		t.Fatalf("hero panel has %d lines, want 4", len(lines))
 	}
 	stats := lines[3]
 	for _, want := range []string{"DMG", "DEF", "SPD", "GOLD 123"} {
 		if !strings.Contains(stats, want) {
 			t.Errorf("stats line %q missing %q", stats, want)
 		}
+	}
+	if joined := strings.Join(lines, "\n"); strings.Contains(joined, "Gear:") {
+		t.Error("hero panel still carries the gear line")
 	}
 	if w := ansiLen(stats); w > mainColWidth {
 		t.Errorf("stats line is %d wide, overflows the %d-col column: %q", w, mainColWidth, stats)

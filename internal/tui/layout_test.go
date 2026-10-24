@@ -40,7 +40,8 @@ func viewModels() map[string]Model {
 		return New(e)
 	}
 
-	// Item on the hero, so the gear line reaches its realistic max width.
+	// Item on the hero, so the stats line reflects equipped gear (and a
+	// worn item never disturbs the frame).
 	geared := func() Model {
 		e := testEngine()
 		item := entities.NewItemFromAsset(game.ItemAsset{
@@ -198,7 +199,7 @@ func TestHeroStatsAnchorAboveTheActionBar(t *testing.T) {
 			t.Fatalf("%s: missing hero panel or bar:\n%s", name, strings.Join(lines, "\n"))
 		}
 		if got, want := barRow-heroRow, heroHeight; got != want {
-			// heroHeight is the panel's line count: HERO + Lv + HP + stats + gear.
+			// heroHeight is the panel's line count: HERO + Lv + HP + stats.
 			t.Errorf("%s: hero panel spans %d rows above the bar, want %d", name, got, want)
 		}
 	}

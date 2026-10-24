@@ -348,8 +348,8 @@ func TestViewMerchantHighlightsBagRowsToo(t *testing.T) {
 }
 
 // Worst-case layout math: the panel must never exceed the body slot —
-// title (1) + stock (≤3) + bag label (1) + bag (≤10) = 15 — and never
-// lean on slot() to clip.
+// title (1) + stock (≤4, the engine's merchantStockSize) + bag label
+// (1) + bag (≤10) = 16 — and never lean on slot() to clip.
 func TestMerchantPanelFitsTheBodySlot(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -357,9 +357,9 @@ func TestMerchantPanelFitsTheBodySlot(t *testing.T) {
 		bag   int
 		exact bool // the full shop renders exactly bodyHeight rows
 	}{
-		{"full shop", 3, entities.InventoryCapacity, true},
+		{"full shop", 4, entities.InventoryCapacity, true},
 		{"bare shelves", 0, entities.InventoryCapacity, false},
-		{"empty bag", 3, 0, false},
+		{"empty bag", 4, 0, false},
 		{"nothing left", 0, 0, false},
 	}
 	for _, tt := range tests {
@@ -380,6 +380,25 @@ func TestMerchantPanelFitsTheBodySlot(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// The worst-case shop must also keep the frame byte-exact: a full
+// stock (the engine rolls up to 4 offers) plus a full bag fills the
+// body slot to the last row without resizing the window.
+func TestMerchantWorstCaseKeepsTheConstantFrame(t *testing.T) {
+	// 4 offers = the engine's merchantStockSize.
+	m := New(merchantEngine(4, entities.InventoryCapacity, 0))
+
+	lines := viewLines(m.View())
+
+	if len(lines) != contentHeight+2 {
+		t.Errorf("worst-case shop renders %d lines, want the full frame of %d", len(lines), contentHeight+2)
+	}
+	for i, line := range lines {
+		if w := ansiLen(line); w != contentWidth+4 {
+			t.Errorf("worst-case shop line %d is %d wide, want %d", i, w, contentWidth+4)
+		}
 	}
 }
 
