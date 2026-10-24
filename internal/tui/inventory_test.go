@@ -12,8 +12,10 @@ import (
 
 // chestEngine builds an engine whose only encounter type is a chest: an
 // all-zero combat/sanctuary table rolls CHEST deterministically (see the
-// engine's rollEncounterType), so a single EXPLORE opens the loot
-// decision without any rng seeding.
+// engine's rollEncounterType), so a post-opener EXPLORE opens the loot
+// decision without any rng seeding. BaseDifficulty gives the forced
+// opening combat (encounter pacing: a run always opens with combat)
+// something to spawn.
 func chestEngine() *engine.Engine {
 	return engine.NewEngine(&game.Registry{
 		Monsters: map[string]game.MonsterAsset{
@@ -26,6 +28,7 @@ func chestEngine() *engine.Engine {
 		Sections: []game.SectionAsset{{
 			ID:             "vault",
 			Name:           "Silent Vault",
+			BaseDifficulty: 10,
 			MinFloor:       1,
 			MaxFloor:       -1,
 			Spawns:         []game.SpawnEntry{{MonsterID: "goblin", Weight: 1}},
@@ -34,17 +37,64 @@ func chestEngine() *engine.Engine {
 	})
 }
 
-// chestModel explores once through the real key path, landing the model
-// in StateLoot with the chest's pending item. Chests can now also pay out
-// gold (engine economy, 40%): retry until one yields an item, so the
-// tests below always exercise the loot decision.
-func chestModel() Model {
-	m := New(chestEngine())
-	m, _ = press(m, "e")
-	for m.engine.PendingLoot == nil {
-		m, _ = press(m, "e")
+// fightThroughTheOpener resolves a forced combat (the encounter-pacing
+// rules: a run always opens with combat, and every third same-kind
+// non-combat roll is overridden to combat) by fighting it out. The
+// fixture hero one-shots the opener's goblins, so the fight is short;
+// the iteration bound keeps a freak seed from hanging the suite instead
+// of failing it.
+func fightThroughTheOpener(t *testing.T, m Model) Model {
+	t.Helper()
+	m.engine.Player.BaseDMG = 50 // one-shot the opener's goblins
+	for i := 0; i < 100; i++ {
+		switch m.engine.State {
+		case engine.StateEncounter:
+			m, _ = press(m, "f")
+		case engine.StateCombat:
+			m, _ = press(m, "a")
+		case engine.StateExploring:
+			return m
+		default:
+			t.Fatalf("setup: unexpected state %v during the opener", m.engine.State)
+		}
 	}
+	t.Fatal("setup: the forced opener combat never ended")
 	return m
+}
+
+// exploreUntilChest presses EXPLORE until a chest yields a pending
+// item. Chests may pay out gold instead (engine economy, 40%), and the
+// no-triple-streak override periodically forces a combat in a
+// chest-only section — both are fought through; the bound keeps a freak
+// losing streak from hanging the suite instead of failing it.
+func exploreUntilChest(t *testing.T, m Model) Model {
+	t.Helper()
+	for i := 0; i < 100; i++ {
+		switch m.engine.State {
+		case engine.StateExploring:
+			m, _ = press(m, "e")
+		case engine.StateEncounter:
+			m, _ = press(m, "f")
+		case engine.StateCombat:
+			m, _ = press(m, "a")
+		case engine.StateLoot:
+			return m
+		default:
+			t.Fatalf("setup: unexpected state %v while hunting a chest", m.engine.State)
+		}
+	}
+	t.Fatal("setup: no chest yielded an item")
+	return m
+}
+
+// chestModel plays the forced opener, then explores until the model
+// lands in StateLoot with the chest's pending item — all through the
+// real key path.
+func chestModel(t *testing.T) Model {
+	t.Helper()
+	m := New(chestEngine())
+	m = fightThroughTheOpener(t, m)
+	return exploreUntilChest(t, m)
 }
 
 // bagModel opens the bag through the real key path with n stashed items.
@@ -77,7 +127,7 @@ func isWorn(h *entities.Hero, item *entities.Item) bool {
 // Exploring on a chest opens the loot decision: the item is held as
 // pending, nothing equipped or stored yet.
 func TestExploreOnAChestOpensTheLootDecision(t *testing.T) {
-	m := chestModel()
+	m := chestModel(t)
 
 	if m.engine.State != engine.StateLoot {
 		t.Fatalf("state after explore = %v, want StateLoot", m.engine.State)
@@ -89,7 +139,7 @@ func TestExploreOnAChestOpensTheLootDecision(t *testing.T) {
 
 // GRAB wears the pending loot and returns to exploring.
 func TestGrabEquipsThePendingLoot(t *testing.T) {
-	m := chestModel()
+	m := chestModel(t)
 	item := m.engine.PendingLoot
 
 	m, _ = press(m, "g")
@@ -107,7 +157,7 @@ func TestGrabEquipsThePendingLoot(t *testing.T) {
 
 // BAG stashes the pending loot and returns to exploring.
 func TestBagActionStashesThePendingLoot(t *testing.T) {
-	m := chestModel()
+	m := chestModel(t)
 	item := m.engine.PendingLoot
 
 	m, _ = press(m, "b")
@@ -126,7 +176,7 @@ func TestBagActionStashesThePendingLoot(t *testing.T) {
 
 // DISCARD destroys the pending loot and returns to exploring.
 func TestDiscardDestroysThePendingLoot(t *testing.T) {
-	m := chestModel()
+	m := chestModel(t)
 	item := m.engine.PendingLoot
 
 	m, _ = press(m, "d")
@@ -156,12 +206,8 @@ func TestBagFullStashKeepsTheDecisionOpen(t *testing.T) {
 		t.Fatal("setup: the bag is not at capacity")
 	}
 	m := New(e)
-	m, _ = press(m, "e")
-	// A chest may pay gold instead (engine economy): retry until one
-	// yields an item and opens the loot decision.
-	for m.engine.PendingLoot == nil {
-		m, _ = press(m, "e")
-	}
+	m = fightThroughTheOpener(t, m)
+	m = exploreUntilChest(t, m)
 	if m.engine.State != engine.StateLoot {
 		t.Fatal("setup: the chest did not open")
 	}
@@ -286,7 +332,7 @@ func TestCloseReturnsToExploring(t *testing.T) {
 // The chest screen names the pending item, its bonuses, the fate hint
 // and the decision actions — and every line fits the column.
 func TestViewLootPanel(t *testing.T) {
-	m := chestModel()
+	m := chestModel(t)
 
 	view := stripControls(stripANSI(m.View()))
 	for _, want := range []string{
