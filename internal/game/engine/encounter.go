@@ -13,7 +13,8 @@ const (
 	EncounterCombat EncounterType = iota
 	// A healing spot: resolves instantly on EXPLORE.
 	EncounterSanctuary
-	// Riches: resolves instantly on EXPLORE with a random item.
+	// Riches: opens the loot decision (StateLoot) on EXPLORE with a
+	// random item.
 	EncounterChest
 )
 
@@ -31,8 +32,9 @@ func (t EncounterType) String() string {
 }
 
 // `Encounter` is what actually spawns on a floor: combat encounters hold
-// the enemy queue; sanctuary/chest encounters carry no monsters and resolve
-// instantly the moment they are found.
+// the enemy queue; sanctuary encounters carry no monsters and resolve
+// instantly the moment they are found, while chest encounters open the
+// StateLoot decision over the loot they rolled.
 type Encounter struct {
 	Type     EncounterType
 	Monsters []entities.Monster
@@ -59,9 +61,11 @@ func (e *Engine) rollEncounterType(w game.EncounterTypeWeights) EncounterType {
 	)
 }
 
-// resolveEncounter handles the EncounterTypes that resolve instantly, on
-// the spot: a sanctuary (heal) and a chest (loot). Only combat keeps the
-// flow two-stepped, going through StateEncounter for FIGHT/SNEAK.
+// resolveEncounter handles the EncounterTypes that resolve on the spot:
+// a sanctuary (heal) resolves instantly, while a chest rolls its item and
+// holds it as PendingLoot for the StateLoot decision (equip/stash/discard).
+// Only combat keeps the flow two-stepped, going through StateEncounter for
+// FIGHT/SNEAK.
 //
 // Instant encounters never unlock ASCEND: only a combat victory clears the
 // floor path.
@@ -71,11 +75,15 @@ func (e *Engine) resolveEncounter(encounter Encounter) []Event {
 		healed := e.restAtSanctuary()
 		return []Event{NewHeroHealedExact(e.Player, healed, e.Player.CurrentHPPercent())}
 	case EncounterChest:
+		// The rng roll stays exactly as before; only the disposition of
+		// the rolled item changed (no auto-equip anymore).
 		if item := e.rollItemReward(); item != nil {
-			e.Player.EquipItem(item)
-			return []Event{NewItemFound(item)}
+			e.PendingLoot = item
+			e.State = StateLoot
+			return []Event{NewLootFound(item)}
 		}
-		// Registry defines no items at all — the chest is just empty.
+		// Registry defines no items at all — the chest is just empty,
+		// and exploring continues.
 		return []Event{NewMessage("The chest creaks open... but it is empty.")}
 	default:
 		// Combat encounters are never resolved instantly; the caller must

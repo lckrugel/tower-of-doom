@@ -520,7 +520,10 @@ func TestAscendWithoutArmorRegistryGrantsNothing(t *testing.T) {
 }
 
 func TestQuitAllowedInEveryState(t *testing.T) {
-	for _, state := range []GameState{StateExploring, StateEncounter, StateCombat, StateGameOver} {
+	for _, state := range []GameState{
+		StateExploring, StateEncounter, StateCombat, StateGameOver,
+		StateLoot, StateInventory,
+	} {
 		e := newTestEngine()
 		e.State = state
 
@@ -819,5 +822,74 @@ func TestCritNeverFiresWithZeroThreshold(t *testing.T) {
 	}
 	if got != 2 {
 		t.Errorf("damage = %d, want 2", got)
+	}
+}
+
+// Ascending still auto-equips the armor reward (fast pacing by design),
+// but whatever it displaces now flows to the hero bag when there is room.
+func TestAscendDisplacedGearGoesToBag(t *testing.T) {
+	e := newTestEngine(1) // helm_cap from the sorted armor pool
+	e.reg.Items = map[string]game.ItemAsset{
+		"wooden_sword": {ID: "wooden_sword", Name: "Sword", Slot: "weapon", BonusDMG: 5},
+		"chain_mail":   {ID: "chain_mail", Name: "Mail", Slot: "body_armor", BonusDEF: 3},
+		"helm_cap":     {ID: "helm_cap", Name: "Cap", Slot: "helmet", BonusDEF: 5},
+	}
+	oldHelm := entities.NewItemFromAsset(game.ItemAsset{
+		ID: "rusty_helm", Name: "Rusty Helm", Slot: "helmet", BonusDEF: 1,
+	})
+	e.Player.EquipItem(&oldHelm)
+	e.CanAscend = true
+
+	events := e.Process(Command{Type: CmdAscend})
+
+	// Floor, then the auto-equipped reward, then the displaced gear
+	// finding a place in the bag.
+	if got := eventTypes(events); !typesEqual(got,
+		EventFloorEntered, EventItemFound, EventItemStashed) {
+		t.Fatalf("events = %v, want [floorentered item-found item-stashed]", got)
+	}
+	if e.Player.Head == nil || e.Player.Head.ID != "helm_cap" {
+		t.Error("armor reward not auto-equipped")
+	}
+	bag := e.Player.Bag()
+	if len(bag) != 1 || bag[0].ID != "rusty_helm" {
+		t.Errorf("bag = %v, want the displaced rusty helm stashed", bag)
+	}
+}
+
+// With the bag full, the displaced gear is destroyed (EventItemLost) —
+// ascend never loses its auto-equip pacing.
+func TestAscendDisplacedGearDestroyedWhenBagFull(t *testing.T) {
+	e := newTestEngine(1) // helm_cap
+	e.reg.Items = map[string]game.ItemAsset{
+		"wooden_sword": {ID: "wooden_sword", Name: "Sword", Slot: "weapon", BonusDMG: 5},
+		"chain_mail":   {ID: "chain_mail", Name: "Mail", Slot: "body_armor", BonusDEF: 3},
+		"helm_cap":     {ID: "helm_cap", Name: "Cap", Slot: "helmet", BonusDEF: 5},
+	}
+	oldHelm := entities.NewItemFromAsset(game.ItemAsset{
+		ID: "rusty_helm", Name: "Rusty Helm", Slot: "helmet", BonusDEF: 1,
+	})
+	e.Player.EquipItem(&oldHelm)
+	for e.Player.HasBagRoom() {
+		e.Player.StashItem(testBagItem("filler", "amulet"))
+	}
+	e.CanAscend = true
+
+	events := e.Process(Command{Type: CmdAscend})
+
+	if got := eventTypes(events); !typesEqual(got,
+		EventFloorEntered, EventItemFound, EventItemLost) {
+		t.Fatalf("events = %v, want [floorentered item-found item-lost]", got)
+	}
+	lost, _ := events[2].Data["item"].(*entities.Item)
+	if lost == nil || lost.ID != "rusty_helm" {
+		t.Errorf("lost = %v, want the displaced rusty helm", lost)
+	}
+	if e.Player.Head == nil || e.Player.Head.ID != "helm_cap" {
+		t.Error("armor reward not auto-equipped")
+	}
+	if got := len(e.Player.Bag()); got != entities.InventoryCapacity {
+		t.Errorf("bag length = %d, want %d (reward equipped, bag still full)",
+			got, entities.InventoryCapacity)
 	}
 }

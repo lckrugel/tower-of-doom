@@ -36,6 +36,23 @@ const (
 	EventQuit
 	// Generic game message.
 	EventMessage
+	// The Hero moved an item into its equipment slot (from the bag or
+	// from a chest's pending loot).
+	EventItemEquipped
+	// The Hero destroyed an item on purpose (bag drop or loot discard).
+	// Destroyed items are gone for good: there is no floor layer.
+	EventItemDiscarded
+	// A chest yielded an item now held as PendingLoot: the player must
+	// choose in StateLoot (equip/stash/discard) — nothing is equipped or
+	// stored yet.
+	EventLootFound
+	// An item was stored in the hero bag.
+	EventItemStashed
+	// An item was destroyed because it could not be kept — displaced
+	// while the hero bag had no room.
+	EventItemLost
+	// A stash attempt was rejected because the hero bag is full.
+	EventBagFull
 )
 
 // `Event` é o que o jogo envia após processar um `Command`.
@@ -223,6 +240,10 @@ func NewQuit() Event {
 
 // NewItemFound reports an item the Hero found and auto-equipped
 // (there is no inventory yet — whatever it replaced is gone).
+//
+// Note: since the hero bag exists, chests do NOT auto-equip anymore (they
+// open the StateLoot decision); this event remains for rewards the engine
+// still auto-equips, like the ascend armor piece.
 func NewItemFound(item *entities.Item) Event {
 	return Event{
 		Type: EventItemFound,
@@ -230,4 +251,93 @@ func NewItemFound(item *entities.Item) Event {
 			"item": item,
 		},
 	}
+}
+
+// NewItemEquipped reports an item the Hero moved into its equipment slot —
+// from the bag (StateInventory) or the pending chest loot (StateLoot).
+//
+// Payload:
+//   - "item": the item now equipped.
+//   - "swapped_from": the displaced item. For bag equips it took the
+//     equipped item's old bag position; for loot equips it was sent to
+//     the bag when there was room (and is separately reported by
+//     EventItemLost when the bag was full and it was destroyed). The key
+//     is ABSENT when nothing was displaced — consumers must treat it as
+//     optional.
+func NewItemEquipped(item, swappedFrom *entities.Item) Event {
+	data := map[string]any{
+		"item": item,
+	}
+	if swappedFrom != nil {
+		data["swapped_from"] = swappedFrom
+	}
+	return Event{
+		Type: EventItemEquipped,
+		Data: data,
+	}
+}
+
+// NewItemDiscarded reports an item the Hero destroyed on purpose (a bag
+// drop or a loot discard). Destroyed items are gone for good: there is no
+// floor layer to pick things back up from.
+//
+// Payload:
+//   - "item": the destroyed item.
+func NewItemDiscarded(item *entities.Item) Event {
+	return Event{
+		Type: EventItemDiscarded,
+		Data: map[string]any{
+			"item": item,
+		},
+	}
+}
+
+// NewLootFound reports the item a chest yielded. The engine holds it as
+// PendingLoot while the player decides in StateLoot — nothing is equipped
+// or stored yet.
+//
+// Payload:
+//   - "item": the found item.
+func NewLootFound(item *entities.Item) Event {
+	return Event{
+		Type: EventLootFound,
+		Data: map[string]any{
+			"item": item,
+		},
+	}
+}
+
+// NewItemStashed reports an item stored in the hero bag.
+//
+// Payload:
+//   - "item": the stashed item.
+func NewItemStashed(item *entities.Item) Event {
+	return Event{
+		Type: EventItemStashed,
+		Data: map[string]any{
+			"item": item,
+		},
+	}
+}
+
+// NewItemLost reports an item the Hero could not keep — displaced while
+// the bag had no room — and that was therefore destroyed.
+//
+// Payload:
+//   - "item": the destroyed item.
+func NewItemLost(item *entities.Item) Event {
+	return Event{
+		Type: EventItemLost,
+		Data: map[string]any{
+			"item": item,
+		},
+	}
+}
+
+// NewBagFull reports a stash attempt rejected because the hero bag is at
+// capacity. Carries no payload: the failed command is always a stash
+// (the only command that can be blocked by a full bag), and the pending
+// item is visible as PendingLoot.
+func NewBagFull() Event {
+	return Event{Type: EventBagFull}
 }

@@ -132,40 +132,8 @@ func TestExploreSanctuaryAtFullHealth(t *testing.T) {
 	}
 }
 
-// Exploring into a chest grants a random item from the whole registry
-// (any slot) and auto-equips it, replacing whatever occupied the slot.
-func TestExploreChestEquipsRandomItem(t *testing.T) {
-	// rng 20 → chest; then rollItemReward picks from the sorted pool
-	// [leather_ring, wooden_sword] → 1 → wooden_sword.
-	e := newKindEngine(20, 1)
-	e.reg.Items = map[string]game.ItemAsset{
-		"wooden_sword": {ID: "wooden_sword", Name: "Sword", Slot: "weapon", BonusDMG: 5},
-		"leather_ring": {ID: "leather_ring", Name: "Leather Ring", Slot: "ring", BonusDEF: 1},
-	}
-	rusty := entities.NewItemFromAsset(game.ItemAsset{
-		ID: "rusty_sword", Name: "Rusty Sword", Slot: "weapon", BonusDMG: 1,
-	})
-	e.Player.EquipItem(&rusty)
-
-	events := e.Process(Command{Type: CmdExplore})
-
-	if got := eventTypes(events); !typesEqual(got, EventItemFound) {
-		t.Fatalf("events = %v, want [item-found]", got)
-	}
-	item, _ := events[0].Data["item"].(*entities.Item)
-	if item.ID != "wooden_sword" {
-		t.Errorf("chest item = %q, want wooden_sword", item.ID)
-	}
-	if e.Player.Weapon == nil || e.Player.Weapon.ID != "wooden_sword" {
-		t.Error("chest item not equipped in the weapon slot")
-	}
-	if e.State != StateExploring {
-		t.Errorf("state after chest = %v, want StateExploring", e.State)
-	}
-	if e.CanAscend {
-		t.Error("chest must not unlock ascending (only victory does)")
-	}
-}
+// (Moved to loot_test.go: chests no longer auto-equip — they hold the item
+// as PendingLoot and open the StateLoot decision.)
 
 // A registry without any items makes the chest resolve as empty.
 func TestExploreChestWithoutItemRegistryGrantsNothing(t *testing.T) {

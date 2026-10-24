@@ -4,14 +4,16 @@
 ## Game loop
 
 - Game starts (StateExploring)
-- Player can EXPLORE or ASCEND
+- Player can EXPLORE, ASCEND or INVENTORY
     - ASCEND starts blocked
 - EXPLORE generates an encounter
     - The encounter TYPE is rolled from the section's `encounter_types`
       weights (combat/sanctuary/chest; a section without the table is
       combat-only) — see "Types of encounters"
     - COMBAT encounters keep the two-step flow (StateEncounter)
-    - SANCTUARY and CHEST encounters resolve instantly, on the spot
+    - SANCTUARY encounters resolve instantly, on the spot (heal)
+    - CHEST encounters roll an item and open StateLoot: decide
+      EQUIP LOOT / STASH / DISCARD — see "Items"
 - PLayer can FIGHT or SNEAK
 - FIGHT leads to combat (StateCombat)
 - SKEAK leads to a roll to determined success
@@ -33,10 +35,13 @@
 - When all enemies die, the encounter ends with a victory for the player
     - Unlocks climbing: ASCEND to the next floor
     - Ascending also grants a random armor piece (helmet/body/boots) from
-      the registry, auto-equipped on the spot (temporary reward; gold and
-      proper item drops TODO)
+      the registry, auto-equipped on the spot; whatever it displaced goes
+      to the hero bag when there is room, else it is destroyed
+      (temporary reward; gold and proper item drops TODO)
 - After combat games goes to StateExploring again
     - If combat was won, ASCEND is now permitted
+- From StateExploring the bag can be opened (StateInventory): EQUIP /
+  DROP / CLOSE — see "Items"; no bag access mid-combat
 - If the Hero's HP reachs zero, it dies
     - StateGameOver
 
@@ -83,7 +88,45 @@ warlord (12) pays 166, an ancient red dragon (40) pays 1012.
 
 ## Items
 
-TODO
+Gear lives in six equipment slots (head, body, feet, weapon, ring,
+amulet). Equipping/unequipping an item with an HP bonus preserves the
+current HP as a fraction of the previous max (`rescaleHP`).
+
+- **Hero bag** — bounded by `InventoryCapacity` = 10. `Hero.StashItem`
+  appends at the end (insertion order preserved) and refuses when the bag
+  is full: "bag full" is a player-facing condition, never an overflow.
+- **Chest flow** — a chest keeps its rng roll unchanged, but no longer
+  auto-equips: the rolled item is held as `Engine.PendingLoot` and the
+  game enters StateLoot. The player decides:
+    - `EQUIP LOOT` — equips it; the displaced item goes to the bag when
+      there is room, else it is destroyed (`event-item-lost`). Either
+      way back to StateExploring with nothing pending. Chests still never
+      unlock ASCEND.
+    - `STASH` — stores it in the bag. While the bag is full the attempt
+      is rejected (`event-bag-full`, NO state change: the decision stays
+      open and the item stays pending).
+    - `DISCARD` — destroys it on the spot.
+- **Inventory (bag screen)** — reachable ONLY from StateExploring (no
+  mid-combat bag access):
+    - `EQUIP <index>` — swaps the bag item into its slot; the displaced
+      item takes the swapped item's old bag position (the bag length is
+      unchanged — an empty slot shrinks the bag by one).
+    - `DROP <index>` — destroys the item on the spot. There is no floor
+      layer: destroyed/dropped items are gone for good.
+    - `CLOSE` — back to StateExploring; the bag keeps its contents.
+    - Out-of-range/negative indexes are a generic invalid command with
+      no state change, never a panic (player-reachable).
+- **Ascend exception** — ascending still auto-equips the rolled armor
+  reward (fast pacing by design); its displaced gear goes to the bag when
+  there is room, else it is destroyed (`event-item-lost`).
+
+New events (additive; no existing key changed meaning):
+`event-loot-found{item}`, `event-item-equipped{item, swapped_from?}`
+(`swapped_from` is absent when nothing was displaced),
+`event-item-stashed{item}`, `event-item-discarded{item}`,
+`event-item-lost{item}`, `event-bag-full{}` (no payload — the only
+blocked command is the stash, and the pending item is visible as
+`Engine.PendingLoot`).
 
 ## Types of encounters
 
@@ -102,10 +145,10 @@ their exact spawn behavior.
     - Heals `35%` of the Hero's **base** max HP (equipment excluded, floored)
     - Clamped by `Hero.Heal`: a Hero at full health gains nothing
     - Does NOT unlock ASCEND
-- **CHEST OF RICHES** — resolves instantly on EXPLORE:
-    - Grants a random item from the registry (any slot, sorted-ID roll),
-      auto-equipped on the spot; whatever it replaced is gone (there is no
-      inventory yet)
+- **CHEST OF RICHES** — resolves on EXPLORE:
+    - Rolls a random item from the registry (any slot, sorted-ID roll; the
+      rng roll is unchanged from the old auto-equip behavior) and holds it
+      as `Engine.PendingLoot`, entering StateLoot — see "Items"
     - Does NOT unlock ASCEND
 
 Only a combat victory clears the floor path and unlocks ASCEND.

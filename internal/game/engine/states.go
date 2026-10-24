@@ -12,6 +12,11 @@ const (
 	StateCombat
 	// Hero died.
 	StateGameOver
+	// A chest was opened and the loot is held in PendingLoot: the player
+	// must decide equip it, stash it or discard it.
+	StateLoot
+	// The hero bag is open (only reachable from StateExploring).
+	StateInventory
 )
 
 func (s GameState) String() string {
@@ -24,6 +29,10 @@ func (s GameState) String() string {
 		return "Combat"
 	case StateGameOver:
 		return "GameOver"
+	case StateLoot:
+		return "Loot"
+	case StateInventory:
+		return "Inventory"
 	default:
 		return "Unknown"
 	}
@@ -33,11 +42,15 @@ func (s GameState) String() string {
 func AllowedCommands(s GameState) []CommandType {
 	switch s {
 	case StateExploring:
-		return []CommandType{CmdExplore, CmdAscend, CmdQuit}
+		return []CommandType{CmdExplore, CmdAscend, CmdInventory, CmdQuit}
 	case StateEncounter:
 		return []CommandType{CmdFight, CmdSneak, CmdQuit}
 	case StateCombat:
 		return []CommandType{CmdAttack, CmdFlee, CmdQuit}
+	case StateLoot:
+		return []CommandType{CmdEquipLoot, CmdStashLoot, CmdDiscardLoot, CmdQuit}
+	case StateInventory:
+		return []CommandType{CmdEquip, CmdDrop, CmdClose, CmdQuit}
 	case StateGameOver:
 		return []CommandType{CmdQuit}
 	default:

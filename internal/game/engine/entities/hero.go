@@ -2,6 +2,7 @@ package entities
 
 import (
 	"math"
+	"slices"
 )
 
 // Status base do Herói
@@ -15,6 +16,11 @@ const (
 	baseReqXp        = 100
 	requiredXpGrowth = 1.5
 )
+
+// InventoryCapacity is how many items the Hero's bag can hold. The engine
+// treats "bag full" as a player-facing condition (never an overflow), so
+// this constant lives here, next to the bag itself.
+const InventoryCapacity = 10
 
 type Hero struct {
 	Lvl int
@@ -33,6 +39,10 @@ type Hero struct {
 	Weapon *Item
 	Ring   *Item
 	Amulet *Item
+	// bag holds stashed (unequipped) items in insertion order. Items enter
+	// via StashItem and leave via EquipFromBag/DropFromBag; the engine owns
+	// every disposition decision (equip, drop, destroy).
+	bag []*Item
 }
 
 func NewPlayer(starterItems ...*Item) *Hero {
@@ -246,5 +256,66 @@ func (h *Hero) UnequipItem(slot ItemSlot) *Item {
 	if item != nil && item.BonusHP != 0 {
 		h.rescaleHP(oldMax, h.MaxHP())
 	}
+	return item
+}
+
+// Bag returns the stashed items in insertion order. The returned slice is a
+// copy: mutate the bag only through StashItem/EquipFromBag/DropFromBag.
+// (The items themselves are shared pointers.)
+func (h *Hero) Bag() []*Item {
+	bag := make([]*Item, len(h.bag))
+	copy(bag, h.bag)
+	return bag
+}
+
+// BagRoom reports how many more items the bag can take.
+func (h *Hero) BagRoom() int {
+	return InventoryCapacity - len(h.bag)
+}
+
+// HasBagRoom reports whether the bag can stash another item.
+func (h *Hero) HasBagRoom() bool {
+	return len(h.bag) < InventoryCapacity
+}
+
+// StashItem stores an item at the end of the bag, in insertion order.
+// Returns false (storing nothing) when the bag is full or the item is nil.
+func (h *Hero) StashItem(i *Item) bool {
+	if i == nil || !h.HasBagRoom() {
+		return false
+	}
+	h.bag = append(h.bag, i)
+	return true
+}
+
+// EquipFromBag equips the bag item at index. When the target slot was
+// occupied, the displaced item takes the bag item's old list position, so
+// the bag length is unchanged and always still fits; when the slot was
+// empty the bag shrinks by one. Returns the displaced item (nil when the
+// slot was empty). An out-of-range index is a no-op returning nil — this is
+// player-reachable, so it must never panic.
+func (h *Hero) EquipFromBag(index int) *Item {
+	if index < 0 || index >= len(h.bag) {
+		return nil
+	}
+	item := h.bag[index]
+	displaced := h.EquipItem(item)
+	if displaced != nil {
+		h.bag[index] = displaced
+	} else {
+		h.bag = slices.Delete(h.bag, index, index+1)
+	}
+	return displaced
+}
+
+// DropFromBag removes and returns the bag item at index; the caller decides
+// its fate (the engine destroys it). An out-of-range index is a no-op
+// returning nil — player-reachable, must never panic.
+func (h *Hero) DropFromBag(index int) *Item {
+	if index < 0 || index >= len(h.bag) {
+		return nil
+	}
+	item := h.bag[index]
+	h.bag = slices.Delete(h.bag, index, index+1)
 	return item
 }
