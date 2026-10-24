@@ -19,9 +19,14 @@ type Model struct {
 	log []string
 	// cursor is the selected index of the current state's action bar.
 	cursor int
-	// bagCursor is the selected row of the hero bag while it is open
-	// (StateInventory): ←/→ walk the item rows, and the bag commands
-	// (WEAR/DROP) dispatch with it as their ItemIndex.
+	// bagCursor is the selected row of the state's selectable list. While
+	// the bag is open (StateInventory) it indexes the hero bag; while
+	// shopping (StateMerchant) it indexes the combined stock-then-bag
+	// list (stock rows come first, so BUY takes it as the stock index
+	// and SELL subtracts the stock size to reach the bag row). ←/→ walk
+	// it with wraparound and the indexed commands (WEAR/DROP/BUY/SELL)
+	// dispatch with it; every dispatch resets it, so re-entering a list
+	// selects the first row again.
 	bagCursor int
 	// width/height track the terminal size from WindowSizeMsg; when both
 	// are too small for the fixed canvas, View() falls back to a bare
@@ -61,11 +66,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // handleKey resolves a key press: ctrl+c always quits, esc quits —
 // except where it means something closer (it closes the bag; while a
-// chest loot is pending it does nothing, since the decision is
-// mandatory and quitting would silently destroy the item). Arrows move
-// the action-bar cursor (or the bag's item cursor while the bag is
-// open), Enter dispatches the selection, and single-letter shortcuts
-// dispatch their action directly (case-insensitive).
+// chest loot is pending or the merchant is open it does nothing, since
+// both are explicit-only decisions: quitting there would silently
+// destroy the pending item, and the shop is left through [L]). Arrows
+// move the action-bar cursor — or the state's row cursor while the bag
+// or the shop list is open —, Enter dispatches the selection, and
+// single-letter shortcuts dispatch their action directly
+// (case-insensitive).
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "ctrl+c":
@@ -74,16 +81,12 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		switch m.engine.State {
 		case engine.StateInventory:
 			return m.dispatch(closeAction())
-		case engine.StateLoot:
-			// The loot decision is mandatory: esc is a no-op, never a
-			// silent destruction of the pending item.
+		case engine.StateLoot, engine.StateMerchant:
 			return m, nil
 		}
 		return m.dispatch(quitAction())
 	case "left":
-		if m.engine.State == engine.StateInventory {
-			// The bag is open: the arrows walk the item rows.
-			n := max(1, len(m.engine.Player.Bag()))
+		if n := m.selectableRows(); n > 0 {
 			m.bagCursor = (m.bagCursor - 1 + n) % n
 			return m, nil
 		}
@@ -91,8 +94,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.cursor = (m.cursor - 1 + len(actions)) % len(actions)
 		return m, nil
 	case "right":
-		if m.engine.State == engine.StateInventory {
-			n := max(1, len(m.engine.Player.Bag()))
+		if n := m.selectableRows(); n > 0 {
 			m.bagCursor = (m.bagCursor + 1) % n
 			return m, nil
 		}
@@ -124,15 +126,45 @@ func (m Model) selectedAction() action {
 	return actions[cursor]
 }
 
+// selectableRows is the length of the list the row cursor walks: the
+// hero bag while it is open, the merchant's combined stock-then-bag
+// list while shopping. 0 where there is nothing to select — the arrows
+// then move the action-bar cursor instead.
+func (m Model) selectableRows() int {
+	switch m.engine.State {
+	case engine.StateInventory:
+		return len(m.engine.Player.Bag())
+	case engine.StateMerchant:
+		return len(m.engine.MerchantStock) + len(m.engine.Player.Bag())
+	default:
+		return 0
+	}
+}
+
+// itemIndexFor resolves the row an index-carrying command acts on. The
+// bag commands (WEAR/DROP) take the bag cursor directly; at the
+// merchant the same cursor walks the combined stock-then-bag list, so
+// BUY takes it as-is (stock rows come first) and SELL subtracts the
+// stock size to reach the bag row. A cursor on the wrong section sends
+// an out-of-range index, which the engine rejects as a generic message
+// — never a panic, no state change.
+func (m Model) itemIndexFor(cmd engine.CommandType) int {
+	if cmd == engine.CmdSell {
+		return m.bagCursor - len(m.engine.MerchantStock)
+	}
+	return m.bagCursor
+}
+
 // dispatch sends an action to the engine, appends every event to the log
 // and reports a tea.Quit when the engine ends the session.
 func (m Model) dispatch(a action) (tea.Model, tea.Cmd) {
 	quit := false
 	cmd := engine.Command{Type: a.cmd}
 	if a.usesIndex {
-		// Bag commands act on the selected row; an out-of-range index is
-		// rejected by the engine as a generic message, no state change.
-		cmd.ItemIndex = m.bagCursor
+		// Indexed commands act on the selected row; an out-of-range
+		// index is rejected by the engine as a generic message, no
+		// state change.
+		cmd.ItemIndex = m.itemIndexFor(a.cmd)
 	}
 	for _, ev := range m.engine.Process(cmd) {
 		m.absorb(ev)
@@ -142,7 +174,7 @@ func (m Model) dispatch(a action) (tea.Model, tea.Cmd) {
 	}
 	m.log = trimLog(m.log)
 	m.cursor = 0    // the action bar is rebuilt for the (possibly new) state
-	m.bagCursor = 0 // re-entering the bag selects the first item again
+	m.bagCursor = 0 // re-entering the bag (or the shop) selects the first row again
 	if quit {
 		return m, tea.Quit
 	}

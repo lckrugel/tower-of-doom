@@ -158,6 +158,8 @@ func (m Model) badge() string {
 		style = styleBadgeCombat
 	case engine.StateLoot:
 		style = styleBadgeWarn
+	case engine.StateMerchant:
+		style = styleBadgeWarn
 	case engine.StateInventory:
 		style = styleBadgeOk
 	case engine.StateGameOver:
@@ -188,6 +190,8 @@ func (m Model) body() string {
 		return m.lootPanel()
 	case engine.StateInventory: // the whole bag, selection included
 		return m.inventoryPanel()
+	case engine.StateMerchant: // the shop: offers and bag in one list
+		return m.merchantPanel()
 	case engine.StateEncounter: // the whole queue helps weigh FIGHT vs SNEAK
 		return m.encounterPanel()
 	case engine.StateCombat: // only the front enemy matters mid-fight
@@ -237,6 +241,59 @@ func (m Model) inventoryPanel() string {
 		}
 	}
 	return b.String()
+}
+
+// merchantPanel is the shop screen: the merchant's offers on top, the
+// hero's bag below — one combined list the row cursor walks (stock rows
+// first, so the cursor doubles as CmdBuy's stock index). Stock rows show
+// the buy price, bag rows what the merchant pays — the difference is
+// what makes BUY vs SELL enabled. The body slot holds 15 rows and the
+// worst case is title (1) + full stock (3) + bag label (1) + a full bag
+// (10) = 15: the panel always fits, never leaning on slot() to clip.
+func (m Model) merchantPanel() string {
+	stock := m.engine.MerchantStock
+	bag := m.engine.Player.Bag()
+	rows := make([]string, 0, 1+len(stock)+1+max(1, len(bag)))
+
+	rows = append(rows, stylePanelTitle.Render("◈ MERCHANT"))
+	if len(stock) == 0 {
+		// The offer list empties as the hero buys; the shop stays open
+		// for selling (and leaving).
+		rows = append(rows, styleDim.Render("   (nothing left to buy)"))
+	}
+	for i, item := range stock {
+		rows = append(rows, m.shopRow(i, item, fmt.Sprintf(" — %d gold", item.BuyPrice())))
+	}
+	rows = append(rows, styleDim.Render(fmt.Sprintf("  YOUR BAG (%d/%d)", len(bag), entities.InventoryCapacity)))
+	if len(bag) == 0 {
+		rows = append(rows, styleDim.Render("   (nothing to sell)"))
+	}
+	for i, item := range bag {
+		rows = append(rows, m.shopRow(len(stock)+i, item, fmt.Sprintf(" — sells for %d gold", item.SellValue())))
+	}
+	return strings.Join(rows, "\n")
+}
+
+// shopRow renders one selectable merchant row: the selection marker, the
+// item's label and the dim price suffix. The label yields to the price
+// when the row would overflow the left column — nothing here may lean
+// on slot() to be clipped.
+func (m Model) shopRow(index int, item *entities.Item, price string) string {
+	label := item.Name + itemBonusList(item)
+	if over := len([]rune(label)) + len([]rune(price)) + 2 - mainColWidth; over > 0 {
+		label = truncateRunes(label, len([]rune(label))-over)
+	}
+	if index == m.merchantCursor() {
+		return styleSelected.Render("▶ "+label) + styleDim.Render(price)
+	}
+	return "  " + styleAction.Render(label) + styleDim.Render(price)
+}
+
+// merchantCursor is the row cursor clamped to the combined stock+bag
+// list: a shrunk list (after a purchase) must never render a ghost row.
+func (m Model) merchantCursor() int {
+	n := len(m.engine.MerchantStock) + len(m.engine.Player.Bag())
+	return min(max(m.bagCursor, 0), max(n-1, 0))
 }
 
 // gameOverPanel is the body after death: the banner, then the run's
@@ -339,6 +396,17 @@ func padRight(s string, width int) string {
 	return s
 }
 
+// truncateRunes cuts s to at most width runes. A plain cut, no ellipsis:
+// keeping the row inside the column is what matters, and a filler glyph
+// risks the frame's byte-exactness.
+func truncateRunes(s string, width int) string {
+	r := []rune(s)
+	if len(r) <= width {
+		return s
+	}
+	return string(r[:max(width, 0)])
+}
+
 // heroPanel is the player's vital stats and currently equipped gear.
 func (m Model) heroPanel() string {
 	p := m.engine.Player
@@ -363,7 +431,7 @@ func (m Model) logPanel() string {
 // actionBar renders the current state's options with the cursor
 // highlighted; the controls hint closes the line.
 func (m Model) actionBar() string {
-	actions := actionsFor(m.engine)
+	actions := m.barActions()
 	spots := make([]string, 0, len(actions))
 	for i, a := range actions {
 		label := fmt.Sprintf("[%s] %s", strings.ToUpper(a.key), a.label)
@@ -378,12 +446,15 @@ func (m Model) actionBar() string {
 		spots = append(spots, styleAction.Render(label))
 	}
 	// The hint names what the arrows do here: pick a bar option elsewhere,
-	// walk the bag rows inside the bag — while the chest screen has
-	// nothing to select, only the decision to make.
+	// walk the bag rows inside the bag, the shop's combined list while
+	// shopping — while the chest screen has nothing to select, only the
+	// decision to make.
 	hint := "   ← → select · ⏎ confirm"
 	switch m.engine.State {
 	case engine.StateInventory:
 		hint = "   ← → item · ⏎ confirm"
+	case engine.StateMerchant:
+		hint = "   ← → row · ⏎ act"
 	case engine.StateLoot:
 		hint = "   decide the loot's fate"
 	}

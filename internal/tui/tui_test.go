@@ -58,6 +58,7 @@ func TestExploreShortcutStartsEncounter(t *testing.T) {
 func TestQuitShortcutWorksInEveryState(t *testing.T) {
 	for _, state := range []engine.GameState{
 		engine.StateExploring, engine.StateEncounter, engine.StateCombat, engine.StateGameOver,
+		engine.StateLoot, engine.StateInventory, engine.StateMerchant,
 	} {
 		m := New(testEngine())
 		m.engine.State = state

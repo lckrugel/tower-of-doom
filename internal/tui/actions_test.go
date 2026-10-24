@@ -54,17 +54,19 @@ func stashTestItem(e *engine.Engine) *entities.Item {
 
 func TestActionsPerState(t *testing.T) {
 	tests := []struct {
-		name     string
-		state    engine.GameState
-		withBag  bool
-		wantKeys []string
+		name      string
+		state     engine.GameState
+		withBag   bool
+		withStock bool // the shop's offers (BUY needs one to be enabled)
+		wantKeys  []string
 	}{
-		{"exploring", engine.StateExploring, false, []string{"e", "u", "i", "q"}},
-		{"encounter", engine.StateEncounter, false, []string{"f", "s", "q"}},
-		{"combat", engine.StateCombat, false, []string{"a", "r", "q"}},
-		{"loot", engine.StateLoot, false, []string{"g", "b", "d", "q"}},
-		{"inventory", engine.StateInventory, true, []string{"w", "x", "c", "q"}},
-		{"game over", engine.StateGameOver, false, []string{"q"}},
+		{"exploring", engine.StateExploring, false, false, []string{"e", "u", "i", "q"}},
+		{"encounter", engine.StateEncounter, false, false, []string{"f", "s", "q"}},
+		{"combat", engine.StateCombat, false, false, []string{"a", "r", "q"}},
+		{"loot", engine.StateLoot, false, false, []string{"g", "b", "d", "q"}},
+		{"inventory", engine.StateInventory, true, false, []string{"w", "x", "c", "q"}},
+		{"merchant", engine.StateMerchant, true, true, []string{"p", "v", "l", "q"}},
+		{"game over", engine.StateGameOver, false, false, []string{"q"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -73,6 +75,11 @@ func TestActionsPerState(t *testing.T) {
 				// An empty bag renders WEAR/DROP disabled; the enabled
 				// invariant below needs a stocked bag.
 				stashTestItem(e)
+			}
+			if tt.withStock {
+				// SELL needs the bag (stashed above); BUY needs offers.
+				e.MerchantStock = append(e.MerchantStock,
+					shopItem("Offer A"), shopItem("Offer B"), shopItem("Offer C"))
 			}
 			e.State = tt.state
 
@@ -117,7 +124,7 @@ func TestShortcutsAreGloballyUnique(t *testing.T) {
 	byKey := make(map[string]engine.CommandType)
 	states := []engine.GameState{
 		engine.StateExploring, engine.StateEncounter, engine.StateCombat, engine.StateGameOver,
-		engine.StateLoot, engine.StateInventory,
+		engine.StateLoot, engine.StateInventory, engine.StateMerchant,
 	}
 	for _, state := range states {
 		e := testEngine()
@@ -150,19 +157,21 @@ func TestAscendEnabledFollowsCanAscend(t *testing.T) {
 	}
 }
 
-// Only the bag commands index into the bag: the model must flag exactly
-// those, so dispatch knows when to carry the selected row — and no other
-// action ever sends an index.
-func TestOnlyBagActionsUseTheIndex(t *testing.T) {
+// Only the row-indexed commands dispatch with the cursor: the bag
+// commands (WEAR/DROP) index the hero bag; at the merchant, BUY indexes
+// the stock and SELL the bag. Every other action never sends an index.
+func TestIndexedCommandsUseTheRowCursor(t *testing.T) {
 	states := []engine.GameState{
 		engine.StateExploring, engine.StateEncounter, engine.StateCombat,
 		engine.StateGameOver, engine.StateLoot, engine.StateInventory,
+		engine.StateMerchant,
 	}
 	for _, state := range states {
 		e := testEngine()
 		e.State = state
 		for _, a := range actionsFor(e) {
-			want := a.cmd == engine.CmdEquip || a.cmd == engine.CmdDrop
+			want := a.cmd == engine.CmdEquip || a.cmd == engine.CmdDrop ||
+				a.cmd == engine.CmdBuy || a.cmd == engine.CmdSell
 			if a.usesIndex != want {
 				t.Errorf("state %v: action %q usesIndex = %v, want %v", state, a.key, a.usesIndex, want)
 			}
