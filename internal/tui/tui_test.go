@@ -27,6 +27,8 @@ func press(m Model, raw string) (Model, tea.Cmd) {
 		keyMsg = tea.KeyMsg{Type: tea.KeyLeft}
 	case "right":
 		keyMsg = tea.KeyMsg{Type: tea.KeyRight}
+	case "ctrl+c":
+		keyMsg = tea.KeyMsg{Type: tea.KeyCtrlC}
 	default:
 		keyMsg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(raw)}
 	}
@@ -55,21 +57,7 @@ func TestExploreShortcutStartsEncounter(t *testing.T) {
 	}
 }
 
-func TestQuitShortcutWorksInEveryState(t *testing.T) {
-	for _, state := range []engine.GameState{
-		engine.StateExploring, engine.StateEncounter, engine.StateCombat, engine.StateGameOver,
-		engine.StateLoot, engine.StateInventory, engine.StateMerchant,
-	} {
-		m := New(testEngine())
-		m.engine.State = state
-
-		_, cmd := press(m, "q")
-
-		if cmd == nil {
-			t.Errorf("state %v: 'q' did not request a quit", state)
-		}
-	}
-}
+// The quit-confirmation tests live in quit_test.go.
 
 // esc quits everywhere except where it has a closer meaning: it closes
 // the bag (StateInventory) and is a deliberate no-op while a chest loot
@@ -251,7 +239,7 @@ func TestWearEquipsTheSelectedBagItem(t *testing.T) {
 	m, _ = press(m, "w")
 
 	if m.engine.State != engine.StateInventory {
-		t.Fatalf("state after 'w' = %v, want the bag to stay open", m.engine.State)
+		t.Fatalf("state after wear = %v, want the bag to stay open", m.engine.State)
 	}
 	if m.engine.Player.Weapon != &iron {
 		t.Errorf("weapon = %q, want the selected Iron Staff", m.engine.Player.Weapon.Name)
@@ -385,9 +373,10 @@ func TestViewExploring(t *testing.T) {
 }
 
 // The purse sits on the hero panel's stats line: DMG/DEF/SPD grow a
-// GOLD segment, and the panel keeps its five rows — the layout
+// GOLD segment, and the panel keeps its four rows — the layout
 // invariant (vitals directly above the shortcut bar) depends on that
-// count.
+// count. The gear list is not part of the panel: the equipped panel in
+// the trade states is the only gear view.
 func TestHeroPanelShowsGold(t *testing.T) {
 	e := testEngine()
 	e.Player.Gold = 123
@@ -395,14 +384,17 @@ func TestHeroPanelShowsGold(t *testing.T) {
 
 	lines := viewLines(m.heroPanel())
 
-	if len(lines) != heroHeight {
-		t.Fatalf("hero panel has %d lines, want %d", len(lines), heroHeight)
+	if len(lines) != 4 {
+		t.Fatalf("hero panel has %d lines, want 4", len(lines))
 	}
 	stats := lines[3]
 	for _, want := range []string{"DMG", "DEF", "SPD", "GOLD 123"} {
 		if !strings.Contains(stats, want) {
 			t.Errorf("stats line %q missing %q", stats, want)
 		}
+	}
+	if joined := strings.Join(lines, "\n"); strings.Contains(joined, "Gear:") {
+		t.Error("hero panel still carries the gear line")
 	}
 	if w := ansiLen(stats); w > mainColWidth {
 		t.Errorf("stats line is %d wide, overflows the %d-col column: %q", w, mainColWidth, stats)

@@ -37,6 +37,11 @@ type Model struct {
 	// nil (legacy defeat without stats) falls back to the engine's final
 	// player state.
 	recap *runRecap
+	// confirmQuit arms the quit-confirmation prompt: while true the
+	// action bar is replaced by the Really-quit line and every key but y
+	// cancels back. Arming is TUI-internal (no engine call); the flag
+	// never survives a dispatch, so any state change restores the bar.
+	confirmQuit bool
 }
 
 // New builds the UI for a fresh engine, greeting the player. The
@@ -64,7 +69,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 }
 
-// handleKey resolves a key press: ctrl+c always quits, esc quits —
+// handleKey resolves a key press: ctrl+c always quits — immediately,
+// even out of the quit confirmation. While the confirmation is armed
+// every key but y cancels back to the normal bar. Otherwise esc quits —
 // except where it means something closer (it closes the bag; while a
 // chest loot is pending or the merchant is open it does nothing, since
 // both are explicit-only decisions: quitting there would silently
@@ -72,11 +79,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // move the action-bar cursor — or the state's row cursor while the bag
 // or the shop list is open —, Enter dispatches the selection, and
 // single-letter shortcuts dispatch their action directly
-// (case-insensitive).
+// (case-insensitive). The Quit action goes through the confirmation
+// everywhere but game over.
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "ctrl+c":
 		return m.dispatch(quitAction())
+	}
+	if m.confirmQuit {
+		// The prompt is modal: only y confirms, anything else — n, esc,
+		// arrows, unknown letters — cancels with no dispatch, no log.
+		if strings.ToLower(msg.String()) == "y" {
+			return m.dispatch(quitAction())
+		}
+		m.confirmQuit = false
+		return m, nil
+	}
+	switch msg.String() {
 	case "esc":
 		switch m.engine.State {
 		case engine.StateInventory:
@@ -102,19 +121,30 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.cursor = (m.cursor + 1) % len(actions)
 		return m, nil
 	case "enter":
-		return m.dispatch(m.selectedAction())
+		return m.confirmOrDispatch(m.selectedAction())
 	default:
 		// Single-letter shortcuts: match the key against the current bar.
 		key := strings.ToLower(msg.String())
 		if len(key) == 1 {
 			for _, a := range actionsFor(m.engine) {
 				if a.key == key {
-					return m.dispatch(a)
+					return m.confirmOrDispatch(a)
 				}
 			}
 		}
 		return m, nil
 	}
+}
+
+// confirmOrDispatch routes the Quit action through the TUI-internal
+// confirmation — everywhere but game over, where there is nothing left
+// to lose — and dispatches every other action directly.
+func (m Model) confirmOrDispatch(a action) (tea.Model, tea.Cmd) {
+	if a.cmd == engine.CmdQuit && m.engine.State != engine.StateGameOver {
+		m.confirmQuit = true
+		return m, nil
+	}
+	return m.dispatch(a)
 }
 
 func (m Model) selectedAction() action {
@@ -175,6 +205,7 @@ func (m Model) dispatch(a action) (tea.Model, tea.Cmd) {
 	m.log = trimLog(m.log)
 	m.cursor = 0    // the action bar is rebuilt for the (possibly new) state
 	m.bagCursor = 0 // re-entering the bag (or the shop) selects the first row again
+	m.confirmQuit = false
 	if quit {
 		return m, tea.Quit
 	}

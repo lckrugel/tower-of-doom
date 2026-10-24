@@ -36,9 +36,10 @@ const (
 	// Middle bands: header (1) and action bar (1) frame the workspace.
 	middleHeight = contentHeight - 2
 
-	// Hero panel: HERO + Lv + HP + stats + gear lines, anchored to the
-	// bottom of the left column.
-	heroHeight = 5
+	// Hero panel: HERO + Lv + HP + stats lines, anchored to the bottom
+	// of the left column. Gear is NOT listed here — the equipped panel
+	// (right column in the trade states) is the only gear view.
+	heroHeight = 4
 	bodyHeight = middleHeight - heroHeight
 )
 
@@ -286,9 +287,10 @@ func (m Model) inventoryPanel() string {
 // hero's bag below — one combined list the row cursor walks (stock rows
 // first, so the cursor doubles as CmdBuy's stock index). Stock rows show
 // the buy price, bag rows what the merchant pays — the difference is
-// what makes BUY vs SELL enabled. The body slot holds 15 rows and the
-// worst case is title (1) + full stock (3) + bag label (1) + a full bag
-// (10) = 15: the panel always fits, never leaning on slot() to clip.
+// what makes BUY vs SELL enabled. The body slot holds 16 rows and the
+// worst case is title (1) + full stock (4, the engine's
+// merchantStockSize) + bag label (1) + a full bag (10) = 16: the panel
+// always fits, never leaning on slot() to clip.
 func (m Model) merchantPanel() string {
 	stock := m.engine.MerchantStock
 	bag := m.engine.Player.Bag()
@@ -446,7 +448,9 @@ func truncateRunes(s string, width int) string {
 	return string(r[:max(width, 0)])
 }
 
-// heroPanel is the player's vital stats and currently equipped gear.
+// heroPanel is the player's vital stats: level, XP, HP and the derived
+// stats with the purse. Gear is deliberately not listed — the equipped
+// panel owns that view in the trade states.
 func (m Model) heroPanel() string {
 	p := m.engine.Player
 	var b strings.Builder
@@ -458,8 +462,7 @@ func (m Model) heroPanel() string {
 	b.WriteString(fmt.Sprintf("  DMG %d · DEF %d · SPD %d · ", p.Damage(), p.Defense(), p.Speed()))
 	// The purse shares the stats line, dim like the panel's XP segment:
 	// the panel labels stay quiet, the log carries the gold-colored news.
-	b.WriteString(styleDim.Render(fmt.Sprintf("GOLD %d", p.Gold)) + "\n")
-	b.WriteString(styleDim.Render("  Gear: " + gearList(p)))
+	b.WriteString(styleDim.Render(fmt.Sprintf("GOLD %d", p.Gold)))
 	return b.String()
 }
 
@@ -496,8 +499,14 @@ func (m Model) equippedPanel() string {
 }
 
 // actionBar renders the current state's options with the cursor
-// highlighted; the controls hint closes the line.
+// highlighted; the controls hint closes the line. While the quit
+// confirmation is armed the whole bar is replaced by the Really-quit
+// prompt — no options, no hint: the only way out of the prompt is
+// choosing it (y) or cancelling (any other key).
 func (m Model) actionBar() string {
+	if m.confirmQuit {
+		return styleSelected.Render("Really quit? [Y] Yes / [N] No")
+	}
 	actions := m.barActions()
 	spots := make([]string, 0, len(actions))
 	for i, a := range actions {
@@ -542,20 +551,6 @@ func equippedSlots(p *entities.Hero) []gearSlot {
 		{"Head", p.Head}, {"Body", p.Body}, {"Feet", p.Feet},
 		{"Wpn", p.Weapon}, {"Ring", p.Ring}, {"Amu", p.Amulet},
 	}
-}
-
-// gearList names everything currently equipped.
-func gearList(p *entities.Hero) string {
-	var worn []string
-	for _, s := range equippedSlots(p) {
-		if s.item != nil {
-			worn = append(worn, fmt.Sprintf("%s %s%s", s.label, s.item.Name, itemBonusList(s.item)))
-		}
-	}
-	if len(worn) == 0 {
-		return "bare hands"
-	}
-	return strings.Join(worn, " · ")
 }
 
 // xpBar renders the progress toward the next level in gold tones.

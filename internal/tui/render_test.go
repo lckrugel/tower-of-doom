@@ -265,12 +265,6 @@ func TestEventText(t *testing.T) {
 			nil,
 		},
 		{
-			"item found lists bonuses",
-			engine.NewItemFound(testItem()),
-			"",
-			[]string{"You find Espada de Madeira", "+5 DMG", "and put it on."},
-		},
-		{
 			"loot found lists bonuses",
 			engine.NewLootFound(testItem()),
 			"The chest holds Espada de Madeira (+5 DMG).",
