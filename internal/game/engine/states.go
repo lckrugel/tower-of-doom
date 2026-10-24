@@ -33,11 +33,13 @@ func (s GameState) String() string {
 func AllowedCommands(s GameState) []CommandType {
 	switch s {
 	case StateExploring:
-		return []CommandType{CmdExplore, CmdAscend}
+		return []CommandType{CmdExplore, CmdAscend, CmdQuit}
 	case StateEncounter:
-		return []CommandType{CmdFight, CmdSneak}
+		return []CommandType{CmdFight, CmdSneak, CmdQuit}
 	case StateCombat:
-		return []CommandType{CmdAttack, CmdFlee}
+		return []CommandType{CmdAttack, CmdFlee, CmdQuit}
+	case StateGameOver:
+		return []CommandType{CmdQuit}
 	default:
 		return []CommandType{}
 	}

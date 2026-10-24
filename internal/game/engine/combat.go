@@ -23,16 +23,102 @@ var (
 	_ Combatant = (*entities.Monster)(nil)
 )
 
-func ProcessCombatTurn(h *entities.Hero, enemy Combatant, heroAttack bool) []Event {
+// `currentEnemy` returns the enemy currently engaged in combat —
+// the front of the encounter queue.
+func (e *Engine) currentEnemy() *entities.Monster {
+	return &e.CurrentEncounter[0]
+}
+
+// resolveRound plays one full round of combat: whoever has the higher total
+// Speed (items included) acts first — the Hero wins ties — and both
+// combatants act unless someone dies mid-round.
+//
+// `heroAttack` tells whether the Hero acts this round. When false (failed
+// sneak or failed flee) the round is a free turn for the enemy: a single
+// enemy attack with no Hero action.
+func (e *Engine) resolveRound(heroAttack bool) []Event {
 	var events []Event
-	if h.Speed() >= enemy.Speed() {
-		if heroAttack {
-			dmgDealt := enemy.TakeDmg(h.Damage())
-			events = append(events, NewDamageDealt(enemy, dmgDealt))
-			if !enemy.IsAlive() {
-				events = append(events)
-			}
+	heroFirst := e.Player.Speed() >= e.currentEnemy().Speed()
+
+	if heroAttack && heroFirst {
+		events = append(events, e.heroStrike()...)
+		if !e.currentEnemy().IsAlive() {
+			return e.appendEnemyDefeat(events)
 		}
 	}
-	// TODO: finish implementation
+
+	// The enemy always acts (first when it is faster than the Hero).
+	events = append(events, e.enemyStrike()...)
+	if !e.Player.IsAlive() {
+		return e.appendHeroDefeat(events)
+	}
+
+	if heroAttack && !heroFirst {
+		events = append(events, e.heroStrike()...)
+		if !e.currentEnemy().IsAlive() {
+			return e.appendEnemyDefeat(events)
+		}
+	}
+
+	return events
+}
+
+// heroStrike performs the Hero's attack against the current enemy.
+func (e *Engine) heroStrike() []Event {
+	enemy := e.currentEnemy()
+	dmg := enemy.TakeDmg(e.Player.Damage())
+	return []Event{NewDamageDealt(enemy, dmg)}
+}
+
+// enemyStrike performs the current enemy's attack against the Hero.
+func (e *Engine) enemyStrike() []Event {
+	enemy := e.currentEnemy()
+	dmg := e.Player.TakeDmg(enemy.Damage())
+	return []Event{NewDamageTaken(e.Player, dmg)}
+}
+
+// enemyFreeTurn is the single enemy attack granted by a failed sneak or a
+// failed flee attempt: the Hero does not act this round.
+func (e *Engine) enemyFreeTurn() []Event {
+	events := e.enemyStrike()
+	if !e.Player.IsAlive() {
+		return e.appendHeroDefeat(events)
+	}
+	return events
+}
+
+// appendEnemyDefeat grants the kill XP instantly (mid-combat level ups are
+// possible), advances the encounter queue and transitions back to exploring
+// when the last enemy of the encounter falls.
+func (e *Engine) appendEnemyDefeat(events []Event) []Event {
+	enemy := e.currentEnemy()
+	xp := enemy.GetKillXp()
+	oldLvl := e.Player.Lvl
+
+	e.Player.GiveXP(xp)
+	events = append(events, NewEnemyDefeated(enemy.Name(), xp))
+	if e.Player.Lvl > oldLvl {
+		events = append(events, NewLevelUp(e.Player.Lvl))
+	}
+
+	e.CurrentEncounter = e.CurrentEncounter[1:]
+	if len(e.CurrentEncounter) == 0 {
+		e.CanAscend = true
+		e.State = StateExploring
+		events = append(events, NewVictory())
+	}
+	return events
+}
+
+// appendHeroDefeat ends the game.
+func (e *Engine) appendHeroDefeat(events []Event) []Event {
+	e.State = StateGameOver
+	return append(events, NewHeroDefeated())
+}
+
+// fleeChance returns the flee probability in percent, weighted by the speed
+// difference between the Hero and the enemy, always clamped to [5, 95].
+func fleeChance(heroSpeed, enemySpeed int) int {
+	chance := 50 + 5*(heroSpeed-enemySpeed)
+	return min(95, max(5, chance))
 }

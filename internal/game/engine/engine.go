@@ -52,9 +52,14 @@ func (e *Engine) Process(cmd Command) []Event {
 	if !e.isValidCommand(cmd) {
 		return []Event{NewMessage("Invalid command")}
 	}
+	if cmd.Type == CmdQuit {
+		return []Event{NewQuit()}
+	}
 	switch e.State {
 	case StateExploring:
 		return e.handleExploring(cmd)
+	case StateEncounter:
+		return e.handleEncounter(cmd)
 	case StateCombat:
 		return e.handleCombat(cmd)
 	case StateGameOver:
@@ -78,6 +83,7 @@ func (e *Engine) handleExploring(cmd Command) []Event {
 				e.CurrentFloor, err))
 		}
 		e.CurrentEncounter = encounter
+		e.State = StateEncounter
 		return []Event{NewEncounterFound(encounter)}
 	case CmdAscend:
 		if !e.CanAscend {
@@ -99,13 +105,56 @@ func (e *Engine) handleExploring(cmd Command) []Event {
 	}
 }
 
-func (e *Engine) handleCombat(cmd Command) []Event {
+func (e *Engine) handleEncounter(cmd Command) []Event {
 	switch cmd.Type {
-	case CmdAttack:
-		return ProcessCombatTurn(e.Player, &e.CurrentEncounter[0], true)
+	case CmdFight:
+		// Entering combat resolves the first round immediately: the Hero
+		// engages the enemy with standard initiative.
+		e.State = StateCombat
+		return e.resolveRound(true)
+	case CmdSneak:
+		return e.resolveSneak()
 	default:
 		return []Event{NewMessage("Unhandled command")}
 	}
+}
+
+// resolveSneak attempts to slip past the encounter. Success avoids combat
+// entirely (no reward, and ascending stays locked until a victory);
+// failure starts combat with a free turn for the enemies.
+func (e *Engine) resolveSneak() []Event {
+	// 50/50 for now, no stats involved.
+	if e.rng.Intn(2) == 0 {
+		e.CurrentEncounter = nil
+		e.State = StateExploring
+		return []Event{NewSneakSuccess()}
+	}
+	e.State = StateCombat
+	return append([]Event{NewSneakFailed()}, e.enemyFreeTurn()...)
+}
+
+func (e *Engine) handleCombat(cmd Command) []Event {
+	switch cmd.Type {
+	case CmdAttack:
+		return e.resolveRound(true)
+	case CmdFlee:
+		return e.resolveFlee()
+	default:
+		return []Event{NewMessage("Unhandled command")}
+	}
+}
+
+// resolveFlee attempts to escape the combat. Success exits combat with no
+// reward; failure gives the current enemy a free turn.
+func (e *Engine) resolveFlee() []Event {
+	enemy := e.currentEnemy()
+	chance := fleeChance(e.Player.Speed(), enemy.Speed())
+	if e.rng.Intn(100) < chance {
+		e.CurrentEncounter = nil
+		e.State = StateExploring
+		return []Event{NewFled()}
+	}
+	return append([]Event{NewMessage("You failed to flee!")}, e.enemyFreeTurn()...)
 }
 
 func (e *Engine) handleGameOver(cmd Command) []Event {
