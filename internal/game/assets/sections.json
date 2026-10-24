@@ -6,6 +6,10 @@
     "difficulty_per_floor": 3,
     "min_floor": 1,
     "max_floor": 3,
+    "encounter_types": {
+      "combat": 100,
+      "sanctuary": 40
+    },
     "spawns": [
       {
         "weight": 100,
