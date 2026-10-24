@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
+	"slices"
 
 	"github.com/lckrugel/tower-of-doom/internal/game"
 	"github.com/lckrugel/tower-of-doom/internal/game/engine/entities"
@@ -48,6 +49,9 @@ func NewEngine(reg *game.Registry) *Engine {
 }
 
 func (e *Engine) Process(cmd Command) []Event {
+	if !e.isValidCommand(cmd) {
+		return []Event{NewMessage("Invalid command")}
+	}
 	switch e.State {
 	case StateExploring:
 		return e.handleExploring(cmd)
@@ -56,7 +60,7 @@ func (e *Engine) Process(cmd Command) []Event {
 	case StateGameOver:
 		return e.handleGameOver(cmd)
 	default:
-		return []Event{NewMessage("Nothing more to do")}
+		return []Event{NewMessage("Unhandled state")}
 	}
 }
 
@@ -80,32 +84,34 @@ func (e *Engine) handleExploring(cmd Command) []Event {
 			return []Event{NewMessage("Cannot ascend yet")}
 		}
 		e.CurrentFloor++
+		e.CanAscend = false
 		sectionDef, err := e.reg.SectionForFloor(e.CurrentFloor)
 		if err != nil {
 			// Deve ser inacessível enquanto a torre for infinita:
 			// existe uma seção com max_floor == -1 cobrindo todos os andares
 			// acima do último trecho finito, e a inicialização valida isso.
-			// (TODO: quando a torre tiver um topo, este caso vira uma
-			// condição de vitória, não um panic.)
 			panic(fmt.Sprintf("unreachable: no section covers floor %d despite passing content validation: %v", e.CurrentFloor, err))
 		}
 		return []Event{NewFloorEntered(e.CurrentFloor, sectionDef.Name)}
+
 	default:
-		return []Event{NewMessage("Invalid command")}
+		return []Event{NewMessage("Unhandled command")}
 	}
 }
 
 func (e *Engine) handleCombat(cmd Command) []Event {
 	switch cmd.Type {
+	case CmdAttack:
+		return ProcessCombatTurn(e.Player, &e.CurrentEncounter[0], true)
 	default:
-		return []Event{NewMessage("Invalid command")}
+		return []Event{NewMessage("Unhandled command")}
 	}
 }
 
 func (e *Engine) handleGameOver(cmd Command) []Event {
 	switch cmd.Type {
 	default:
-		return []Event{NewMessage("Invalid command")}
+		return []Event{NewMessage("Unhandled command")}
 	}
 }
 
@@ -185,5 +191,10 @@ func (e *Engine) weightedPick(items []game.MonsterAsset, weights []int) game.Mon
 			return items[i]
 		}
 	}
-	return items[len(items)-1] // inalcançável
+	return items[len(items)-1] // unreachable
+}
+
+func (e *Engine) isValidCommand(cmd Command) bool {
+	allowed := AllowedCommands(e.State)
+	return slices.Contains(allowed, cmd.Type)
 }

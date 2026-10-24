@@ -1,12 +1,14 @@
 package entities
 
 import (
+	"math"
+
 	"github.com/lckrugel/tower-of-doom/internal/game"
 )
 
 type Monster struct {
 	ID         string
-	Name       string
+	name       string
 	Difficulty int
 	// Status base do mosntro
 	BaseMaxHP int
@@ -20,7 +22,7 @@ type Monster struct {
 func NewMonsterFromAsset(asset game.MonsterAsset) Monster {
 	return Monster{
 		ID:         asset.ID,
-		Name:       asset.Name,
+		name:       asset.Name,
 		Difficulty: asset.Difficulty,
 		BaseMaxHP:  asset.HP,
 		CurrentHP:  asset.HP,
@@ -35,6 +37,11 @@ func (m *Monster) Speed() int         { return m.BaseSPD }
 func (m *Monster) MaxHP() int         { return m.BaseMaxHP }
 func (m *Monster) Defense() int       { return m.BaseDEF }
 func (m *Monster) CritThreshold() int { return 10 }
+func (m *Monster) Name() string       { return m.name }
+
+func (m *Monster) CurrentHPPercent() int {
+	return int(math.Floor(float64(m.CurrentHP)/float64(m.MaxHP()))) * 100
+}
 
 func (m *Monster) TakeDmg(dmg int) int {
 	dmgTaken := max(0, min(dmg, m.CurrentHP))

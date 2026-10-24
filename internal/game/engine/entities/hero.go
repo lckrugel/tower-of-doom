@@ -64,6 +64,10 @@ func (h *Hero) equippedItems() []*Item {
 	return result
 }
 
+func (h *Hero) Name() string {
+	return "Hero"
+}
+
 func (h *Hero) Damage() int {
 	total := h.BaseDMG
 	for _, i := range h.equippedItems() {
@@ -94,6 +98,10 @@ func (h *Hero) Defense() int {
 		total += i.BonusDEF
 	}
 	return total
+}
+
+func (h *Hero) CurrentHPPercent() int {
+	return int(math.Floor(float64(h.CurrentHP)/float64(h.MaxHP()))) * 100
 }
 
 func (h *Hero) CritThreshold() int {

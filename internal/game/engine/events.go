@@ -6,19 +6,29 @@ import "github.com/lckrugel/tower-of-doom/internal/game/engine/entities"
 type EventType int
 
 const (
+	// Hero enters a new floor.
 	EventFloorEntered EventType = iota
+	// A new encounter was found.
 	EventEncounterFound
+	// Hero past the encounter successfully.
 	EventSneakSuccess
+	// Hero failed to sneak past the encounter.
 	EventSneakFailed
+	// Hero's damage dealt.
 	EventCombatDamageDealt
+	// Hero's damage taken.
 	EventCombatDamageTaken
 	EventEnemyHealed
 	EventHeroHealed
 	EventEnemyDefeated
+	// Hero died.
 	EventHeroDefeated
+	// Hero successfully fled the combat.
 	EventFled
+	// Defeated all enemies in an encounter.
 	EventVictory
-	EventMessage // mensagem genérica
+	// Generic game message.
+	EventMessage
 )
 
 // `Event` é o que o jogo envia após processar um `Command`.
@@ -50,6 +60,18 @@ func NewEncounterFound(monsters []entities.Monster) Event {
 		Type: EventEncounterFound,
 		Data: map[string]any{
 			"monsters": monsters,
+		},
+	}
+}
+
+func NewDamageDealt(enemy Combatant, dmgDealt int) Event {
+	return Event{
+		Type: EventCombatDamageDealt,
+		Data: map[string]any{
+			"enemy":        enemy.Name(),
+			"enemy_hp":     enemy.CurrentHPPercent(),
+			"enemy_alive":  enemy.IsAlive(),
+			"damage_dealt": dmgDealt,
 		},
 	}
 }

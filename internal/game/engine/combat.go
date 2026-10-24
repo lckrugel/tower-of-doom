@@ -1,12 +1,13 @@
 package engine
 
-import "github.com/lckrugel/tower-of-doom/internal/game/engine/entities"
+import (
+	"github.com/lckrugel/tower-of-doom/internal/game/engine/entities"
+)
 
-// `Combatant` é o contrato de alguém que pode participar de combate.
-//
-// Hero e Monster são implementações — as verificações em tempo de
-// compilação abaixo garantem que continuam satisfazendo a interface.
+// `Combatant` defines an entity that can join a combat.
 type Combatant interface {
+	Name() string
+	CurrentHPPercent() int
 	MaxHP() int
 	Damage() int
 	Speed() int
@@ -21,3 +22,17 @@ var (
 	_ Combatant = (*entities.Hero)(nil)
 	_ Combatant = (*entities.Monster)(nil)
 )
+
+func ProcessCombatTurn(h *entities.Hero, enemy Combatant, heroAttack bool) []Event {
+	var events []Event
+	if h.Speed() >= enemy.Speed() {
+		if heroAttack {
+			dmgDealt := enemy.TakeDmg(h.Damage())
+			events = append(events, NewDamageDealt(enemy, dmgDealt))
+			if !enemy.IsAlive() {
+				events = append(events)
+			}
+		}
+	}
+	// TODO: finish implementation
+}

@@ -6,6 +6,8 @@ Code is divided into core game logic (`internal/game`) and (futurally) display v
 
 Assets for the game are described in `json` files on `internal/game/assets`. The assets described in that directory are the base game assets, but the idea is to support user created assets or mods in a custom directory. These assets are loaded into a registry at application launch.
 
+Comments, documentation and design decisions should be in english.
+
 ## Design notes (decided)
 
 - **XP curve:** cost to level up from Lvl = `100 · max(Lvl−1, 1)^1.5` (`baseReqXp`, `requiredXpGrowth`). Levels 1→2 and 2→3 cost the same (100) — known consequence of `max()`, kept on purpose ("cheap early levels").
