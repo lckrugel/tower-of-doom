@@ -72,6 +72,15 @@ helpers are for non-engine use only (e.g. item durability).
   taking damage); `TakeDmg` itself stays a plain clamp. Pure math —
   consumes no rng. Content validation rejects negative DEF.
 
+### Kill XP
+
+Defeating a monster grants `round(4 · difficulty^1.5)` XP instantly
+(mid-combat kills can trigger level-ups on the spot). The exponent
+mirrors the hero level-cost curve (`100 · max(Lvl−1, 1)^1.5`), which
+keeps the time to level flat per floor tier instead of ballooning as
+content difficulty rises: a goblin (difficulty 3) pays 21 XP, an orc
+warlord (12) pays 166, an ancient red dragon (40) pays 1012.
+
 ## Items
 
 TODO
@@ -90,7 +99,7 @@ their exact spawn behavior.
     - The Hero can FIGHT (StateCombat) or SNEAK past it (50/50)
     - Victory unlocks ASCEND; sneaking/fleeing past does not
 - **SANCTUARY** — a healing spot; resolves instantly on EXPLORE:
-    - Heals `20%` of the Hero's **base** max HP (equipment excluded, floored)
+    - Heals `35%` of the Hero's **base** max HP (equipment excluded, floored)
     - Clamped by `Hero.Heal`: a Hero at full health gains nothing
     - Does NOT unlock ASCEND
 - **CHEST OF RICHES** — resolves instantly on EXPLORE:
