@@ -26,10 +26,16 @@ const (
 	CmdFlee
 	// Quits the game.
 	CmdQuit
-	// Decides what to do with the pending chest loot (StateLoot):
-	// equips it, sending whatever it displaced to the bag (or destroying
-	// it there is no room).
-	CmdEquipLoot
+	// Wears an item into its equipment slot, in either state that hosts
+	// the decision:
+	//   - StateLoot: wears the pending loot (ItemIndex ignored); the
+	//     displaced item goes to the bag when there is room, else it is
+	//     destroyed (EventItemLost). Either way back to StateExploring
+	//     with nothing pending.
+	//   - StateInventory: wears the bag item at `ItemIndex`; the
+	//     displaced item takes the worn item's old bag position (the bag
+	//     length is unchanged). The bag stays open.
+	CmdWear
 	// Stashes the pending chest loot into the hero bag (StateLoot).
 	// Rejected with no state change while the bag is full.
 	CmdStashLoot
@@ -37,9 +43,6 @@ const (
 	CmdDiscardLoot
 	// Opens the hero bag while exploring (StateInventory).
 	CmdInventory
-	// Equips the bag item at `ItemIndex`, sending the displaced item to
-	// the bag item's old position (StateInventory).
-	CmdEquip
 	// Destroys the bag item at `ItemIndex` (StateInventory).
 	CmdDrop
 	// Closes the bag, returning to exploring (StateInventory).
@@ -59,7 +62,7 @@ const (
 // `Command` is an action taken.
 type Command struct {
 	Type CommandType
-	// ItemIndex points into the hero bag for the bag commands (CmdEquip
+	// ItemIndex points into the hero bag for the bag commands (CmdWear
 	// and CmdDrop in StateInventory) and for selling (CmdSell in
 	// StateMerchant); it points into Engine.MerchantStock for CmdBuy.
 	// Every other command ignores it. An out-of-range/negative index is

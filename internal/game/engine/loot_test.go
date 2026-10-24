@@ -53,17 +53,17 @@ func TestExploreChestOpensLootDecision(t *testing.T) {
 	}
 }
 
-// CmdEquipLoot equips the pending item; the displaced item goes to the bag
-// when there is room. Afterwards the engine is back to exploring and
-// nothing stays pending.
-func TestLootEquipDisplacedGoesToBag(t *testing.T) {
+// CmdWear (StateLoot) wears the pending item; the displaced item goes to
+// the bag when there is room. Afterwards the engine is back to exploring
+// and nothing stays pending.
+func TestLootWearDisplacedGoesToBag(t *testing.T) {
 	e := chestEngine(1) // shiny_sword displaces the equipped rusty sword
 	rusty := testBagItem("rusty_sword", "weapon")
 	e.Player.EquipItem(rusty)
 	e.Process(Command{Type: CmdExplore})
 	pending := e.PendingLoot
 
-	events := e.Process(Command{Type: CmdEquipLoot})
+	events := e.Process(Command{Type: CmdWear})
 
 	if got := eventTypes(events); !typesEqual(got, EventItemEquipped) {
 		t.Fatalf("events = %v, want [item-equipped]", got)
@@ -89,8 +89,8 @@ func TestLootEquipDisplacedGoesToBag(t *testing.T) {
 	}
 }
 
-// With no bag room left, equipping destroys the displaced item.
-func TestLootEquipWithFullBagDestroysDisplaced(t *testing.T) {
+// With no bag room left, wearing the loot destroys the displaced item.
+func TestLootWearWithFullBagDestroysDisplaced(t *testing.T) {
 	e := chestEngine(1) // shiny_sword displaces the equipped rusty sword
 	rusty := testBagItem("rusty_sword", "weapon")
 	e.Player.EquipItem(rusty)
@@ -98,7 +98,7 @@ func TestLootEquipWithFullBagDestroysDisplaced(t *testing.T) {
 	e.Process(Command{Type: CmdExplore})
 	pending := e.PendingLoot
 
-	events := e.Process(Command{Type: CmdEquipLoot})
+	events := e.Process(Command{Type: CmdWear})
 
 	if got := eventTypes(events); !typesEqual(got, EventItemEquipped, EventItemLost) {
 		t.Fatalf("events = %v, want [item-equipped item-lost]", got)
@@ -118,12 +118,12 @@ func TestLootEquipWithFullBagDestroysDisplaced(t *testing.T) {
 	}
 }
 
-// Equipping loot into an empty slot displaces nothing.
-func TestLootEquipIntoEmptySlot(t *testing.T) {
+// Wearing loot into an empty slot displaces nothing.
+func TestLootWearIntoEmptySlot(t *testing.T) {
 	e := chestEngine(0) // rusty_ring, hero has an empty ring slot
 	e.Process(Command{Type: CmdExplore})
 
-	events := e.Process(Command{Type: CmdEquipLoot})
+	events := e.Process(Command{Type: CmdWear})
 
 	if got := eventTypes(events); !typesEqual(got, EventItemEquipped) {
 		t.Fatalf("events = %v, want [item-equipped] only", got)
@@ -133,6 +133,27 @@ func TestLootEquipIntoEmptySlot(t *testing.T) {
 	}
 	if e.Player.Ring == nil {
 		t.Error("pending loot not equipped in the ring slot")
+	}
+	if e.State != StateExploring || e.PendingLoot != nil {
+		t.Errorf("state = %v, pending = %v, want Exploring/nil", e.State, e.PendingLoot)
+	}
+}
+
+// In StateLoot the pending item is the only wearer candidate: CmdWear
+// ignores ItemIndex entirely (garbage indexes included) — the index only
+// means something in StateInventory.
+func TestLootWearIgnoresItemIndex(t *testing.T) {
+	e := chestEngine(0) // rusty_ring, hero has an empty ring slot
+	e.Process(Command{Type: CmdExplore})
+	pending := e.PendingLoot
+
+	events := e.Process(Command{Type: CmdWear, ItemIndex: 7})
+
+	if got := eventTypes(events); !typesEqual(got, EventItemEquipped) {
+		t.Fatalf("events = %v, want [item-equipped]", got)
+	}
+	if e.Player.Ring != pending {
+		t.Error("pending loot not worn from StateLoot")
 	}
 	if e.State != StateExploring || e.PendingLoot != nil {
 		t.Errorf("state = %v, pending = %v, want Exploring/nil", e.State, e.PendingLoot)

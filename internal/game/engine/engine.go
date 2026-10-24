@@ -211,12 +211,14 @@ func (e *Engine) handleCombat(cmd Command) []Event {
 	}
 }
 
-// handleLoot resolves the pending chest loot (StateLoot). Every branch
-// consumes the pending item (clears PendingLoot) and returns to exploring,
-// except a stash rejected by a full bag, which keeps the decision open.
+// handleLoot resolves the pending loot decision (StateLoot — chests and,
+// since the ascend rework, ascensions too). Every branch consumes the
+// pending item (clears PendingLoot) and returns to exploring, except a
+// stash rejected by a full bag, which keeps the decision open.
 func (e *Engine) handleLoot(cmd Command) []Event {
 	switch cmd.Type {
-	case CmdEquipLoot:
+	case CmdWear:
+		// The pending item is the only subject here: ItemIndex is ignored.
 		item := e.PendingLoot
 		displaced := e.Player.EquipItem(item)
 		events := []Event{NewItemEquipped(item, displaced)}
@@ -248,12 +250,12 @@ func (e *Engine) handleLoot(cmd Command) []Event {
 }
 
 // handleInventory manages the hero bag (StateInventory, reachable only
-// from StateExploring — no mid-combat bag access). Equip and drop index
+// from StateExploring — no mid-combat bag access). Wear and drop index
 // the bag; `isValidCommand` already guarantees a live bag slot, so the
 // handlers below index safely.
 func (e *Engine) handleInventory(cmd Command) []Event {
 	switch cmd.Type {
-	case CmdEquip:
+	case CmdWear:
 		item := e.Player.Bag()[cmd.ItemIndex]
 		displaced := e.Player.EquipFromBag(cmd.ItemIndex)
 		return []Event{NewItemEquipped(item, displaced)}
@@ -444,7 +446,14 @@ func (e *Engine) isValidCommand(cmd Command) bool {
 	// a generic invalid command with no state change (never a panic —
 	// the index is player-reachable): bag commands and selling at a bag
 	// item, buying at a stock offer.
-	if cmd.Type == CmdEquip || cmd.Type == CmdDrop || cmd.Type == CmdSell {
+	if cmd.Type == CmdDrop || cmd.Type == CmdSell {
+		if cmd.ItemIndex < 0 || cmd.ItemIndex >= len(e.Player.Bag()) {
+			return false
+		}
+	}
+	// CmdWear indexes the bag only from StateInventory: the StateLoot
+	// wear takes the pending item and ignores the index.
+	if cmd.Type == CmdWear && e.State == StateInventory {
 		if cmd.ItemIndex < 0 || cmd.ItemIndex >= len(e.Player.Bag()) {
 			return false
 		}
