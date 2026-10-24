@@ -41,7 +41,7 @@ const (
 // padding around it. Anything smaller is unusable — nothing would fit
 // without clipping or wrapping.
 const (
-	minWidth  = contentWidth + 4 // border (2) + horizontal padding (2)
+	minWidth  = contentWidth + 4  // border (2) + horizontal padding (2)
 	minHeight = contentHeight + 2 // border (2)
 )
 

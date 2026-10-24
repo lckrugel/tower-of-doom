@@ -51,8 +51,8 @@ var (
 	// Unknown state: loud magenta instead of a blank chip — if the FSM
 	// ever reports something unexpected, the header should say so.
 	styleBadgeUnknown = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.Color("213"))
+				Bold(true).
+				Foreground(lipgloss.Color("213"))
 	styleDeath = lipgloss.NewStyle().
 			Bold(true).
 			Foreground(lipgloss.Color("196"))
