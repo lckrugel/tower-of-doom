@@ -192,15 +192,29 @@ func (m Model) body() string {
 }
 
 // gameOverPanel is the body after death: the banner, then the run's
-// recap — where the climb ended (floor + section) and which hero fell.
-// All of the data is already on the engine: CurrentFloor, SectionName
-// and the player's level/XP.
+// recap — where the climb ended (floor + section), which hero fell and
+// how many enemies it took down. Floor/level/kills come from the
+// defeat event as captured by the model (with the engine's final state
+// as fallback); XP is only available on the engine, not on the event.
 func (m Model) gameOverPanel() string {
 	p := m.engine.Player
+	level, kills, hasKills := p.Lvl, 0, false
+	if m.recap != nil {
+		level = m.recap.level
+		kills, hasKills = m.recap.kills, m.recap.hasKills
+	}
+
 	var b strings.Builder
 	b.WriteString(styleDeath.Render("☠ YOU DIED — the tower claims another soul.") + "\n\n")
 	b.WriteString("  Reached " + styleLocation.Render(m.locationLabel()) + "\n")
-	b.WriteString(styleDim.Render(fmt.Sprintf("  Level %d · %d XP gathered", p.Lvl, p.Xp)))
+
+	summary := fmt.Sprintf("Level %d · %d XP gathered", level, p.Xp)
+	if hasKills {
+		// Kills stay on the line only when the event carried a count:
+		// a legacy event doesn't turn into a suspicious "0 kills".
+		summary = fmt.Sprintf("Level %d · %d kills · %d XP gathered", level, kills, p.Xp)
+	}
+	b.WriteString(styleDim.Render("  " + summary))
 	return b.String()
 }
 

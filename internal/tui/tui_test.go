@@ -371,3 +371,106 @@ func TestViewGameOverRecap(t *testing.T) {
 		}
 	}
 }
+
+// The defeat event carries the run's final stats on its way through the
+// log: dispatch must capture them so the recap can quote what the engine
+// recorded, not guess.
+func TestRecapIsCapturedFromTheDefeatEvent(t *testing.T) {
+	m := New(testEngine())
+	m.absorb(engine.NewHeroDefeatedWithStats(7, 3, 7))
+
+	if m.recap == nil {
+		t.Fatal("defeat event with stats stored no recap")
+	}
+	if m.recap.level != 3 {
+		t.Errorf("recap level = %d, want 3", m.recap.level)
+	}
+	if m.recap.kills != 7 || !m.recap.hasKills {
+		t.Errorf("recap kills = %d/%v, want 7/captured", m.recap.kills, m.recap.hasKills)
+	}
+}
+
+// A legacy defeat event has no stats at all: capturing it must not
+// fabricate a recap — the panel falls back to the engine's final state.
+func TestLegacyDefeatStoresNoRecap(t *testing.T) {
+	m := New(testEngine())
+	m.absorb(engine.NewHeroDefeated())
+
+	if m.recap != nil {
+		t.Errorf("legacy defeat stored a recap %+v, want nil", m.recap)
+	}
+}
+
+// The game-over recap must quote the captured defeat stats, kills
+// included, e.g. "Level 3 · 7 kills · 40 XP gathered".
+func TestViewGameOverRecapShowsTheKillCount(t *testing.T) {
+	e := testEngine()
+	e.State = engine.StateGameOver
+	e.CurrentFloor = 7
+	e.Player.Lvl = 2 // stale on purpose: the event is the source of truth
+	e.Player.Xp = 40
+	m := New(e)
+	m.absorb(engine.NewHeroDefeatedWithStats(7, 3, 7))
+
+	view := stripControls(stripANSI(m.View()))
+
+	if !strings.Contains(view, "Level 3 · 7 kills · 40 XP gathered") {
+		t.Errorf("recap missing the kills line:\n%s", view)
+	}
+
+	// Same column discipline as the rest of the panel.
+	for i, line := range viewLines(m.gameOverPanel()) {
+		if w := ansiLen(line); w > mainColWidth {
+			t.Errorf("game over body line %d is %d wide, overflows the %d-col column:\n%q", i, w, mainColWidth, line)
+		}
+	}
+}
+
+// The recap must stay correct for a hero that died without ever killing
+// anything (kills=0 shows 0 kills), and an older engine's event without
+// a kills key must omit the segment rather than print a zero.
+func TestViewGameOverRecapHandlesMissingAndZeroKills(t *testing.T) {
+	withKills := func(ev engine.Event) Model {
+		e := testEngine()
+		e.State = engine.StateGameOver
+		e.Player.Xp = 40
+		m := New(e)
+		m.absorb(ev)
+		return m
+	}
+
+	t.Run("kills 0 is shown", func(t *testing.T) {
+		view := stripControls(stripANSI(withKills(
+			engine.NewHeroDefeatedWithStats(1, 1, 0),
+		).View()))
+		if !strings.Contains(view, "Level 1 · 0 kills · 40 XP gathered") {
+			t.Errorf("zero kills recapped wrong:\n%s", view)
+		}
+	})
+
+	t.Run("event without a kills key omits the segment", func(t *testing.T) {
+		view := stripControls(stripANSI(withKills(
+			engine.Event{Type: engine.EventHeroDefeated, Data: map[string]any{
+				"floor": 1, "level": 2,
+			}},
+		).View()))
+		if strings.Contains(view, "kills") {
+			t.Errorf("recap printed a kills segment with no kills data:\n%s", view)
+		}
+		if !strings.Contains(view, "Level 2 · 40 XP gathered") {
+			t.Errorf("recap without kills data lost the level line:\n%s", view)
+		}
+	})
+
+	t.Run("event with malformed stats falls back to the engine", func(t *testing.T) {
+		view := stripControls(stripANSI(withKills(
+			engine.Event{Type: engine.EventHeroDefeated, Data: map[string]any{
+				"level": "two", "floor": 1, "kills": 5,
+			}},
+		).View()))
+		// level typed wrong means no trustable stats: fall back entirely.
+		if strings.Contains(view, "kills") {
+			t.Errorf("recap trusted a malformed event:\n%s", view)
+		}
+	})
+}
