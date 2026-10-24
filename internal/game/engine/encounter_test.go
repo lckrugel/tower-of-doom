@@ -320,10 +320,11 @@ func TestThirdDifferentKindStillHappens(t *testing.T) {
 // overridden to combat — and the override skips the merchant entirely (no
 // stock is rolled).
 func TestMerchantStreakBecomesCombat(t *testing.T) {
-	// Merchant kind 30 twice (stock offers 0,1,0,1; upgrade check 99 →
-	// none — LEAVE consumes no rng), then a third merchant kind 30 →
-	// overridden; picks 104 → orc (5), 0 → goblin (3).
-	e := merchantEngine(30, 0, 1, 0, 1, 99, 30, 0, 1, 0, 1, 99, 30, 104, 0)
+	// Merchant kind 30 twice (the offer picks drain the shrinking pool —
+	// 0,1,0,0 are valid for Intn(4/3/2/1); upgrade check 99 → none; LEAVE
+	// consumes no rng), then a third merchant kind 30 → overridden; picks
+	// 104 → orc (5), 0 → goblin (3).
+	e := merchantEngine(30, 0, 1, 0, 0, 99, 30, 0, 1, 0, 0, 99, 30, 104, 0)
 	stub := e.rng.(*stubRng)
 
 	for range 2 {
@@ -360,9 +361,10 @@ func TestMerchantStreakBecomesCombat(t *testing.T) {
 // legitimately-rolled SANCTUARY still happens — only the third SAME kind
 // is blocked.
 func TestDifferentKindAfterMerchantPairHappens(t *testing.T) {
-	// Merchant kind 30 twice, then sanctuary kind 10 — a different
-	// non-combat kind, so no override.
-	e := merchantEngine(30, 0, 1, 0, 1, 99, 30, 0, 1, 0, 1, 99, 10)
+	// Merchant kind 30 twice (the offer picks drain the shrinking pool —
+	// 0,1,0,0 are valid for Intn(4/3/2/1); upgrade check 99 → none), then
+	// sanctuary kind 10 — a different non-combat kind, so no override.
+	e := merchantEngine(30, 0, 1, 0, 0, 99, 30, 0, 1, 0, 0, 99, 10)
 
 	for range 2 {
 		if got := eventTypes(e.Process(Command{Type: CmdExplore})); !typesEqual(got, EventMerchantFound) {
