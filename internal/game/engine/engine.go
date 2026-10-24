@@ -152,18 +152,19 @@ func (e *Engine) handleExploring(cmd Command) []Event {
 		e.CanAscend = false
 		sectionDef := e.currentSection()
 		events := []Event{NewFloorEntered(e.CurrentFloor, sectionDef.Name)}
+		// The ascend reward is a loot decision, not an auto-equip: the
+		// armor piece rolled from the NEW floor's section is held as
+		// PendingLoot and the player chooses in StateLoot (wear/stash/
+		// discard) — the very same flow as a chest.
 		if item := e.rollArmorReward(sectionDef.ItemTiers); item != nil {
-			// Ascend keeps auto-equipping (fast pacing by design), but the
-			// displaced gear is not lost anymore: it goes to the bag when
-			// there is room, else it is destroyed.
-			events = append(events, NewItemFound(item))
-			if displaced := e.Player.EquipItem(item); displaced != nil {
-				if e.Player.StashItem(displaced) {
-					events = append(events, NewItemStashed(displaced))
-				} else {
-					events = append(events, NewItemLost(displaced))
-				}
-			}
+			e.PendingLoot = item
+			e.State = StateLoot
+			events = append(events, NewLootFound(item))
+		} else {
+			// Empty armor pool (only possible for registries that skipped
+			// validation): behave like an empty chest — a message and no
+			// loot decision, never StateLoot holding a nil item.
+			events = append(events, NewMessage("No armor piece awaits on this floor."))
 		}
 		return events
 
@@ -377,9 +378,8 @@ func (e *Engine) pickItem(accept func(entities.ItemSlot) bool, tiers []int) *ent
 
 // rollArmorReward rolls a random armor piece (helmet, body or boots) from
 // the registry as the reward for ascending, restricted to the section's
-// allowed item tiers (empty = unrestricted). The Hero auto-equips it (fast
-// pacing by design); whatever it displaced flows to the hero bag when
-// there is room, else it is destroyed.
+// allowed item tiers (empty = unrestricted). The piece is held as
+// PendingLoot: the player decides its fate in StateLoot, like any chest.
 func (e *Engine) rollArmorReward(tiers []int) *entities.Item {
 	return e.pickItem(entities.IsArmor, tiers)
 }

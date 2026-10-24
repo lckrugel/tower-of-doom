@@ -412,8 +412,10 @@ func TestAscendUnlocking(t *testing.T) {
 		}
 		events := e.Process(Command{Type: CmdAscend})
 
-		if got := eventTypes(events); !typesEqual(got, EventFloorEntered) {
-			t.Errorf("events = %v, want [floor-entered]", got)
+		// The test registry has no armor pieces: the ascend emits the
+		// floor event plus the empty-pool message and stays exploring.
+		if got := eventTypes(events); !typesEqual(got, EventFloorEntered, EventMessage) {
+			t.Errorf("events = %v, want [floor-entered message]", got)
 		}
 		if e.CurrentFloor != 2 {
 			t.Errorf("floor = %d, want 2", e.CurrentFloor)
@@ -491,7 +493,18 @@ func TestDefenseMitigationInCombat(t *testing.T) {
 	})
 }
 
-// Ascending to the next floor grants a random armor piece from the registry.
+// ascendItems is the armor-bearing registry shared by the ascend tests:
+// the sorted armor pool is [chain_mail, helm_cap].
+func ascendItems() map[string]game.ItemAsset {
+	return map[string]game.ItemAsset{
+		"wooden_sword": {ID: "wooden_sword", Name: "Sword", Slot: "weapon", BonusDMG: 5},
+		"chain_mail":   {ID: "chain_mail", Name: "Mail", Slot: "body_armor", BonusDEF: 3},
+		"helm_cap":     {ID: "helm_cap", Name: "Cap", Slot: "helmet", BonusDEF: 5},
+	}
+}
+
+// Ascending to the next floor rolls a random armor piece from the NEW
+// floor's section and opens the loot decision over it (no auto-equip).
 func TestAscendGrantsRandomArmor(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -505,54 +518,48 @@ func TestAscendGrantsRandomArmor(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			e := newTestEngine(tt.rngPick)
-			e.reg.Items = map[string]game.ItemAsset{
-				"wooden_sword": {ID: "wooden_sword", Name: "Sword", Slot: "weapon", BonusDMG: 5},
-				"chain_mail":   {ID: "chain_mail", Name: "Mail", Slot: "body_armor", BonusDEF: 3},
-				"helm_cap":     {ID: "helm_cap", Name: "Cap", Slot: "helmet", BonusDEF: 5},
-			}
+			e.reg.Items = ascendItems()
+			weaponBefore := e.Player.Weapon
 			e.CanAscend = true
 
 			events := e.Process(Command{Type: CmdAscend})
 
-			// Floor event first, loot second.
-			if got := eventTypes(events); !typesEqual(got, EventFloorEntered, EventItemFound) {
-				t.Fatalf("events = %v, want [floor-entered item-found]", got)
+			// Floor event first, loot decision second.
+			if got := eventTypes(events); !typesEqual(got, EventFloorEntered, EventLootFound) {
+				t.Fatalf("events = %v, want [floor-entered loot-found]", got)
 			}
 			item := events[1].Data["item"].(*entities.Item)
 			if item.ID != tt.wantID {
 				t.Errorf("looted item = %q, want %q (weapons must never roll)", item.ID, tt.wantID)
 			}
-			// The loot must land in its own slot (pointer-equality is enough).
-			switch item.Slot {
-			case entities.ItemSlot("helmet"):
-				if e.Player.Head != item {
-					t.Error("loot not equipped in the helmet slot")
-				}
-			case entities.ItemSlot("body_armor"):
-				if e.Player.Body != item {
-					t.Error("loot not equipped in the body slot")
-				}
-			case entities.ItemSlot("boots"):
-				if e.Player.Feet != item {
-					t.Error("loot not equipped in the boots slot")
-				}
+			if e.State != StateLoot || e.PendingLoot != item {
+				t.Errorf("state = %v, pending = %v, want StateLoot holding the reward", e.State, e.PendingLoot)
 			}
-			if e.Player.Weapon != nil {
-				t.Error("the weapon pool leaked into armor rewards")
+			// Nothing is equipped until the player decides.
+			if e.Player.Head != nil || e.Player.Body != nil || e.Player.Feet != nil {
+				t.Error("armor reward auto-equipped — must wait for the player decision")
+			}
+			if e.Player.Weapon != weaponBefore {
+				t.Error("the worn gear changed on ascend")
 			}
 		})
 	}
 }
 
-// A registry without armor pieces makes ascending work, just without loot.
+// A registry without armor pieces makes ascending work with just the floor
+// event and a message: the empty-pool guard behaves like an empty chest,
+// staying in StateExploring with nothing pending.
 func TestAscendWithoutArmorRegistryGrantsNothing(t *testing.T) {
 	e := newTestEngine()
 	e.CanAscend = true
 
 	events := e.Process(Command{Type: CmdAscend})
 
-	if got := eventTypes(events); !typesEqual(got, EventFloorEntered) {
-		t.Errorf("events = %v, want [floor-entered] only", got)
+	if got := eventTypes(events); !typesEqual(got, EventFloorEntered, EventMessage) {
+		t.Fatalf("events = %v, want [floor-entered message]", got)
+	}
+	if e.State != StateExploring || e.PendingLoot != nil {
+		t.Errorf("state = %v, pending = %v, want Exploring/nil", e.State, e.PendingLoot)
 	}
 }
 
@@ -862,15 +869,11 @@ func TestCritNeverFiresWithZeroThreshold(t *testing.T) {
 	}
 }
 
-// Ascending still auto-equips the armor reward (fast pacing by design),
-// but whatever it displaces now flows to the hero bag when there is room.
-func TestAscendDisplacedGearGoesToBag(t *testing.T) {
+// The ascend reward is a loot decision: wearing it from StateLoot sends
+// the displaced gear to the bag when there is room.
+func TestAscendLootWearDisplacesGearToBag(t *testing.T) {
 	e := newTestEngine(1) // helm_cap from the sorted armor pool
-	e.reg.Items = map[string]game.ItemAsset{
-		"wooden_sword": {ID: "wooden_sword", Name: "Sword", Slot: "weapon", BonusDMG: 5},
-		"chain_mail":   {ID: "chain_mail", Name: "Mail", Slot: "body_armor", BonusDEF: 3},
-		"helm_cap":     {ID: "helm_cap", Name: "Cap", Slot: "helmet", BonusDEF: 5},
-	}
+	e.reg.Items = ascendItems()
 	oldHelm := entities.NewItemFromAsset(game.ItemAsset{
 		ID: "rusty_helm", Name: "Rusty Helm", Slot: "helmet", BonusDEF: 1,
 	})
@@ -879,30 +882,42 @@ func TestAscendDisplacedGearGoesToBag(t *testing.T) {
 
 	events := e.Process(Command{Type: CmdAscend})
 
-	// Floor, then the auto-equipped reward, then the displaced gear
-	// finding a place in the bag.
-	if got := eventTypes(events); !typesEqual(got,
-		EventFloorEntered, EventItemFound, EventItemStashed) {
-		t.Fatalf("events = %v, want [floorentered item-found item-stashed]", got)
+	// Floor, then the reward held as pending loot.
+	if got := eventTypes(events); !typesEqual(got, EventFloorEntered, EventLootFound) {
+		t.Fatalf("events = %v, want [floor-entered loot-found]", got)
+	}
+	pending := e.PendingLoot
+
+	// Wearing the reward displaces the rusty helm into the bag (reported
+	// by swapped_from — the same emission contract as the chest flow).
+	events = e.Process(Command{Type: CmdWear})
+
+	if got := eventTypes(events); !typesEqual(got, EventItemEquipped) {
+		t.Fatalf("wear events = %v, want [item-equipped]", got)
+	}
+	if equipped, _ := events[0].Data["item"].(*entities.Item); equipped != pending {
+		t.Errorf("equipped = %v, want the ascend reward", equipped)
+	}
+	if swapped, _ := events[0].Data["swapped_from"].(*entities.Item); swapped == nil || swapped.ID != "rusty_helm" {
+		t.Errorf("swapped_from = %v, want the displaced rusty helm", swapped)
 	}
 	if e.Player.Head == nil || e.Player.Head.ID != "helm_cap" {
-		t.Error("armor reward not auto-equipped")
+		t.Error("reward not worn in the helmet slot")
 	}
 	bag := e.Player.Bag()
 	if len(bag) != 1 || bag[0].ID != "rusty_helm" {
 		t.Errorf("bag = %v, want the displaced rusty helm stashed", bag)
 	}
+	if e.State != StateExploring || e.PendingLoot != nil {
+		t.Errorf("state = %v, pending = %v, want Exploring/nil", e.State, e.PendingLoot)
+	}
 }
 
-// With the bag full, the displaced gear is destroyed (EventItemLost) —
-// ascend never loses its auto-equip pacing.
-func TestAscendDisplacedGearDestroyedWhenBagFull(t *testing.T) {
+// With the bag full, wearing the ascend reward from StateLoot destroys the
+// displaced gear (EventItemLost) — same as the chest flow.
+func TestAscendLootWearWithFullBagDestroysDisplaced(t *testing.T) {
 	e := newTestEngine(1) // helm_cap
-	e.reg.Items = map[string]game.ItemAsset{
-		"wooden_sword": {ID: "wooden_sword", Name: "Sword", Slot: "weapon", BonusDMG: 5},
-		"chain_mail":   {ID: "chain_mail", Name: "Mail", Slot: "body_armor", BonusDEF: 3},
-		"helm_cap":     {ID: "helm_cap", Name: "Cap", Slot: "helmet", BonusDEF: 5},
-	}
+	e.reg.Items = ascendItems()
 	oldHelm := entities.NewItemFromAsset(game.ItemAsset{
 		ID: "rusty_helm", Name: "Rusty Helm", Slot: "helmet", BonusDEF: 1,
 	})
@@ -914,19 +929,76 @@ func TestAscendDisplacedGearDestroyedWhenBagFull(t *testing.T) {
 
 	events := e.Process(Command{Type: CmdAscend})
 
-	if got := eventTypes(events); !typesEqual(got,
-		EventFloorEntered, EventItemFound, EventItemLost) {
-		t.Fatalf("events = %v, want [floorentered item-found item-lost]", got)
+	if got := eventTypes(events); !typesEqual(got, EventFloorEntered, EventLootFound) {
+		t.Fatalf("events = %v, want [floor-entered loot-found]", got)
 	}
-	lost, _ := events[2].Data["item"].(*entities.Item)
+	pending := e.PendingLoot
+
+	events = e.Process(Command{Type: CmdWear})
+
+	if got := eventTypes(events); !typesEqual(got, EventItemEquipped, EventItemLost) {
+		t.Fatalf("wear events = %v, want [item-equipped item-lost]", got)
+	}
+	lost, _ := events[1].Data["item"].(*entities.Item)
 	if lost == nil || lost.ID != "rusty_helm" {
 		t.Errorf("lost = %v, want the displaced rusty helm", lost)
 	}
-	if e.Player.Head == nil || e.Player.Head.ID != "helm_cap" {
-		t.Error("armor reward not auto-equipped")
+	if e.Player.Head != pending {
+		t.Error("reward not worn in the helmet slot")
 	}
 	if got := len(e.Player.Bag()); got != entities.InventoryCapacity {
-		t.Errorf("bag length = %d, want %d (reward equipped, bag still full)",
+		t.Errorf("bag length = %d, want %d (reward worn, bag still full)",
 			got, entities.InventoryCapacity)
 	}
+}
+
+// From the ascend loot decision the reward can also be stashed or
+// discarded — exactly the chest options.
+func TestAscendLootStashAndDiscard(t *testing.T) {
+	setup := func(rngPick int) (*Engine, *entities.Item) {
+		e := newTestEngine(rngPick)
+		e.reg.Items = ascendItems()
+		e.CanAscend = true
+		e.Process(Command{Type: CmdAscend})
+		return e, e.PendingLoot
+	}
+
+	t.Run("stash puts the reward in the bag", func(t *testing.T) {
+		e, pending := setup(0) // chain_mail
+
+		events := e.Process(Command{Type: CmdStashLoot})
+
+		if got := eventTypes(events); !typesEqual(got, EventItemStashed) {
+			t.Fatalf("events = %v, want [item-stashed]", got)
+		}
+		if item, _ := events[0].Data["item"].(*entities.Item); item != pending {
+			t.Errorf("stashed = %v, want the ascend reward", item)
+		}
+		bag := e.Player.Bag()
+		if len(bag) != 1 || bag[0] != pending {
+			t.Errorf("bag = %v, want the ascend reward stashed", bag)
+		}
+		if e.State != StateExploring || e.PendingLoot != nil {
+			t.Errorf("state = %v, pending = %v, want Exploring/nil", e.State, e.PendingLoot)
+		}
+	})
+
+	t.Run("discard destroys the reward", func(t *testing.T) {
+		e, pending := setup(0)
+
+		events := e.Process(Command{Type: CmdDiscardLoot})
+
+		if got := eventTypes(events); !typesEqual(got, EventItemDiscarded) {
+			t.Fatalf("events = %v, want [item-discarded]", got)
+		}
+		if item, _ := events[0].Data["item"].(*entities.Item); item != pending {
+			t.Errorf("discarded = %v, want the ascend reward", item)
+		}
+		if e.Player.Head != nil || e.Player.Body != nil || e.Player.Feet != nil || len(e.Player.Bag()) != 0 {
+			t.Error("discarded reward survived somewhere")
+		}
+		if e.State != StateExploring || e.PendingLoot != nil {
+			t.Errorf("state = %v, pending = %v, want Exploring/nil", e.State, e.PendingLoot)
+		}
+	})
 }
