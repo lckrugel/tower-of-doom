@@ -15,6 +15,10 @@ const (
 	dmgByLvl         = 2
 	baseReqXp        = 100
 	requiredXpGrowth = 1.5
+	// levelUpHealPercent is how much of the BASE max HP (equipment
+	// excluded) a level-up heals, on top of the %HP rescale — floored
+	// and clamped by Heal (0 at full health).
+	levelUpHealPercent = 25
 )
 
 // InventoryCapacity is how many items the Hero's bag can hold. The engine
@@ -130,20 +134,31 @@ func (h *Hero) IsAlive() bool {
 	return h.CurrentHP > 0
 }
 
-func (h *Hero) GiveXP(xp int) {
+// GiveXP grants XP, applying every level up it unlocks. Each level up
+// also heals (see levelUp); the total HP actually healed across all
+// applied level ups is returned, so callers can report it. A dead hero
+// is a no-op returning 0.
+func (h *Hero) GiveXP(xp int) int {
 	if !h.IsAlive() {
-		return
+		return 0
 	}
+	healed := 0
 	h.Xp += xp
 	for h.Xp >= h.requiredXp() {
 		h.Xp -= h.requiredXp()
-		h.levelUp()
+		healed += h.levelUp()
 	}
+	return healed
 }
 
-func (h *Hero) levelUp() {
+// levelUp raises the base stats, rescales the current HP as a fraction of
+// the pre-change max (rescaleHP) and then heals levelUpHealPercent of the
+// (new) base max HP — equipment excluded, floored, clamped by Heal, so a
+// full-health Hero heals nothing and HP never exceeds the max. Returns
+// the amount actually healed.
+func (h *Hero) levelUp() int {
 	if !h.IsAlive() {
-		return
+		return 0
 	}
 	// Guarda o HP máximo de antes para reescalar a vida atual proporcionalmente.
 	oldMax := h.MaxHP()
@@ -152,6 +167,9 @@ func (h *Hero) levelUp() {
 	h.BaseDMG += dmgByLvl
 	h.rescaleHP(oldMax, h.MaxHP())
 	h.Lvl++
+	// The level-up heal: computed from the base max HP AFTER the stat
+	// raise (equipment never counts).
+	return h.Heal(h.BaseMaxHP * levelUpHealPercent / 100)
 }
 
 // XpToLevel reports the XP still needed to reach the next level

@@ -113,13 +113,15 @@ func (e *Engine) appendEnemyDefeat(events []Event) []Event {
 	gold := goldPerDifficulty * enemy.Difficulty
 	oldLvl := e.Player.Lvl
 
-	e.Player.GiveXP(xp)
+	healed := e.Player.GiveXP(xp)
 	e.Player.Gold += gold
 	e.kills++
 	events = append(events, NewEnemyDefeated(enemy.Name(), xp))
 	events = append(events, NewGoldGained(gold, GoldSourceKill))
 	if e.Player.Lvl > oldLvl {
-		events = append(events, NewLevelUp(e.Player.Lvl))
+		// The heal rides the level-up event (giveXP returns the total the
+		// level ups actually healed; the heal itself consumes no rng).
+		events = append(events, NewLevelUpWithHeal(e.Player.Lvl, healed))
 	}
 
 	e.CurrentEncounter.Monsters = e.CurrentEncounter.Monsters[1:]

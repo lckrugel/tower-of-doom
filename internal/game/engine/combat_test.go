@@ -197,10 +197,45 @@ func TestMidCombatLevelUp(t *testing.T) {
 	if lvl := events[3].Data["level"]; lvl != 2 {
 		t.Errorf("level event data = %v, want 2", lvl)
 	}
+	// A full-health hero gains nothing from the level-up heal — the
+	// additive "healed" key reports 0.
+	if healed := events[3].Data["healed"]; healed != 0 {
+		t.Errorf("healed event data = %v, want 0 (already at full health)", healed)
+	}
 	// Combat continues with the next enemy, still in StateCombat.
 	if e.State != StateCombat || e.CurrentEncounter.Monsters[0].ID != "orc" {
 		t.Errorf("combat broken after level up: state = %v, encounter = %v",
 			e.State, monsterIDs(e.CurrentEncounter.Monsters))
+	}
+}
+
+// A mid-combat level up also heals: the hero crossing the XP threshold
+// during appendEnemyDefeat ends the round with the level-up heal applied
+// (a quarter of the base max HP, clamped), reported on the event.
+func TestMidCombatLevelUpHeals(t *testing.T) {
+	e := newTestEngine()
+	heroWithDamage(e, 40) // one-hit kill: the goblin never strikes back
+	e.Player.Xp = 95      // goblin kill (diff 3 → 21 XP) crosses the 100 threshold
+	e.Player.CurrentHP = 50
+	startEncounter(e, monsterFromFixture("goblin"), monsterFromFixture("orc"))
+	e.State = StateCombat
+
+	events := e.Process(Command{Type: CmdAttack})
+
+	if got := eventTypes(events); !typesEqual(got,
+		EventCombatDamageDealt, EventEnemyDefeated, EventGoldGained, EventLevelUp) {
+		t.Fatalf("events = %v, want [dealt defeated gold-gained level-up]", got)
+	}
+	// 50/100 → rescaled to 55/110, then healed 25% of the new base max
+	// HP (110 × 25% = 27.5, floored to 27).
+	if healed := events[3].Data["healed"]; healed != 27 {
+		t.Errorf("healed event data = %v, want 27 (25%% of base max HP 110)", healed)
+	}
+	if hp := e.Player.CurrentHP; hp != 82 {
+		t.Errorf("hero HP = %d, want 82 (55 after rescale + 27 healed)", hp)
+	}
+	if e.Player.HP() > e.Player.MaxHP() {
+		t.Errorf("hero HP %d exceeds max %d", e.Player.HP(), e.Player.MaxHP())
 	}
 }
 

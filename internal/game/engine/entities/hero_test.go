@@ -58,10 +58,76 @@ func TestNewPlayerStartsWithNoGold(t *testing.T) {
 func TestHeroGiveXP_DeadHeroIsNoOp(t *testing.T) {
 	h := NewPlayer()
 	h.TakeDmg(h.BaseMaxHP)
-	h.GiveXP(1_000)
+	if healed := h.GiveXP(1_000); healed != 0 {
+		t.Errorf("dead hero heal = %d, want 0", healed)
+	}
 
 	if h.Lvl != 1 || h.Xp != 0 {
 		t.Errorf("dead hero gained XP: level = %d, xp = %d, want 1/0", h.Lvl, h.Xp)
+	}
+}
+
+// On top of the %HP rescale, a level-up heals levelUpHealPercent of the
+// BASE max HP (equipment excluded), floored and clamped by Heal — 0 at
+// full health. levelUp returns the amount actually healed.
+func TestHeroLevelUp_HealsQuarterOfBaseMaxHP(t *testing.T) {
+	tests := []struct {
+		name       string
+		currentHP  int
+		wantHealed int
+		wantHP     int
+	}{
+		// Full 100/100 → rescaled to 110/110: the clamp leaves nothing to heal.
+		{"full health heals nothing", baseHp, 0, baseHp + hpBylvl},
+		// 50/100 → rescaled to 55/110, then healed 25% of the new base
+		// max HP (110 × 25% = 27.5, floored to 27).
+		{"heals a quarter of the new base max", baseHp / 2, 27, 82},
+		// 99/100 → rescaled to floor(99 × 110 / 100) = 108: only 2 HP
+		// missing, so the 27 heal clamps to 2 (HP never exceeds max).
+		{"clamped at the new max", 99, 2, baseHp + hpBylvl},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := NewPlayer()
+			h.CurrentHP = tt.currentHP
+
+			healed := h.levelUp()
+
+			if h.Lvl != 2 {
+				t.Errorf("level = %d, want 2", h.Lvl)
+			}
+			if healed != tt.wantHealed {
+				t.Errorf("healed = %d, want %d", healed, tt.wantHealed)
+			}
+			if h.CurrentHP != tt.wantHP {
+				t.Errorf("currentHP = %d, want %d", h.CurrentHP, tt.wantHP)
+			}
+			if h.CurrentHP > h.MaxHP() {
+				t.Errorf("currentHP %d exceeds max %d", h.CurrentHP, h.MaxHP())
+			}
+		})
+	}
+}
+
+// GiveXP returns the total HP healed by every level up it applied: each
+// level up heals on its own (after the rescale), clamped by Heal, so the
+// last level up of a batch can clamp at the new max.
+func TestHeroGiveXPReturnsAccumulatedHeal(t *testing.T) {
+	h := NewPlayer()
+	h.CurrentHP = 30 // 30/100
+
+	healed := h.GiveXP(550) // four level ups (Lvl 4, 68 XP banked)
+
+	// L1→2: rescale 33, heal 27 → 60; L2→3: rescale 65, heal 30 → 95;
+	// L3→4: rescale 102, heal clamps to 28 (32 asked, 28 missing) → 130.
+	if healed != 85 {
+		t.Errorf("healed = %d, want 85 (27 + 30 + 28, clamped on the last)", healed)
+	}
+	if h.Lvl != 4 {
+		t.Errorf("level = %d, want 4", h.Lvl)
+	}
+	if h.CurrentHP != h.MaxHP() {
+		t.Errorf("currentHP = %d, max = %d, want equal (clamped at full)", h.CurrentHP, h.MaxHP())
 	}
 }
 
@@ -74,7 +140,9 @@ func TestHeroLevelUp_CurrentHP(t *testing.T) {
 		wantCurrentHP int
 	}{
 		{"full health level up", baseHp, 2, baseHp + hpBylvl, baseHp + hpBylvl},
-		{"half health level up", baseHp / 2, 2, baseHp + hpBylvl, (baseHp + hpBylvl) / 2},
+		// 50/100 → rescaled to 55/110, then the level-up heal adds 27
+		// (25% of the new base max HP, see TestHeroLevelUp_HealsQuarterOfBaseMaxHP).
+		{"half health level up", baseHp / 2, 2, baseHp + hpBylvl, 82},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
