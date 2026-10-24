@@ -33,7 +33,7 @@
     "id": "goblin_camp_outskirts",
     "name": "Goblin Camp Outskirts",
     "base_difficulty": 25,
-    "difficulty_per_floor": 5,
+    "difficulty_per_floor": 4,
     "min_floor": 3,
     "max_floor": 13,
     "spawns": [
@@ -72,7 +72,7 @@
     ],
     "encounter_types": {
       "combat": 100,
-      "sanctuary": 20,
+      "sanctuary": 30,
       "chest": 10,
       "merchant": 15
     },
