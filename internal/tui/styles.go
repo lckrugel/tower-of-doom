@@ -62,12 +62,8 @@ var (
 	styleDisabled = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("240"))
 
-	// HP bar palette, chosen by remaining percentage.
-	styleBarGood = lipgloss.NewStyle().Foreground(lipgloss.Color("114"))
-	styleBarWarn = lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
-	styleBarBad  = lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
-	// The un-filled part of any bar.
-	styleBarEmpty = lipgloss.NewStyle().Foreground(lipgloss.Color("238"))
+	// The un-filled part of the HP bar track lives inside the progress
+	// component itself; no extra styles needed here.
 
 	styleWindow = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).

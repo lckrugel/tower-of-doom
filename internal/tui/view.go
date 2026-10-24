@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/progress"
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/lckrugel/tower-of-doom/internal/game/engine"
@@ -12,17 +13,50 @@ import (
 
 const barWidth = 10
 
+// The canvas the UI occupies in every state. Content is fitted to it, so
+// the window never changes size as the game progresses.
+const (
+	contentWidth  = 72
+	contentHeight = 18
+)
+
+var (
+	// HP fills the gradient from red (low) to green (high). The component's
+	// built-in percentage is off: bars keep their full width and the text
+	// around each bar formats its own numbers.
+	hpBarModel = progress.New(
+		progress.WithWidth(barWidth),
+		progress.WithScaledGradient("#EF4444", "#22C55E"),
+		progress.WithoutPercentage(),
+	)
+	// XP is a plain gold bar.
+	xpBarModel = progress.New(
+		progress.WithWidth(barWidth),
+		progress.WithSolidFill("214"),
+		progress.WithoutPercentage(),
+	)
+)
+
 // View assembles the full screen: header, state-dependent body, event log
-// and action bar, all inside one rounded window.
+// and action bar — all fitted onto one constant-size canvas inside a
+// rounded window, so the frame is a stable fixture of the terminal.
 func (m Model) View() string {
-	parts := []string{
+	content := lipgloss.JoinVertical(lipgloss.Left,
 		m.header(),
 		m.body(),
 		m.logPanel(),
 		m.actionBar(),
-	}
-	return styleWindow.Render(lipgloss.JoinVertical(lipgloss.Left, parts...))
+	)
+	// Wordy gear lists or log lines may exceed the canvas; truncate them
+	// instead of letting that one state stretch the window.
+	content = fitContent.Render(content)
+	fitted := lipgloss.Place(contentWidth, contentHeight, lipgloss.Top, lipgloss.Left, content)
+	return styleWindow.Render(fitted)
 }
+
+// fitContent clamps any state's output to the canvas; lipgloss truncate is
+// ANSI-aware, so styled lines keep their color codes.
+var fitContent = lipgloss.NewStyle().MaxWidth(contentWidth).MaxHeight(contentHeight)
 
 func (m Model) header() string {
 	return lipgloss.JoinHorizontal(lipgloss.Center,
@@ -125,7 +159,7 @@ func (m Model) heroPanel() string {
 	b.WriteString(fmt.Sprintf("  Lv %d", p.Lvl))
 	b.WriteString(styleDim.Render(fmt.Sprintf("   XP %s %d/%d to Lv %d", xpBar(p), p.Xp, p.Xp+p.XpToLevel(), p.Lvl+1)))
 	b.WriteString("\n")
-	b.WriteString(fmt.Sprintf("  HP %s %d/%d\n", coloredBar(p.CurrentHP, p.MaxHP()), p.CurrentHP, p.MaxHP()))
+	b.WriteString(fmt.Sprintf("  HP %s %d/%d\n", hpBarPlain(p.CurrentHP, p.MaxHP()), p.CurrentHP, p.MaxHP()))
 	b.WriteString(fmt.Sprintf("  DMG %d · DEF %d · SPD %d\n", p.Damage(), p.Defense(), p.Speed()))
 	b.WriteString(styleDim.Render("  Gear: " + gearList(p)))
 	return b.String()
@@ -180,33 +214,23 @@ func gearList(p *entities.Hero) string {
 // xpBar renders the progress toward the next level in gold tones.
 func xpBar(p *entities.Hero) string {
 	total := p.Xp + p.XpToLevel()
-	pct := percent(p.Xp, total)
-	fill := pct * barWidth / 100
-	bar := strings.Repeat("█", fill) + strings.Repeat("░", barWidth-fill)
-	return styleXP.Render(bar)
+	return xpBarModel.ViewAs(float64(percent(p.Xp, total)) / 100)
 }
 
-// hpBar renders "███░░░░ 55%" within its fixed width, colored by the
-// remaining percentage (green above 50, amber above 20, red below).
+// hpBar renders the gradient HP bar plus its percentage, e.g. "███ 55%".
 func hpBar(cur, max int) string {
-	return coloredBar(cur, max) + fmt.Sprintf(" %3d%%", percent(cur, max))
+	return barFill(cur, max) + fmt.Sprintf(" %3d%%", percent(cur, max))
 }
 
-// coloredBar is hpBar's fill without the percentage suffix, for rows that
-// show the numbers as cur/max instead (the hero panel).
-func coloredBar(cur, max int) string {
-	pct := percent(cur, max)
-	filled := pct * barWidth / 100
-	fill := strings.Repeat("█", filled)
-	empty := strings.Repeat("░", barWidth-filled)
-	switch {
-	case pct >= 50:
-		return styleBarGood.Render(fill) + styleBarEmpty.Render(empty)
-	case pct >= 20:
-		return styleBarWarn.Render(fill) + styleBarEmpty.Render(empty)
-	default:
-		return styleBarBad.Render(fill) + styleBarEmpty.Render(empty)
-	}
+// hpBarPlain is the bar without the percentage suffix, for rows that show
+// the numbers as cur/max instead (the hero panel).
+func hpBarPlain(cur, max int) string {
+	return barFill(cur, max)
+}
+
+// barFill renders the actual bar via the bubbles progress component.
+func barFill(cur, max int) string {
+	return hpBarModel.ViewAs(float64(percent(cur, max)) / 100)
 }
 
 // percent clamps a cur/max pair into [0, 100].
