@@ -33,17 +33,17 @@
     "id": "goblin_camp_outskirts",
     "name": "Goblin Camp Outskirts",
     "base_difficulty": 25,
-    "difficulty_per_floor": 7,
+    "difficulty_per_floor": 5,
     "min_floor": 3,
     "max_floor": 13,
     "spawns": [
       {
         "monster_id": "goblin",
-        "weight": 80
+        "weight": 100
       },
       {
         "monster_id": "goblin_scout",
-        "weight": 60
+        "weight": 70
       },
       {
         "monster_id": "goblin_bomber",
@@ -55,15 +55,15 @@
       },
       {
         "monster_id": "goblin_chief",
-        "weight": 10
+        "weight": 7
       },
       {
         "monster_id": "orc",
-        "weight": 30
+        "weight": 25
       },
       {
         "monster_id": "orc_berserker",
-        "weight": 12
+        "weight": 8
       },
       {
         "monster_id": "orc_warlord",
@@ -85,7 +85,7 @@
     "id": "underdark_reaches",
     "name": "Underdark Reaches",
     "base_difficulty": 30,
-    "difficulty_per_floor": 8,
+    "difficulty_per_floor": 7,
     "min_floor": 14,
     "max_floor": 33,
     "spawns": [
