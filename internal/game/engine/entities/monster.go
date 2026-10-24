@@ -45,6 +45,10 @@ func (m *Monster) CurrentHPPercent() int {
 	return int(math.Floor(float64(m.CurrentHP) / float64(m.MaxHP()) * 100))
 }
 
+// HP reports the exact current HP value (Combatant interface;
+// CurrentHPPercent is its percentage view).
+func (m *Monster) HP() int { return m.CurrentHP }
+
 func (m *Monster) TakeDmg(dmg int) int {
 	dmgTaken := max(0, min(dmg, m.CurrentHP))
 	m.CurrentHP -= dmgTaken

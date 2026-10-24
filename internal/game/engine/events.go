@@ -72,8 +72,13 @@ func NewEncounterFound(monsters []entities.Monster) Event {
 }
 
 // NewHeroHealed reports a sanctuary-style heal that happened instantly
-// outside of combat: how much HP was actually restored (0 when the Hero was
-// already at full health) and the Hero's resulting HP percentage.
+// outside of combat.
+//
+// Legacy payload (kept for compatibility):
+//   - "healed": HP actually restored (0 when the Hero was already full).
+//   - "hero_hp": resulting HP as a floor percentage of max HP.
+//
+// The engine emits the EventHeroHealedExact payload below.
 func NewHeroHealed(healed, heroHPPercent int) Event {
 	return Event{
 		Type: EventHeroHealed,
@@ -84,28 +89,65 @@ func NewHeroHealed(healed, heroHPPercent int) Event {
 	}
 }
 
+// NewHeroHealedExact is the full EventHeroHealed payload: the legacy
+// contract above plus the defender's exact state AFTER the heal:
+//   - "hero_hp_exact": current HP as an absolute value.
+//   - "hero_max_hp": current max HP.
+func NewHeroHealedExact(hero Combatant, healed, heroHPPercent int) Event {
+	data := NewHeroHealed(healed, heroHPPercent).Data
+	data["hero_hp_exact"] = hero.HP()
+	data["hero_max_hp"] = hero.MaxHP()
+	return Event{Type: EventHeroHealed, Data: data}
+}
+
+// NewDamageDealt reports the Hero's landed hit.
+//
+// Payload:
+//   - "enemy": enemy name.
+//   - "enemy_hp": enemy HP as a floor percentage of max HP (legacy).
+//   - "enemy_alive": whether the enemy survived the hit.
+//   - "damage_dealt": the mitigated damage subtracted from the enemy.
+//   - "crit": whether the hit was a critical.
+//   - "enemy_hp_exact": enemy current HP as an absolute value, AFTER the hit.
+//   - "enemy_max_hp": enemy max HP.
 func NewDamageDealt(enemy Combatant, dmgDealt int, crit bool) Event {
 	return Event{
 		Type: EventCombatDamageDealt,
 		Data: map[string]any{
-			"enemy":        enemy.Name(),
-			"enemy_hp":     enemy.CurrentHPPercent(),
-			"enemy_alive":  enemy.IsAlive(),
-			"damage_dealt": dmgDealt,
-			"crit":         crit,
+			"enemy":          enemy.Name(),
+			"enemy_hp":       enemy.CurrentHPPercent(),
+			"enemy_alive":    enemy.IsAlive(),
+			"damage_dealt":   dmgDealt,
+			"crit":           crit,
+			"enemy_hp_exact": enemy.HP(),
+			"enemy_max_hp":   enemy.MaxHP(),
 		},
 	}
 }
 
+// NewDamageTaken reports a hit landed on the Hero.
+//
+// Payload:
+//   - "hero": hero name.
+//   - "hero_hp": hero HP as a floor percentage of max HP (legacy).
+//   - "hero_alive": whether the Hero survived the hit.
+//   - "damage_taken": the mitigated damage actually subtracted (clamped
+//     to the current HP by TakeDmg, hence possibly lower than the swing).
+//   - "crit": whether the hit was a critical.
+//   - "hero_hp_exact": hero current HP as an absolute value, AFTER the hit
+//     (0 on a lethal blow, never negative).
+//   - "hero_max_hp": hero max HP.
 func NewDamageTaken(hero Combatant, dmgTaken int, crit bool) Event {
 	return Event{
 		Type: EventCombatDamageTaken,
 		Data: map[string]any{
-			"hero":         hero.Name(),
-			"hero_hp":      hero.CurrentHPPercent(),
-			"hero_alive":   hero.IsAlive(),
-			"damage_taken": dmgTaken,
-			"crit":         crit,
+			"hero":          hero.Name(),
+			"hero_hp":       hero.CurrentHPPercent(),
+			"hero_alive":    hero.IsAlive(),
+			"damage_taken":  dmgTaken,
+			"crit":          crit,
+			"hero_hp_exact": hero.HP(),
+			"hero_max_hp":   hero.MaxHP(),
 		},
 	}
 }
@@ -138,8 +180,29 @@ func NewEnemyDefeated(monsterName string, xp int) Event {
 	}
 }
 
+// NewHeroDefeated reports the Hero's death without any run statistics
+// (kept for compatibility; the engine itself emits the richer payload).
 func NewHeroDefeated() Event {
 	return Event{Type: EventHeroDefeated}
+}
+
+// NewHeroDefeatedWithStats reports the Hero's death together with the run
+// state at that moment:
+//   - "floor": the floor the Hero died on (CurrentFloor).
+//   - "level": the Hero's level at death.
+//   - "kills": enemies defeated during the run up to (and including) this
+//     round of combat.
+//
+// No extra data arrives with the legacy NewHeroDefeated payload.
+func NewHeroDefeatedWithStats(floor, level, kills int) Event {
+	return Event{
+		Type: EventHeroDefeated,
+		Data: map[string]any{
+			"floor": floor,
+			"level": level,
+			"kills": kills,
+		},
+	}
 }
 
 // NewLevelUp reports that the Hero gained at least one level.

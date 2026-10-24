@@ -22,6 +22,12 @@ type Engine struct {
 	Player       *entities.Hero
 	CurrentFloor int
 	CanAscend    bool
+	// kills counts the enemies defeated during the current run. It is
+	// incremented at the same spot where the kill XP is granted (every
+	// EventEnemyDefeated, mid-combat kills included) and reported on
+	// EventHeroDefeated. Unexported on purpose: the UI consumes the
+	// enriched event, not an accessor.
+	kills int
 	// CurrentEncounter is the encounter currently being dealt with: the
 	// enemy queue while in StateEncounter/StateCombat, zeroed otherwise.
 	CurrentEncounter Encounter

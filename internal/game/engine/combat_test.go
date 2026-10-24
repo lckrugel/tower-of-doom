@@ -649,6 +649,164 @@ func TestMonsterCritInCombat(t *testing.T) {
 	}
 }
 
+// Damage events carry the defender's exact HP in addition to the legacy
+// percentage keys, reflecting the defender's state AFTER the hit
+// (mitigation, clamp and mid-round death included).
+func TestDamageEventsCarryExactHP(t *testing.T) {
+	e := newTestEngine(1, 50) // average spread (no crit) per strike, cycling
+	heroWithDamage(e, 5)
+	startEncounter(e, monsterFromFixture("goblin")) // 30 HP, DEF 0
+
+	events := e.Process(Command{Type: CmdFight})
+
+	dealt := events[0]
+	if dmg := dealt.Data["damage_dealt"]; dmg != 5 {
+		t.Errorf("damage_dealt = %v, want 5", dmg)
+	}
+	if hp := dealt.Data["enemy_hp_exact"]; hp != 25 {
+		t.Errorf("enemy_hp_exact = %v, want 25 (defender state after the hit)", hp)
+	}
+	if mhp := dealt.Data["enemy_max_hp"]; mhp != 30 {
+		t.Errorf("enemy_max_hp = %v, want 30", mhp)
+	}
+	// The legacy percentage key keeps its meaning: 25/30, floored.
+	if pct := dealt.Data["enemy_hp"]; pct != 83 {
+		t.Errorf("enemy_hp = %v, want 83 (legacy percentage key untouched)", pct)
+	}
+
+	taken := events[1]
+	if hp := taken.Data["hero_hp_exact"]; hp != 98 {
+		t.Errorf("hero_hp_exact = %v, want 98", hp)
+	}
+	if mhp := taken.Data["hero_max_hp"]; mhp != 100 {
+		t.Errorf("hero_max_hp = %v, want 100", mhp)
+	}
+	if pct := taken.Data["hero_hp"]; pct != 98 {
+		t.Errorf("hero_hp = %v, want 98 (legacy percentage key untouched)", pct)
+	}
+}
+
+// A lethal blow clamps the exact HP at 0 before the defeat event rides:
+// taken damage exceeding the current HP must not surface as a negative HP.
+func TestDamageEventsExactHPClampsAtZeroOnDeath(t *testing.T) {
+	// Hero strike: spread 1 → swing 5 (orc 50 HP survives);
+	// orc strike: spread 1 → swing 8, which exceeds the hero's 5 HP.
+	e := newTestEngine(1, 50, 1, 50)
+	heroWithDamage(e, 5)
+	e.Player.CurrentHP = 5
+	startEncounter(e, monsterFromFixture("orc")) // dmg 8, slower than hero
+	e.State = StateCombat
+
+	events := e.Process(Command{Type: CmdAttack})
+
+	dealt := events[0]
+	if hp := dealt.Data["enemy_hp_exact"]; hp != 45 {
+		t.Errorf("enemy_hp_exact = %v, want 45", hp)
+	}
+	if pct := dealt.Data["enemy_hp"]; pct != 90 {
+		t.Errorf("enemy_hp = %v, want 90 (legacy percentage)", pct)
+	}
+
+	taken := events[1]
+	if dmg := taken.Data["damage_taken"]; dmg != 5 {
+		t.Errorf("damage_taken = %v, want 5 (the swing was 8, but only the hero's remaining 5 HP got subtracted)", dmg)
+	}
+	if hp := taken.Data["hero_hp_exact"]; hp != 0 {
+		t.Errorf("hero_hp_exact = %v, want 0 (clamped by TakeDmg, never negative)", hp)
+	}
+	if mhp := taken.Data["hero_max_hp"]; mhp != 100 {
+		t.Errorf("hero_max_hp = %v, want 100", mhp)
+	}
+	if pct := taken.Data["hero_hp"]; pct != 0 {
+		t.Errorf("hero_hp = %v, want 0 (legacy percentage)", pct)
+	}
+	if alive := taken.Data["hero_alive"]; alive != false {
+		t.Errorf("hero_alive = %v, want false (mid-round death)", alive)
+	}
+	if got := eventTypes(events); !typesEqual(got,
+		EventCombatDamageDealt, EventCombatDamageTaken, EventHeroDefeated) {
+		t.Errorf("events = %v, want [dealt taken hero-defeated]", got)
+	}
+}
+
+// Run statistics: the kills counter increments on every EventEnemyDefeated
+// path (mid-combat kills included) and never on a player defeat.
+func TestKillsCounter(t *testing.T) {
+	t.Run("fresh engine has zero kills", func(t *testing.T) {
+		if got := newTestEngine().kills; got != 0 {
+			t.Errorf("fresh engine kills = %d, want 0", got)
+		}
+	})
+
+	t.Run("increments across a multi-monster encounter", func(t *testing.T) {
+		e := newTestEngine(1, 50) // average spread (no crit) per strike, cycling
+		heroWithDamage(e, 60)     // one-hit kills each foe
+		startEncounter(e, monsterFromFixture("goblin"), monsterFromFixture("orc"))
+		e.State = StateCombat
+
+		e.Process(Command{Type: CmdAttack}) // goblin falls
+		if got := e.kills; got != 1 {
+			t.Errorf("kills after the first kill = %d, want 1", got)
+		}
+
+		e.Process(Command{Type: CmdAttack}) // orc falls → victory
+		if got := e.kills; got != 2 {
+			t.Errorf("kills after the second kill = %d, want 2", got)
+		}
+	})
+
+	t.Run("does not increment when the player loses", func(t *testing.T) {
+		e := newTestEngine(1, 50, 1, 50)
+		heroWithDamage(e, 5)
+		e.Player.CurrentHP = 1
+		startEncounter(e, monsterFromFixture("orc")) // dmg 8, slower than hero
+		e.State = StateCombat
+
+		e.Process(Command{Type: CmdAttack}) // hero strikes, then the orc wins
+
+		if got := e.kills; got != 0 {
+			t.Errorf("kills after a defeat = %d, want 0", got)
+		}
+	})
+}
+
+// EventHeroDefeated reports the run state at the moment of death.
+func TestHeroDefeatedEventCarriesRunStats(t *testing.T) {
+	e := newTestEngine(1, 50) // average spread (no crit) per strike, cycling
+	e.CurrentFloor = 3
+	e.Player.Lvl = 7
+	heroWithDamage(e, 40)
+
+	// First kill of the run: kills → 1, then a scripted death.
+	startEncounter(e, monsterFromFixture("goblin"))
+	e.State = StateCombat
+	e.Process(Command{Type: CmdAttack})
+	if got := e.kills; got != 1 {
+		t.Fatalf("kills after the goblin = %d, want 1", got)
+	}
+
+	heroWithDamage(e, 5) // weak hits never kill the orc
+	e.Player.CurrentHP = 1
+	startEncounter(e, monsterFromFixture("orc")) // dmg 8, slower than hero
+	e.State = StateCombat
+	events := e.Process(Command{Type: CmdAttack})
+
+	if got := eventTypes(events); !typesEqual(got,
+		EventCombatDamageDealt, EventCombatDamageTaken, EventHeroDefeated) {
+		t.Fatalf("events = %v, want [dealt taken hero-defeated]", got)
+	}
+	death := events[2]
+	if floor := death.Data["floor"]; floor != 3 {
+		t.Errorf("floor = %v, want 3 (CurrentFloor at death)", floor)
+	}
+	if level := death.Data["level"]; level != 7 {
+		t.Errorf("level = %v, want 7 (Lvl at death)", level)
+	}
+	if kills := death.Data["kills"]; kills != 1 {
+		t.Errorf("kills = %v, want 1 (the earlier goblin kill)", kills)
+	}
+}
+
 // A 0% threshold can never crit, even on a 0 roll.
 func TestCritNeverFiresWithZeroThreshold(t *testing.T) {
 	e := newTestEngine(1, 0)

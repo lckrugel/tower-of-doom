@@ -104,6 +104,10 @@ func (h *Hero) CurrentHPPercent() int {
 	return int(math.Floor(float64(h.CurrentHP) / float64(h.MaxHP()) * 100))
 }
 
+// HP reports the exact current HP value (Combatant interface;
+// CurrentHPPercent is its percentage view).
+func (h *Hero) HP() int { return h.CurrentHP }
+
 func (h *Hero) CritThreshold() int {
 	return 10
 }
@@ -154,8 +158,12 @@ func (h *Hero) Heal(heal int) int {
 	return healDone
 }
 
+// TakeDmg applies damage as a plain clamp: negative damage is ignored
+// (never heals), HP floors at 0 and a dead Hero is never resurrected by
+// this call. Mitigation (the defense damage curve) is the engine's job —
+// it applies effectiveDamage(swing, DEF) BEFORE this clamp (combat.go).
+// Returns the damage actually subtracted (clamped to the current HP).
 func (h *Hero) TakeDmg(dmg int) int {
-	// TODO: apply damage reduction formula
 	dmgReceived := max(0, min(dmg, h.CurrentHP))
 	h.CurrentHP -= dmgReceived
 	return dmgReceived

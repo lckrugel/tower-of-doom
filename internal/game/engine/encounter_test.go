@@ -87,6 +87,17 @@ func TestExploreSanctuary(t *testing.T) {
 	if healed != 20 {
 		t.Errorf("healed = %d, want 20 (20%% of baseMaxHP 100)", healed)
 	}
+	// Exact defender state after the heal.
+	if hp, _ := events[0].Data["hero_hp_exact"].(int); hp != 70 {
+		t.Errorf("hero_hp_exact = %d, want 70", hp)
+	}
+	if mhp, _ := events[0].Data["hero_max_hp"].(int); mhp != 150 {
+		t.Errorf("hero_max_hp = %d, want 150", mhp)
+	}
+	// Legacy percentage key keeps its meaning: 70/150, floored.
+	if pct, _ := events[0].Data["hero_hp"].(int); pct != 46 {
+		t.Errorf("hero_hp = %d, want 46 (legacy percentage key untouched)", pct)
+	}
 	if hp := e.Player.CurrentHP; hp != 70 {
 		t.Errorf("hero HP = %d, want 70", hp)
 	}
@@ -114,6 +125,10 @@ func TestExploreSanctuaryAtFullHealth(t *testing.T) {
 	}
 	if healed, _ := events[0].Data["healed"].(int); healed != 0 {
 		t.Errorf("healed = %d, want 0 (already at full health)", healed)
+	}
+	// Even a no-op heal reports the defender's exact state.
+	if hp, _ := events[0].Data["hero_hp_exact"].(int); hp != e.Player.MaxHP() {
+		t.Errorf("hero_hp_exact = %d, want %d (no-op heal)", hp, e.Player.MaxHP())
 	}
 }
 

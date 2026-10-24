@@ -69,7 +69,7 @@ func (e *Engine) resolveEncounter(encounter Encounter) []Event {
 	switch encounter.Type {
 	case EncounterSanctuary:
 		healed := e.restAtSanctuary()
-		return []Event{NewHeroHealed(healed, e.Player.CurrentHPPercent())}
+		return []Event{NewHeroHealedExact(e.Player, healed, e.Player.CurrentHPPercent())}
 	case EncounterChest:
 		if item := e.rollItemReward(); item != nil {
 			e.Player.EquipItem(item)
