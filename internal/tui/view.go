@@ -190,6 +190,9 @@ func (m Model) body() string {
 
 // encounterPanel lists every enemy in the queue. Nothing is engaged yet,
 // so there is no ▶ marker — this is the planning screen for FIGHT/SNEAK.
+// Each enemy spends two lines: name + HP, then its combat profile — the
+// queue holds at most MAX_ENCOUNTER_SIZE enemies, so both stay inside
+// the body slot's height.
 func (m Model) encounterPanel() string {
 	var b strings.Builder
 	b.WriteString(stylePanelTitle.Render("⚔ ENEMIES") + "\n")
@@ -203,12 +206,14 @@ func (m Model) encounterPanel() string {
 		mon := monsters[i]
 		b.WriteString("  " + styleAction.Render(padRight(mon.Name(), nameWidth)) +
 			"  " + hpBar(mon.CurrentHP, mon.MaxHP()) + "\n")
+		b.WriteString("    " + statLine(mon) + "\n")
 	}
 	return b.String()
 }
 
 // combatPanel narrows the screen to the enemy currently in front of the
-// hero; the rest of the queue appears only as a counter.
+// hero; the rest of the queue appears only as a counter. Just like the
+// encounter panel it shows the engaged enemy's stat line.
 func (m Model) combatPanel() string {
 	var b strings.Builder
 	b.WriteString(stylePanelTitle.Render("⚔ ENEMIES") + "\n")
@@ -219,10 +224,22 @@ func (m Model) combatPanel() string {
 	front := monsters[0]
 	b.WriteString("▶ " + stylePanelTitle.Render(front.Name()) +
 		"  " + hpBar(front.CurrentHP, front.MaxHP()) + "\n")
+	b.WriteString("  " + statLine(front) + "\n")
 	if waiting := len(monsters) - 1; waiting > 0 {
 		b.WriteString(styleDim.Render(fmt.Sprintf("  · %d more waiting", waiting)) + "\n")
 	}
 	return b.String()
+}
+
+// statLine is a monster's combat profile on one compact, dim line:
+// damage, defense, speed, crit chance and difficulty — the same
+// DMG→DEF→SPD order the hero panel uses, prefixed with the ⚔ combat
+// icon of the panel titles. Compact by design: it must never overflow
+// the left column's width (mainColWidth), which slot() would silently
+// clip.
+func statLine(mon entities.Monster) string {
+	return styleDim.Render(fmt.Sprintf("⚔ %d · ⛨ %d · » %d · ✦ %d%% · ⬆ %d",
+		mon.Damage(), mon.Defense(), mon.Speed(), mon.CritThreshold(), mon.Difficulty))
 }
 
 // maxNameWidth is the longest (rune-wise) monster name in the queue.

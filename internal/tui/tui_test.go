@@ -241,8 +241,12 @@ func encounterWithQueue(state engine.GameState) Model {
 	e.CurrentEncounter = engine.Encounter{
 		Type: engine.EncounterCombat,
 		Monsters: []entities.Monster{
-			entities.NewMonsterFromAsset(game.MonsterAsset{ID: "goblin", Name: "Goblin", HP: 30}),
-			entities.NewMonsterFromAsset(game.MonsterAsset{ID: "orc", Name: "Orc", HP: 50}),
+			entities.NewMonsterFromAsset(game.MonsterAsset{
+				ID: "goblin", Name: "Goblin", HP: 30, Damage: 2, Speed: 10, Crit: 5, Difficulty: 3,
+			}),
+			entities.NewMonsterFromAsset(game.MonsterAsset{
+				ID: "orc", Name: "Orc", HP: 50, Damage: 8, Speed: 8, Crit: 10, Difficulty: 5,
+			}),
 		},
 	}
 	e.State = state
@@ -262,6 +266,25 @@ func TestViewEncounterShowsTheFullQueue(t *testing.T) {
 	if !strings.Contains(view, "[F] Fight") || !strings.Contains(view, "[S] Sneak") {
 		t.Errorf("encounter action bar incomplete:\n%s", view)
 	}
+
+	// Every queued monster carries its stat line: the planning screen
+	// should tell the player what it is up against, per enemy.
+	for _, want := range []string{
+		"⚔ 2 · ⛨ 0 · » 10 · ✦ 5% · ⬆ 3", // goblin
+		"⚔ 8 · ⛨ 0 · » 8 · ✦ 10% · ⬆ 5", // orc
+	} {
+		if !strings.Contains(view, want) {
+			t.Errorf("encounter view missing stat line %q:\n%s", want, view)
+		}
+	}
+
+	// The stat lines are drawn in the left column: they must fit the
+	// column's width instead of silently leaning on slot() to clip them.
+	for i, line := range viewLines(m.encounterPanel()) {
+		if w := ansiLen(line); w > mainColWidth {
+			t.Errorf("encounter body line %d is %d wide, overflows the %d-col column:\n%q", i, w, mainColWidth, line)
+		}
+	}
 }
 
 // Combat focuses on the front enemy; the rest of the queue is only a
@@ -279,6 +302,22 @@ func TestViewCombatShowsOnlyTheCurrentEnemy(t *testing.T) {
 	}
 	if !strings.Contains(view, "1 more") {
 		t.Errorf("combat view should hint at the waiting enemies:\n%s", view)
+	}
+
+	// The engaged enemy gets its stat line too — crit chance and defense
+	// are worth watching mid-fight — but only the front enemy's.
+	front := "⚔ 2 · ⛨ 0 · » 10 · ✦ 5% · ⬆ 3"
+	if !strings.Contains(view, front) {
+		t.Errorf("combat view missing the front enemy's stat line %q:\n%s", front, view)
+	}
+	if strings.Contains(view, "⚔ 8") {
+		t.Errorf("combat view leaked a queued enemy's stats:\n%s", view)
+	}
+	// Same column-width discipline as the encounter panel.
+	for i, line := range viewLines(m.combatPanel()) {
+		if w := ansiLen(line); w > mainColWidth {
+			t.Errorf("combat body line %d is %d wide, overflows the %d-col column:\n%q", i, w, mainColWidth, line)
+		}
 	}
 	if !strings.Contains(view, "[A] Attack") || !strings.Contains(view, "[R] Flee") {
 		t.Errorf("combat action bar incomplete:\n%s", view)
