@@ -34,6 +34,11 @@ func eventText(ev engine.Event) string {
 	case engine.EventEnemyDefeated:
 		return fmt.Sprintf("The %v goes down! +%v XP.", ev.Data["enemy"], ev.Data["xp_gained"])
 	case engine.EventLevelUp:
+		// The engine's richer payload reports the level-up heal; a legacy
+		// event (or a full-HP hero, healed 0) keeps the plain line.
+		if healed, _ := ev.Data["healed"].(int); healed > 0 {
+			return fmt.Sprintf("Level up! You are now level %v (+%d HP).", ev.Data["level"], healed)
+		}
 		return fmt.Sprintf("Level up! You are now level %v.", ev.Data["level"])
 	case engine.EventHeroDefeated:
 		return "You collapse... Your journey through the tower ends here."

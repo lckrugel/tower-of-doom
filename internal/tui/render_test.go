@@ -197,6 +197,18 @@ func TestEventText(t *testing.T) {
 			nil,
 		},
 		{
+			"level up with heal",
+			engine.NewLevelUpWithHeal(2, 27),
+			"Level up! You are now level 2 (+27 HP).",
+			nil,
+		},
+		{
+			"level up at full health",
+			engine.NewLevelUpWithHeal(3, 0),
+			"Level up! You are now level 3.",
+			nil,
+		},
+		{
 			"hero defeated",
 			engine.NewHeroDefeated(),
 			"You collapse... Your journey through the tower ends here.",
