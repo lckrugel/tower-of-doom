@@ -82,6 +82,26 @@ func viewModels() map[string]Model {
 		return New(e)
 	}
 
+	// The merchant's shop: three offers and a couple of bag items over a
+	// real purse — the widest selectable list the game shows (stock rows
+	// first, then the bag; the cursor opens on the first offer).
+	merchant := func() Model {
+		e := testEngine()
+		e.Player.Gold = 120
+		e.MerchantStock = append(e.MerchantStock,
+			shopItem("Offer A"), shopItem("Offer B"), shopItem("Offer C"))
+		stone := entities.NewItemFromAsset(game.ItemAsset{
+			ID: "power_stone", Name: "Pedra do Poder", Slot: "ring", BonusDEF: 2, Durability: 30,
+		})
+		cape := entities.NewItemFromAsset(game.ItemAsset{
+			ID: "travel_cloak", Name: "Capa de Viagem", Slot: "body_armor", BonusHP: 5, Durability: 60,
+		})
+		e.Player.StashItem(&stone)
+		e.Player.StashItem(&cape)
+		e.State = engine.StateMerchant
+		return New(e)
+	}
+
 	return map[string]Model{
 		"exploring":  New(testEngine()),
 		"geared":     geared(),
@@ -89,6 +109,7 @@ func viewModels() map[string]Model {
 		"combat":     combat,
 		"loot":       loot(),
 		"inventory":  inventory(),
+		"merchant":   merchant(),
 		"game over":  gameOver(),
 		"full queue": fullQueue(),
 		"long log":   longLog(),
