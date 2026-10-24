@@ -51,11 +51,44 @@ func viewModels() map[string]Model {
 		return New(e)
 	}
 
+	// Chest loot pending: the decision screen over a real item.
+	loot := func() Model {
+		e := testEngine()
+		item := entities.NewItemFromAsset(game.ItemAsset{
+			ID: "wooden_sword", Name: "Espada de Madeira", Slot: "weapon",
+			BonusDMG: 5, Durability: 50,
+		})
+		e.PendingLoot = &item
+		e.State = engine.StateLoot
+		return New(e)
+	}
+
+	// Bag open with a few stashed items: the selection screen.
+	inventory := func() Model {
+		e := testEngine()
+		stone := entities.NewItemFromAsset(game.ItemAsset{
+			ID: "power_stone", Name: "Pedra do Poder", Slot: "ring", BonusDEF: 2, Durability: 30,
+		})
+		blade := entities.NewItemFromAsset(game.ItemAsset{
+			ID: "oak_staff", Name: "Cajado de Carvalho", Slot: "weapon", BonusDMG: 7, Durability: 40,
+		})
+		cape := entities.NewItemFromAsset(game.ItemAsset{
+			ID: "travel_cloak", Name: "Capa de Viagem", Slot: "body_armor", BonusHP: 5, Durability: 60,
+		})
+		e.Player.StashItem(&stone)
+		e.Player.StashItem(&blade)
+		e.Player.StashItem(&cape)
+		e.State = engine.StateInventory
+		return New(e)
+	}
+
 	return map[string]Model{
 		"exploring":  New(testEngine()),
 		"geared":     geared(),
 		"encounter":  encounter(engine.StateEncounter),
 		"combat":     combat,
+		"loot":       loot(),
+		"inventory":  inventory(),
 		"game over":  gameOver(),
 		"full queue": fullQueue(),
 		"long log":   longLog(),

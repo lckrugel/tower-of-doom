@@ -19,6 +19,10 @@ type Model struct {
 	log []string
 	// cursor is the selected index of the current state's action bar.
 	cursor int
+	// bagCursor is the selected row of the hero bag while it is open
+	// (StateInventory): ←/→ walk the item rows, and the bag commands
+	// (WEAR/DROP) dispatch with it as their ItemIndex.
+	bagCursor int
 	// width/height track the terminal size from WindowSizeMsg; when both
 	// are too small for the fixed canvas, View() falls back to a bare
 	// "terminal too small" screen.
@@ -55,18 +59,43 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 }
 
-// handleKey resolves a key press: ctrl+c/esc always quit, arrows move the
-// action-bar cursor, Enter dispatches the selection, and single-letter
-// shortcuts dispatch their action directly (case-insensitive).
+// handleKey resolves a key press: ctrl+c always quits, esc quits —
+// except where it means something closer (it closes the bag; while a
+// chest loot is pending it does nothing, since the decision is
+// mandatory and quitting would silently destroy the item). Arrows move
+// the action-bar cursor (or the bag's item cursor while the bag is
+// open), Enter dispatches the selection, and single-letter shortcuts
+// dispatch their action directly (case-insensitive).
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
-	case "ctrl+c", "esc":
+	case "ctrl+c":
+		return m.dispatch(quitAction())
+	case "esc":
+		switch m.engine.State {
+		case engine.StateInventory:
+			return m.dispatch(closeAction())
+		case engine.StateLoot:
+			// The loot decision is mandatory: esc is a no-op, never a
+			// silent destruction of the pending item.
+			return m, nil
+		}
 		return m.dispatch(quitAction())
 	case "left":
+		if m.engine.State == engine.StateInventory {
+			// The bag is open: the arrows walk the item rows.
+			n := max(1, len(m.engine.Player.Bag()))
+			m.bagCursor = (m.bagCursor - 1 + n) % n
+			return m, nil
+		}
 		actions := actionsFor(m.engine)
 		m.cursor = (m.cursor - 1 + len(actions)) % len(actions)
 		return m, nil
 	case "right":
+		if m.engine.State == engine.StateInventory {
+			n := max(1, len(m.engine.Player.Bag()))
+			m.bagCursor = (m.bagCursor + 1) % n
+			return m, nil
+		}
 		actions := actionsFor(m.engine)
 		m.cursor = (m.cursor + 1) % len(actions)
 		return m, nil
@@ -99,14 +128,21 @@ func (m Model) selectedAction() action {
 // and reports a tea.Quit when the engine ends the session.
 func (m Model) dispatch(a action) (tea.Model, tea.Cmd) {
 	quit := false
-	for _, ev := range m.engine.Process(engine.Command{Type: a.cmd}) {
+	cmd := engine.Command{Type: a.cmd}
+	if a.usesIndex {
+		// Bag commands act on the selected row; an out-of-range index is
+		// rejected by the engine as a generic message, no state change.
+		cmd.ItemIndex = m.bagCursor
+	}
+	for _, ev := range m.engine.Process(cmd) {
 		m.absorb(ev)
 		if ev.Type == engine.EventQuit {
 			quit = true
 		}
 	}
 	m.log = trimLog(m.log)
-	m.cursor = 0 // the action bar is rebuilt for the (possibly new) state
+	m.cursor = 0    // the action bar is rebuilt for the (possibly new) state
+	m.bagCursor = 0 // re-entering the bag selects the first item again
 	if quit {
 		return m, tea.Quit
 	}

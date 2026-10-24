@@ -156,6 +156,10 @@ func (m Model) badge() string {
 		style = styleBadgeWarn
 	case engine.StateCombat:
 		style = styleBadgeCombat
+	case engine.StateLoot:
+		style = styleBadgeWarn
+	case engine.StateInventory:
+		style = styleBadgeOk
 	case engine.StateGameOver:
 		style = styleBadgeOver
 	default:
@@ -180,6 +184,10 @@ func (m Model) body() string {
 	switch m.engine.State {
 	case engine.StateExploring:
 		return styleDim.Render("The tower awaits — EXPLORE to investigate.")
+	case engine.StateLoot: // the pending item, ahead of the three-way choice
+		return m.lootPanel()
+	case engine.StateInventory: // the whole bag, selection included
+		return m.inventoryPanel()
 	case engine.StateEncounter: // the whole queue helps weigh FIGHT vs SNEAK
 		return m.encounterPanel()
 	case engine.StateCombat: // only the front enemy matters mid-fight
@@ -189,6 +197,46 @@ func (m Model) body() string {
 	default:
 		return ""
 	}
+}
+
+// lootPanel is the chest-decision screen: the pending item and the
+// three-way choice. The decision is mandatory — the panel deliberately
+// offers no way out but the three actions.
+func (m Model) lootPanel() string {
+	var b strings.Builder
+	b.WriteString(stylePanelTitle.Render("◈ CHEST LOOT") + "\n")
+	if item := m.engine.PendingLoot; item != nil {
+		b.WriteString("  " + stylePanelTitle.Render(item.Name) + itemBonusList(item) + "\n")
+	} else {
+		b.WriteString(styleDim.Render("   (the chest is empty)") + "\n")
+	}
+	b.WriteString(styleDim.Render("  decide — wear it, bag it, or let it go."))
+	return b.String()
+}
+
+// inventoryPanel is the bag screen: one row per stashed item, the
+// selected row highlighted with ▶ (the row WEAR/DROP act on). The
+// selection is clamped to the bag: a shrunk bag must never render a
+// ghost row.
+func (m Model) inventoryPanel() string {
+	var b strings.Builder
+	bag := m.engine.Player.Bag()
+	b.WriteString(stylePanelTitle.Render(
+		fmt.Sprintf("◈ BAG (%d/%d)", len(bag), entities.InventoryCapacity),
+	) + "\n")
+	if len(bag) == 0 {
+		return b.String() + styleDim.Render("   (the bag is empty)")
+	}
+	selected := min(max(m.bagCursor, 0), len(bag)-1)
+	for i, item := range bag {
+		name := item.Name + itemBonusList(item)
+		if i == selected {
+			b.WriteString(styleSelected.Render("▶ "+name) + "\n")
+		} else {
+			b.WriteString("  " + styleAction.Render(name) + "\n")
+		}
+	}
+	return b.String()
 }
 
 // gameOverPanel is the body after death: the banner, then the run's
@@ -326,8 +374,17 @@ func (m Model) actionBar() string {
 		}
 		spots = append(spots, styleAction.Render(label))
 	}
-	hint := styleDim.Render("   ← → select · ⏎ confirm")
-	return lipgloss.JoinHorizontal(lipgloss.Center, strings.Join(spots, "   "), hint)
+	// The hint names what the arrows do here: pick a bar option elsewhere,
+	// walk the bag rows inside the bag — while the chest screen has
+	// nothing to select, only the decision to make.
+	hint := "   ← → select · ⏎ confirm"
+	switch m.engine.State {
+	case engine.StateInventory:
+		hint = "   ← → item · ⏎ confirm"
+	case engine.StateLoot:
+		hint = "   decide the loot's fate"
+	}
+	return lipgloss.JoinHorizontal(lipgloss.Center, strings.Join(spots, "   "), styleDim.Render(hint))
 }
 
 // gearList names everything currently equipped.

@@ -70,13 +70,63 @@ func TestQuitShortcutWorksInEveryState(t *testing.T) {
 	}
 }
 
+// esc quits everywhere except where it has a closer meaning: it closes
+// the bag (StateInventory) and is a deliberate no-op while a chest loot
+// decision is pending — quitting there would silently destroy the item.
 func TestEscapeAlsoQuits(t *testing.T) {
-	m := New(testEngine())
+	for _, state := range []engine.GameState{
+		engine.StateExploring, engine.StateEncounter, engine.StateCombat, engine.StateGameOver,
+	} {
+		m := New(testEngine())
+		m.engine.State = state
 
-	_, cmd := press(m, "esc")
+		_, cmd := press(m, "esc")
 
-	if cmd == nil {
-		t.Error("esc did not request a quit")
+		if cmd == nil {
+			t.Errorf("state %v: esc did not request a quit", state)
+		}
+	}
+}
+
+func TestEscapeClosesTheBag(t *testing.T) {
+	e := testEngine()
+	stashTestItem(e)
+	e.State = engine.StateInventory
+	m := New(e)
+
+	m, cmd := press(m, "esc")
+
+	if cmd != nil {
+		t.Error("esc in the bag must not request a quit")
+	}
+	if m.engine.State != engine.StateExploring {
+		t.Errorf("state after esc = %v, want StateExploring", m.engine.State)
+	}
+	last := stripANSI(m.log[len(m.log)-1])
+	if last != "You close your bag." {
+		t.Errorf("last log line = %q, want the close-bag message", last)
+	}
+}
+
+// The loot decision is mandatory: esc must neither quit nor resolve the
+// pending item — the model stays exactly where it was.
+func TestEscapeIsANoOpWhileLooting(t *testing.T) {
+	m := chestModel()
+
+	logLen := len(m.log)
+	m, cmd := press(m, "esc")
+
+	if cmd != nil {
+		t.Error("esc in StateLoot must not request a quit")
+	}
+	if m.engine.State != engine.StateLoot {
+		t.Errorf("state after esc = %v, want to stay in StateLoot", m.engine.State)
+	}
+	if m.engine.PendingLoot == nil {
+		t.Error("esc consumed the pending loot")
+	}
+	if len(m.log) != logLen {
+		t.Error("esc wrote to the log in StateLoot")
 	}
 }
 
@@ -112,9 +162,9 @@ func TestUnknownKeyIsANoOp(t *testing.T) {
 }
 
 func TestArrowKeysMoveTheCursorWithWraparound(t *testing.T) {
-	m := New(testEngine()) // exploring: 3 actions
-	if got := len(actionsFor(m.engine)); got != 3 {
-		t.Fatalf("setup: exploring actions = %d, want 3", got)
+	m := New(testEngine()) // exploring: 4 actions
+	if got := len(actionsFor(m.engine)); got != 4 {
+		t.Fatalf("setup: exploring actions = %d, want 4", got)
 	}
 
 	m, _ = press(m, "right")
@@ -128,8 +178,92 @@ func TestArrowKeysMoveTheCursorWithWraparound(t *testing.T) {
 	}
 
 	m, _ = press(m, "left")
-	if m.cursor != 2 {
-		t.Fatalf("left from cursor 0 = %d, want wraparound to 2", m.cursor)
+	if m.cursor != 3 {
+		t.Fatalf("left from cursor 0 = %d, want wraparound to 3", m.cursor)
+	}
+}
+
+// In the bag, ←/→ walk the item rows with wraparound over the bag's
+// size — the action bar cursor must stay untouched.
+func TestBagCursorMovesWithWraparound(t *testing.T) {
+	e := testEngine()
+	stashTestItem(e)
+	stashTestItem(e)
+	e.State = engine.StateInventory
+	m := New(e)
+
+	m, _ = press(m, "right")
+	if m.bagCursor != 1 || m.cursor != 0 {
+		t.Fatalf("right: bagCursor = %d, bar cursor = %d, want 1 and untouched", m.bagCursor, m.cursor)
+	}
+
+	m, _ = press(m, "right")
+	if m.bagCursor != 0 {
+		t.Fatalf("right from the last item = %d, want wraparound to 0", m.bagCursor)
+	}
+
+	m, _ = press(m, "left")
+	if m.bagCursor != 1 {
+		t.Fatalf("left from 0 = %d, want wraparound to 1", m.bagCursor)
+	}
+}
+
+// With an empty bag there is no row to select: the arrows are harmless.
+func TestBagCursorStaysPutOnAnEmptyBag(t *testing.T) {
+	e := testEngine()
+	e.State = engine.StateInventory
+	m := New(e)
+
+	m, _ = press(m, "right")
+	m, _ = press(m, "left")
+
+	if m.bagCursor != 0 {
+		t.Errorf("bag cursor = %d on an empty bag, want 0", m.bagCursor)
+	}
+}
+
+// WEAR acts on the row the bag cursor highlights: selecting the second
+// slot equips that item, and the displaced gear takes its old place in
+// the bag. Dispatch also re-enters the bag on its first item.
+func TestWearEquipsTheSelectedBagItem(t *testing.T) {
+	e := testEngine()
+	starter := entities.NewItemFromAsset(game.ItemAsset{
+		ID: "rusty_blade", Name: "Rusty Blade", Slot: "weapon", BonusDMG: 1, Durability: 10,
+	})
+	e.Player.EquipItem(&starter)
+	oak := entities.NewItemFromAsset(game.ItemAsset{
+		ID: "oak_staff", Name: "Oak Staff", Slot: "weapon", BonusDMG: 3, Durability: 20,
+	})
+	iron := entities.NewItemFromAsset(game.ItemAsset{
+		ID: "iron_staff", Name: "Iron Staff", Slot: "weapon", BonusDMG: 7, Durability: 30,
+	})
+	e.Player.StashItem(&oak)
+	e.Player.StashItem(&iron)
+	e.State = engine.StateInventory
+	m := New(e)
+
+	m, _ = press(m, "right") // selects bag[1]: Iron Staff
+	if m.bagCursor != 1 {
+		t.Fatalf("bag cursor after right = %d, want 1", m.bagCursor)
+	}
+
+	m, _ = press(m, "w")
+
+	if m.engine.State != engine.StateInventory {
+		t.Fatalf("state after 'w' = %v, want the bag to stay open", m.engine.State)
+	}
+	if m.engine.Player.Weapon != &iron {
+		t.Errorf("weapon = %q, want the selected Iron Staff", m.engine.Player.Weapon.Name)
+	}
+	bag := m.engine.Player.Bag()
+	if len(bag) != 2 {
+		t.Fatalf("bag holds %d items after the swap, want 2", len(bag))
+	}
+	if bag[1] != &starter {
+		t.Errorf("bag[1] = %q, want the displaced Rusty Blade", bag[1].Name)
+	}
+	if m.bagCursor != 0 {
+		t.Errorf("bag cursor after dispatch = %d, want back on the first item", m.bagCursor)
 	}
 }
 
