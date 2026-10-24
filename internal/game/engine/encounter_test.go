@@ -318,10 +318,10 @@ func TestThirdDifferentKindStillHappens(t *testing.T) {
 // overridden to combat — and the override skips the merchant entirely (no
 // stock is rolled).
 func TestMerchantStreakBecomesCombat(t *testing.T) {
-	// Merchant kind 30 twice (stock offers 0,1,0; upgrade check 99 → none
-	// — LEAVE consumes no rng), then a third merchant kind 30 →
+	// Merchant kind 30 twice (stock offers 0,1,0,1; upgrade check 99 →
+	// none — LEAVE consumes no rng), then a third merchant kind 30 →
 	// overridden; picks 104 → orc (5), 0 → goblin (3).
-	e := merchantEngine(30, 0, 1, 0, 99, 30, 0, 1, 0, 99, 30, 104, 0)
+	e := merchantEngine(30, 0, 1, 0, 1, 99, 30, 0, 1, 0, 1, 99, 30, 104, 0)
 	stub := e.rng.(*stubRng)
 
 	for range 2 {
@@ -347,10 +347,10 @@ func TestMerchantStreakBecomesCombat(t *testing.T) {
 	if !idsEqual(monsterIDs(e.CurrentEncounter.Monsters), "orc", "goblin") {
 		t.Errorf("encounter = %v, want [orc goblin]", monsterIDs(e.CurrentEncounter.Monsters))
 	}
-	// 13 = 2 × (kind + 3 offers + upgrade check) + the overridden kind's
+	// 15 = 2 × (kind + 4 offers + upgrade check) + the overridden kind's
 	// one Intn + 2 monster picks; a reroll would shift the count.
-	if stub.calls != 13 {
-		t.Errorf("rng calls = %d, want 13 (no extra rng for the override)", stub.calls)
+	if stub.calls != 15 {
+		t.Errorf("rng calls = %d, want 15 (no extra rng for the override)", stub.calls)
 	}
 }
 
@@ -360,7 +360,7 @@ func TestMerchantStreakBecomesCombat(t *testing.T) {
 func TestDifferentKindAfterMerchantPairHappens(t *testing.T) {
 	// Merchant kind 30 twice, then sanctuary kind 10 — a different
 	// non-combat kind, so no override.
-	e := merchantEngine(30, 0, 1, 0, 99, 30, 0, 1, 0, 99, 10)
+	e := merchantEngine(30, 0, 1, 0, 1, 99, 30, 0, 1, 0, 1, 99, 10)
 
 	for range 2 {
 		if got := eventTypes(e.Process(Command{Type: CmdExplore})); !typesEqual(got, EventMerchantFound) {
