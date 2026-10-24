@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"maps"
 	"strings"
 	"testing"
 
@@ -38,6 +39,36 @@ func damagedGoblin(dmg int, crit bool) engine.Event {
 	return engine.NewDamageDealt(&goblin, dmg, crit)
 }
 
+// The snapshot event map is the renderer's only source of truth, so both
+// payload shapes (legacy-only and exact HP) are hand-constructed below.
+
+// withEnemyExact copies a damage-dealt event and adds the exact HP pair
+// the engine's richer constructors carry.
+func withEnemyExact(ev engine.Event, cur, max int) engine.Event {
+	data := maps.Clone(ev.Data)
+	data["enemy_hp_exact"], data["enemy_max_hp"] = cur, max
+	return engine.Event{Type: ev.Type, Data: data}
+}
+
+// withHeroExact copies a hero-side event (hit taken, heal) and adds the
+// exact HP pair.
+func withHeroExact(ev engine.Event, cur, max int) engine.Event {
+	data := maps.Clone(ev.Data)
+	data["hero_hp_exact"], data["hero_max_hp"] = cur, max
+	return engine.Event{Type: ev.Type, Data: data}
+}
+
+// withoutExact copies an event and strips the exact HP pair, rebuilding
+// the legacy-only payload an older engine would send. The percentage keys
+// are the renderer's fallback and must keep working on their own.
+func withoutExact(ev engine.Event) engine.Event {
+	data := maps.Clone(ev.Data)
+	for _, key := range []string{"enemy_hp_exact", "enemy_max_hp", "hero_hp_exact", "hero_max_hp"} {
+		delete(data, key)
+	}
+	return engine.Event{Type: ev.Type, Data: data}
+}
+
 func TestEventText(t *testing.T) {
 	goblin := monsterFixture()
 
@@ -61,13 +92,13 @@ func TestEventText(t *testing.T) {
 		},
 		{
 			"plain damage dealt",
-			damagedGoblin(5, false),
+			withoutExact(damagedGoblin(5, false)),
 			"You hit the Goblin for 5 damage (83% HP left).",
 			nil,
 		},
 		{
 			"critical damage dealt",
-			damagedGoblin(10, true),
+			withoutExact(damagedGoblin(10, true)),
 			"You land a devastating blow on the Goblin — CRIT! 10 damage (66% HP left).",
 			nil,
 		},
@@ -79,14 +110,56 @@ func TestEventText(t *testing.T) {
 		},
 		{
 			"plain damage taken",
-			damagedHero(2, false),
+			withoutExact(damagedHero(2, false)),
 			"You take 2 damage (98% HP left).",
 			nil,
 		},
 		{
 			"critical damage taken",
-			damagedHero(4, true),
+			withoutExact(damagedHero(4, true)),
 			"A crushing hit lands on you — CRIT! You take 4 damage (96% HP left).",
+			nil,
+		},
+		// Events carrying the exact HP pair render absolute values
+		// instead of the legacy floor percentage.
+		{
+			"exact HP on a plain hit",
+			withEnemyExact(damagedGoblin(12, false), 8, 45),
+			"You hit the Goblin for 12 damage (8/45 HP left).",
+			nil,
+		},
+		{
+			"exact HP on a critical hit",
+			withEnemyExact(damagedGoblin(12, true), 8, 45),
+			"You land a devastating blow on the Goblin — CRIT! 12 damage (8/45 HP left).",
+			nil,
+		},
+		{
+			"exact HP 0 on a killing blow stays a killing blow",
+			withEnemyExact(damagedGoblin(30, false), 0, 30),
+			"You hit the Goblin for 30 damage — a killing blow!",
+			nil,
+		},
+		{
+			"exact HP on damage taken",
+			withHeroExact(damagedHero(12, false), 88, 100),
+			"You take 12 damage (88/100 HP left).",
+			nil,
+		},
+		{
+			"exact HP 0 on a lethal blow keeps the fading text",
+			withHeroExact(damagedHero(100, false), 0, 100),
+			"You take 100 damage and your vision fades...",
+			nil,
+		},
+		{
+			"malformed exact HP falls back to the legacy percentage",
+			engine.Event{Type: engine.EventCombatDamageDealt, Data: map[string]any{
+				"enemy": "Goblin", "enemy_hp": 90, "enemy_alive": true,
+				"damage_dealt": 3, "crit": false,
+				"enemy_hp_exact": "not an int", "enemy_max_hp": 30,
+			}},
+			"You hit the Goblin for 3 damage (90% HP left).",
 			nil,
 		},
 		{
@@ -146,6 +219,26 @@ func TestEventText(t *testing.T) {
 		{
 			"sanctuary at full health",
 			engine.NewHeroHealed(0, 100),
+			"An ancient sanctuary embraces you in quiet rest — your wounds are already healed.",
+			nil,
+		},
+		// Exact post-heal HP replaces the percentage when the engine
+		// reports it.
+		{
+			"heal shows post-heal exact HP",
+			withHeroExact(engine.NewHeroHealed(20, 45), 45, 100),
+			"While exploring, you find an ancient sanctuary and rest. You recover 20 HP (45/100 HP).",
+			nil,
+		},
+		{
+			"full heal shows exact HP",
+			withHeroExact(engine.NewHeroHealed(20, 100), 100, 100),
+			"While exploring, you find an ancient sanctuary and rest. You recover 20 HP (100/100 HP).",
+			nil,
+		},
+		{
+			"no-op heal with exact HP stays the already-healed text",
+			withHeroExact(engine.NewHeroHealed(0, 100), 100, 100),
 			"An ancient sanctuary embraces you in quiet rest — your wounds are already healed.",
 			nil,
 		},
