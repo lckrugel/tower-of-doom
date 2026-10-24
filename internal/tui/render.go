@@ -62,7 +62,13 @@ func damageDealtText(data map[string]any) string {
 		fmt.Fprintf(&b, "You hit the %v for %v damage", data["enemy"], data["damage_dealt"])
 	}
 	if alive, _ := data["enemy_alive"].(bool); alive {
-		fmt.Fprintf(&b, " (%v%% HP left).", data["enemy_hp"])
+		// Absolute HP wins over the legacy floor percentage: knowing the
+		// enemy needs 2 more hits beats doing the math from 27%.
+		if cur, max, ok := exactHP(data, "enemy_hp_exact", "enemy_max_hp"); ok {
+			fmt.Fprintf(&b, " (%d/%d HP left).", cur, max)
+		} else {
+			fmt.Fprintf(&b, " (%v%% HP left).", data["enemy_hp"])
+		}
 	} else {
 		b.WriteString(" — a killing blow!")
 	}
@@ -75,9 +81,23 @@ func damageTakenText(data map[string]any) string {
 		crit = "A crushing hit lands on you — CRIT! "
 	}
 	if alive, _ := data["hero_alive"].(bool); alive {
+		// Same absolute-HP preference as the enemy side.
+		if cur, max, ok := exactHP(data, "hero_hp_exact", "hero_max_hp"); ok {
+			return fmt.Sprintf("%vYou take %v damage (%d/%d HP left).", crit, data["damage_taken"], cur, max)
+		}
 		return fmt.Sprintf("%vYou take %v damage (%v%% HP left).", crit, data["damage_taken"], data["hero_hp"])
 	}
 	return fmt.Sprintf("%vYou take %v damage and your vision fades...", crit, data["damage_taken"])
+}
+
+// exactHP reads an event's optional absolute HP pair (e.g.
+// "enemy_hp_exact" + "enemy_max_hp"). It reports ok=false when either key
+// is missing or not an int, so a legacy-only payload keeps rendering the
+// floor percentage it does carry.
+func exactHP(data map[string]any, curKey, maxKey string) (cur, max int, ok bool) {
+	cur, curOk := data[curKey].(int)
+	max, maxOk := data[maxKey].(int)
+	return cur, max, curOk && maxOk
 }
 
 // heroHealedText renders the sanctuary restore, including the
@@ -86,6 +106,10 @@ func heroHealedText(data map[string]any) string {
 	healed, _ := data["healed"].(int)
 	if healed <= 0 {
 		return "An ancient sanctuary embraces you in quiet rest — your wounds are already healed."
+	}
+	if cur, max, ok := exactHP(data, "hero_hp_exact", "hero_max_hp"); ok {
+		return fmt.Sprintf("While exploring, you find an ancient sanctuary and rest. You recover %d HP (%d/%d HP).",
+			healed, cur, max)
 	}
 	return fmt.Sprintf("While exploring, you find an ancient sanctuary and rest. You recover %v HP (%v%% HP left).",
 		healed, data["hero_hp"])

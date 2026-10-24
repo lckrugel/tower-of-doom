@@ -23,6 +23,11 @@ type Model struct {
 	// are too small for the fixed canvas, View() falls back to a bare
 	// "terminal too small" screen.
 	width, height int
+	// recap holds the run summary carried by EventHeroDefeated, captured
+	// as the event passes through the log. The game-over body quotes it;
+	// nil (legacy defeat without stats) falls back to the engine's final
+	// player state.
+	recap *runRecap
 }
 
 // New builds the UI for a fresh engine, greeting the player. The
@@ -95,7 +100,7 @@ func (m Model) selectedAction() action {
 func (m Model) dispatch(a action) (tea.Model, tea.Cmd) {
 	quit := false
 	for _, ev := range m.engine.Process(engine.Command{Type: a.cmd}) {
-		m.log = append(m.log, renderEvent(ev))
+		m.absorb(ev)
 		if ev.Type == engine.EventQuit {
 			quit = true
 		}
@@ -106,6 +111,43 @@ func (m Model) dispatch(a action) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	}
 	return m, nil
+}
+
+// absorb records one engine event's consequences on the model: the
+// rendered log line, plus anything a later view needs (the defeat event's
+// run stats feed the game-over recap).
+func (m *Model) absorb(ev engine.Event) {
+	m.log = append(m.log, renderEvent(ev))
+	if ev.Type == engine.EventHeroDefeated {
+		m.recap = recapFromEvent(ev)
+	}
+}
+
+// runRecap is the run summary an EventHeroDefeatedWithStats carries:
+// the level the hero reached and how many enemies it defeated. The floor
+// is deliberately not stored — the recap's "Reached Floor N · Section"
+// keeps using the engine's location label, which also names the section.
+type runRecap struct {
+	level    int
+	kills    int
+	hasKills bool // an older engine's event may omit the kill count
+}
+
+// recapFromEvent captures a defeat event's run statistics. It requires
+// the level/floor pair the engine's richer payload sends; anything else
+// (legacy events, malformed stats) returns nil, making the recap fall
+// back to the engine's final state rather than trusting partial data.
+func recapFromEvent(ev engine.Event) *runRecap {
+	level, okLevel := ev.Data["level"].(int)
+	_, okFloor := ev.Data["floor"].(int)
+	if !okLevel || !okFloor {
+		return nil
+	}
+	recap := &runRecap{level: level}
+	if kills, ok := ev.Data["kills"].(int); ok {
+		recap.kills, recap.hasKills = kills, true
+	}
+	return recap
 }
 
 // trimLog keeps only the newest lines so the panel stays bounded.
