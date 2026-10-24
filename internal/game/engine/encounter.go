@@ -48,7 +48,7 @@ type Encounter struct {
 
 // sanctuaryHealPercent is how much of the Hero's base max HP a sanctuary
 // restores, as a percentage.
-const sanctuaryHealPercent = 35
+const sanctuaryHealPercent = 50
 
 // chestGoldChance is the chance (percentage) that a chest pays out gold
 // instead of holding an item.

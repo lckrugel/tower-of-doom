@@ -67,7 +67,7 @@ func TestRollEncounterTypeWithoutTableConsumesNoRng(t *testing.T) {
 	}
 }
 
-// Exploring into a sanctuary heals 35% of the hero's BASE max HP
+// Exploring into a sanctuary heals 50% of the hero's BASE max HP
 // (equipment excluded), instantly and without unlocking ascending.
 func TestExploreSanctuary(t *testing.T) {
 	e := pastFirstExplore(newKindEngine(10)) // Intn(30) = 10 → sanctuary
@@ -76,7 +76,7 @@ func TestExploreSanctuary(t *testing.T) {
 		ID: "helm", Name: "Helm", Slot: "helmet", BonusHP: 50,
 	})
 	e.Player.EquipItem(&helm)
-	e.Player.CurrentHP = 50 // MaxHP 150, BaseMaxHP 100 → heal 35
+	e.Player.CurrentHP = 50 // MaxHP 150, BaseMaxHP 100 → heal 50
 
 	events := e.Process(Command{Type: CmdExplore})
 
@@ -84,22 +84,22 @@ func TestExploreSanctuary(t *testing.T) {
 		t.Fatalf("events = %v, want [hero-healed]", got)
 	}
 	healed, _ := events[0].Data["healed"].(int)
-	if healed != 35 {
-		t.Errorf("healed = %d, want 35 (35%% of baseMaxHP 100)", healed)
+	if healed != 50 {
+		t.Errorf("healed = %d, want 50 (50%% of baseMaxHP 100)", healed)
 	}
 	// Exact defender state after the heal.
-	if hp, _ := events[0].Data["hero_hp_exact"].(int); hp != 85 {
-		t.Errorf("hero_hp_exact = %d, want 85", hp)
+	if hp, _ := events[0].Data["hero_hp_exact"].(int); hp != 100 {
+		t.Errorf("hero_hp_exact = %d, want 100", hp)
 	}
 	if mhp, _ := events[0].Data["hero_max_hp"].(int); mhp != 150 {
 		t.Errorf("hero_max_hp = %d, want 150", mhp)
 	}
-	// Legacy percentage key keeps its meaning: 85/150, floored.
-	if pct, _ := events[0].Data["hero_hp"].(int); pct != 56 {
-		t.Errorf("hero_hp = %d, want 56 (legacy percentage key untouched)", pct)
+	// Legacy percentage key keeps its meaning: 100/150, floored.
+	if pct, _ := events[0].Data["hero_hp"].(int); pct != 66 {
+		t.Errorf("hero_hp = %d, want 66 (legacy percentage key untouched)", pct)
 	}
-	if hp := e.Player.CurrentHP; hp != 85 {
-		t.Errorf("hero HP = %d, want 85", hp)
+	if hp := e.Player.CurrentHP; hp != 100 {
+		t.Errorf("hero HP = %d, want 100", hp)
 	}
 	// Sanctuary is a stopover: back to exploring, nothing unlocked.
 	if e.State != StateExploring {
