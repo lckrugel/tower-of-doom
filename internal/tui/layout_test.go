@@ -120,6 +120,51 @@ func ansiLen(s string) int {
 	return len([]rune(s))
 }
 
+// The vitals must sit right above the shortcut bar in every state —
+// that anchor is what stops the hero panel from wandering between
+// encounter and combat as the enemy list changes.
+func TestHeroStatsAnchorAboveTheActionBar(t *testing.T) {
+	for name, m := range viewModels() {
+		lines := viewLines(m.View())
+
+		barRow, heroRow := -1, -1
+		for i, line := range lines {
+			if strings.Contains(line, "[Q] Quit") {
+				barRow = i
+			}
+			// First row of the hero panel; the log readout shares that row
+			// on the right, so exclude it.
+			if strings.Contains(line, "HERO") && !strings.Contains(line, "Welcome") {
+				heroRow = i
+			}
+		}
+		if barRow < 0 || heroRow < 0 {
+			t.Fatalf("%s: missing hero panel or bar:\n%s", name, strings.Join(lines, "\n"))
+		}
+		if got, want := barRow-heroRow, heroHeight; got != want {
+			// heroHeight is the panel's line count: HERO + Lv + HP + stats + gear.
+			t.Errorf("%s: hero panel spans %d rows above the bar, want %d", name, got, want)
+		}
+	}
+}
+
+// The event log lives in the right half: its lines must start beyond the
+// middle of the frame, clear of the game area on the left.
+func TestLogPanelOccupiesTheRightHalf(t *testing.T) {
+	m := New(testEngine())
+	lines := viewLines(m.View())
+
+	for _, line := range lines {
+		if idx := strings.Index(line, "Welcome to the"); idx >= 0 {
+			if idx < contentWidth/2 {
+				t.Errorf("log line starts at column %d, want ≥ %d:\n%s", idx, contentWidth/2, line)
+			}
+			return
+		}
+	}
+	t.Fatal("log greeting not found in the view")
+}
+
 // The action bar carries the instructions; it must sit on the bottom row
 // of the frame in every state — growing logs or queues must push blank
 // space, never the controls.

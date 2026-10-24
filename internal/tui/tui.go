@@ -23,12 +23,13 @@ type Model struct {
 	width, height int
 }
 
-// New builds the UI for a fresh engine, greeting the player.
+// New builds the UI for a fresh engine, greeting the player. The
+// greeting is short on purpose: it must fit the log column's width.
 func New(e *engine.Engine) Model {
 	return Model{
 		engine: e,
 		log: []string{
-			styleDim.Render("Welcome to the Tower of Doom! Climb as high as you dare."),
+			styleDim.Render("Welcome to the Tower of Doom! Climb as you dare."),
 		},
 	}
 }

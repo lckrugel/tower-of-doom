@@ -69,6 +69,17 @@ var (
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(lipgloss.Color("238")).
 			Padding(0, 1)
+
+	// styleLogColumn draws the vertical divider between the game area and
+	// the log: only the left border of the log column is rendered, using
+	// the same rounded piece and dim tone as the window.
+	styleLogColumn = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("238")).
+			BorderTop(false).
+			BorderRight(false).
+			BorderBottom(false).
+			BorderLeft(true)
 )
 
 // toneOf picks the log color for an event's flavor.

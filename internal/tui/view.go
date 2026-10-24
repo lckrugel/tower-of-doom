@@ -13,15 +13,28 @@ import (
 
 const barWidth = 10
 
-// The canvas the UI occupies in every state. Content is fitted to it, so
-// the window never changes size as the game progresses.
-const contentWidth = 72
+// Two-column canvas: game area on the left, event log on the right.
+// Content is fitted to the slots, so the window never changes size as
+// the game progresses. Everything on the bottom row must be anchored —
+// the plan is: hero stats sit directly above the shortcut bar.
+const (
+	// Total inner canvas: the terminal frame is 2 wider/taller (border
+	// and padding).
+	contentWidth  = 96
+	contentHeight = 22
 
-// bodySlotHeight reserves room for the worst-case body: the ENEMIES
-// title, a full queue, a blank separator and the 5-line hero panel.
-// Early floors (resp. most content) are far below it; that slack is
-// blank space below the panels, by design.
-var bodySlotHeight = engine.MAX_ENCOUNTER_SIZE + 7
+	// Right column; the divider border it draws adds 1 column.
+	logColWidth  = 50
+	mainColWidth = contentWidth - logColWidth
+
+	// Middle bands: header (1) and action bar (1) frame the workspace.
+	middleHeight = contentHeight - 2
+
+	// Hero panel: HERO + Lv + HP + stats + gear lines, anchored to the
+	// bottom of the left column.
+	heroHeight = 5
+	bodyHeight = middleHeight - heroHeight
+)
 
 var (
 	// HP fills the gradient from red (low) to green (high). The component's
@@ -40,16 +53,24 @@ var (
 	)
 )
 
-// View assembles the full screen from rigid vertical slots — header,
-// body, event log and action bar — each padded to its exact reserved
-// height. The frame geometry never reflows, and the action bar stays on
-// the bottom row no matter how busy the log or the enemy queue get.
+// View assembles the full screen: one shared header, a two-column
+// workspace (game area left, event log right), and the shortcut bar.
+// Every region sits in a rigid slot, so the geometry never reflows: the
+// hero vitals stay directly above the shortcuts, the log readout is
+// bottom-anchored like a console, and nothing shifts with content.
 func (m Model) View() string {
+	left := lipgloss.JoinVertical(lipgloss.Left,
+		slot(m.body(), mainColWidth, bodyHeight, lipgloss.Top),
+		slot(m.heroPanel(), mainColWidth, heroHeight, lipgloss.Top),
+	)
+	right := styleLogColumn.Render(
+		slot(m.logPanel(), logColWidth-1, middleHeight, lipgloss.Bottom),
+	)
+
 	content := lipgloss.JoinVertical(lipgloss.Left,
-		slot(m.header(), 1),
-		slot(m.body(), bodySlotHeight),
-		slot(m.logPanel(), maxLogLines),
-		slot(m.actionBar(), 1),
+		slot(m.header(), contentWidth, 1, lipgloss.Top),
+		lipgloss.JoinHorizontal(lipgloss.Top, left, right),
+		slot(m.actionBar(), contentWidth, 1, lipgloss.Top),
 	)
 	return styleWindow.Render(content)
 }
@@ -58,12 +79,12 @@ func (m Model) View() string {
 // width per section (ANSI-aware) keeps a wordy line in one slot from
 // breaking the shared frame; the height padding keeps the section in its
 // own reserved rows.
-func slot(content string, height int) string {
+func slot(content string, width, height int, vAlign lipgloss.Position) string {
 	fitted := lipgloss.NewStyle().
-		MaxWidth(contentWidth).
+		MaxWidth(width).
 		MaxHeight(height).
 		Render(content)
-	return lipgloss.Place(contentWidth, height, lipgloss.Top, lipgloss.Left, fitted)
+	return lipgloss.Place(width, height, lipgloss.Top, vAlign, fitted)
 }
 
 func (m Model) header() string {
@@ -108,17 +129,19 @@ func badgeText(state engine.GameState) string {
 	return strings.ToUpper(state.String())
 }
 
-// body swaps the main area per state.
+// body swaps the game area (top-left) per state. The hero vitals are not
+// part of it: they live in their own slot anchored above the shortcut
+// bar, so they never move between states.
 func (m Model) body() string {
 	switch m.engine.State {
 	case engine.StateExploring:
-		return styleDim.Render("The tower awaits — EXPLORE to investigate.") + "\n\n" + m.heroPanel()
+		return styleDim.Render("The tower awaits — EXPLORE to investigate.")
 	case engine.StateEncounter: // the whole queue helps weigh FIGHT vs SNEAK
-		return m.encounterPanel() + "\n" + m.heroPanel()
+		return m.encounterPanel()
 	case engine.StateCombat: // only the front enemy matters mid-fight
-		return m.combatPanel() + "\n" + m.heroPanel()
+		return m.combatPanel()
 	case engine.StateGameOver:
-		return styleDeath.Render("☠ YOU DIED — the tower claims another soul.") + "\n\n" + m.heroPanel()
+		return styleDeath.Render("☠ YOU DIED — the tower claims another soul.")
 	default:
 		return ""
 	}
