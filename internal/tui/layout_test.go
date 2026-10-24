@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	tea "github.com/charmbracelet/bubbletea"
+
 	"github.com/lckrugel/tower-of-doom/internal/game"
 
 	// MAX_ENCOUNTER_SIZE drives the body slot height in the layout tests.
@@ -163,6 +165,97 @@ func TestLogPanelOccupiesTheRightHalf(t *testing.T) {
 		}
 	}
 	t.Fatal("log greeting not found in the view")
+}
+
+// Without a WindowSizeMsg the model can't know the terminal size: the
+// view must render the full canvas regardless (first frame / tests).
+func TestViewAtUnknownSizeRendersTheFullCanvas(t *testing.T) {
+	models := viewModels()
+
+	for name, m := range models {
+		lines := viewLines(m.View())
+		if len(lines) != contentHeight+2 {
+			t.Fatalf("%s: %d lines, want the full frame of %d", name, len(lines), contentHeight+2)
+		}
+		for i, line := range lines {
+			if w := ansiLen(line); w != contentWidth+4 {
+				t.Errorf("%s: line %d is %d wide, want %d", name, i, w, contentWidth+4)
+			}
+		}
+	}
+}
+
+// Sending the size must record it without changing anything the view
+// renders: a roomy terminal gets exactly the same fixed frame.
+func TestWindowSizeMsgIsStoredWithoutRedrawing(t *testing.T) {
+	models := viewModels()
+
+	for name, m := range models {
+		next, _ := m.Update(tea.WindowSizeMsg{Width: 200, Height: 60})
+		sized := modelOf(next, t)
+
+		if sized.width != 200 || sized.height != 60 {
+			t.Errorf("%s: size stored as %dx%d, want 200x60", name, sized.width, sized.height)
+		}
+		if got, want := sized.View(), m.View(); got != want {
+			t.Errorf("%s: view changed after the size message:\n%q", name, got)
+		}
+	}
+}
+
+// A terminal that can't fit the canvas gets a bare fallback screen: the
+// warning plus nothing else from the game UI (no frame, no action bar).
+func TestViewOnATooSmallTerminalIsABareFallback(t *testing.T) {
+	tests := []struct {
+		name  string
+		width int
+		// 0 means "no height known yet" is impossible via WindowSizeMsg;
+		// every case below has both dimensions.
+		height int
+	}{
+		{"narrow", 80, 40},
+		{"short", 120, 20},
+		{"way too small", 40, 12},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := New(testEngine())
+			next, _ := m.Update(tea.WindowSizeMsg{Width: tt.width, Height: tt.height})
+			model := modelOf(next, t)
+			if !model.tooSmall() {
+				t.Fatalf("%dx%d not detected as too small", tt.width, tt.height)
+			}
+
+			view := stripANSI(model.View())
+			want := fmt.Sprintf("Terminal too small — needs %dx%d", minWidth, minHeight)
+			if !strings.Contains(view, want) {
+				t.Errorf("small-terminal view missing %q:\n%s", want, view)
+			}
+			for _, leaked := range []string{"[Q] Quit", "HERO", "Tower of Doom", "⚔ ENEMIES"} {
+				if strings.Contains(view, leaked) {
+					t.Errorf("small-terminal view must not contain %q:\n%s", leaked, view)
+				}
+			}
+			for i, line := range strings.Split(view, "\n") {
+				if w := ansiLen(line); w > tt.width {
+					t.Errorf("fallback line %d is %d wide, overflows the %d-col terminal: %q", i, w, tt.width, line)
+				}
+			}
+		})
+	}
+}
+
+// Exactly at the threshold the canvas must still fit.
+func TestMinimumSizeRendersTheFullCanvas(t *testing.T) {
+	m := New(testEngine())
+	next, _ := m.Update(tea.WindowSizeMsg{Width: minWidth, Height: minHeight})
+	model := modelOf(next, t)
+	if model.tooSmall() {
+		t.Errorf("%dx%d wrongly flagged as too small", minWidth, minHeight)
+	}
+	if got, want := model.View(), New(testEngine()).View(); got != want {
+		t.Errorf("view at the minimum size differs from the unsized canvas:\n%q", got)
+	}
 }
 
 // The action bar carries the instructions; it must sit on the bottom row

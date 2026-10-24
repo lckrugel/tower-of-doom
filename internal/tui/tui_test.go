@@ -11,6 +11,10 @@ import (
 	"github.com/lckrugel/tower-of-doom/internal/game/engine/entities"
 )
 
+// wideEnough is a terminal size comfortably above minWidth/minHeight, for
+// tests that want the full game canvas on screen.
+var wideEnough = tea.WindowSizeMsg{Width: 160, Height: 50}
+
 // press sends a key string through the model as a bubbletea KeyMsg.
 func press(m Model, raw string) (Model, tea.Cmd) {
 	var keyMsg tea.KeyMsg
@@ -216,7 +220,7 @@ func stripControls(s string) string {
 // View tests (kept in the same file — they exercise the same state helpers).
 func TestViewExploring(t *testing.T) {
 	m := New(testEngine())
-	next, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	next, _ := m.Update(wideEnough)
 	model := modelOf(next, t)
 
 	view := stripControls(stripANSI(model.View()))

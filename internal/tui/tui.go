@@ -19,7 +19,9 @@ type Model struct {
 	log []string
 	// cursor is the selected index of the current state's action bar.
 	cursor int
-	// width/height are tracked for future layout work.
+	// width/height track the terminal size from WindowSizeMsg; when both
+	// are too small for the fixed canvas, View() falls back to a bare
+	// "terminal too small" screen.
 	width, height int
 }
 

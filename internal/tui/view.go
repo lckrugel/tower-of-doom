@@ -36,6 +36,15 @@ const (
 	bodyHeight = middleHeight - heroHeight
 )
 
+// Minimum usable terminal geometry: the canvas (contentWidth x
+// contentHeight) needs room for the window border and its horizontal
+// padding around it. Anything smaller is unusable — nothing would fit
+// without clipping or wrapping.
+const (
+	minWidth  = contentWidth + 4 // border (2) + horizontal padding (2)
+	minHeight = contentHeight + 2 // border (2)
+)
+
 var (
 	// HP fills the gradient from red (low) to green (high). The component's
 	// built-in percentage is off: bars keep their full width and the text
@@ -58,7 +67,13 @@ var (
 // Every region sits in a rigid slot, so the geometry never reflows: the
 // hero vitals stay directly above the shortcuts, the log readout is
 // bottom-anchored like a console, and nothing shifts with content.
+// Terminals that can't hold the fixed canvas get the bare fallback
+// screen instead of a clipped frame.
 func (m Model) View() string {
+	if m.tooSmall() {
+		return tooSmallView(m.width, m.height)
+	}
+
 	left := lipgloss.JoinVertical(lipgloss.Left,
 		slot(m.body(), mainColWidth, bodyHeight, lipgloss.Top),
 		slot(m.heroPanel(), mainColWidth, heroHeight, lipgloss.Top),
@@ -73,6 +88,32 @@ func (m Model) View() string {
 		slot(m.actionBar(), contentWidth, 1, lipgloss.Top),
 	)
 	return styleWindow.Render(content)
+}
+
+// tooSmall reports whether a WindowSizeMsg has arrived and the terminal
+// can't hold the fixed canvas. No size reported yet (tests, first frame)
+// counts as fine: the model renders its canvas and learns the truth with
+// the first resize event.
+func (m Model) tooSmall() bool {
+	if m.width == 0 {
+		return false
+	}
+	return m.width < minWidth || m.height < minHeight
+}
+
+// tooSmallView is the fallback for terminals smaller than the canvas:
+// a bare, centered notice — no game frame, no action bar, nothing that
+// could overflow or wrap. Details are added only while they fit: the
+// notice must stay inside a terminal that may be arbitrarily narrow.
+func tooSmallView(w, h int) string {
+	msg := fmt.Sprintf("Terminal too small — needs %dx%d", minWidth, minHeight)
+	if got := fmt.Sprintf(", got %dx%d", w, h); w >= len([]rune(msg))+len([]rune(got)) {
+		msg += got
+	}
+	if w < len([]rune(msg)) {
+		msg = string([]rune(msg)[:max(w, 1)])
+	}
+	return lipgloss.Place(max(w, 1), max(h, 1), lipgloss.Center, lipgloss.Center, styleDim.Render(msg))
 }
 
 // slot clamps a section's width and pads it to its exact height. Clamping
