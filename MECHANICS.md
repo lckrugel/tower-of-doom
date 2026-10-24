@@ -1,9 +1,13 @@
-# Proposed game loop (WIP)
+# Proposed game mechanics(WIP)
+
+
+## Game loop
 
 - Game starts (StateExploring)
 - Player can EXPLORE or ASCEND
     - ASCEND starts blocked
 - EXPLORE generates an encounter (StateEncounter)
+    - TODO: adds different types of encounters
 - PLayer can FIGHT or SNEAK
 - FIGHT leads to combat (StateCombat)
 - SKEAK leads to a roll to determined success
@@ -30,3 +34,17 @@
 - If the Hero's HP reachs zero, it dies
     - StateGameOver
 
+
+## Combat calculations
+
+### RNG
+
+### Defense
+
+## Items
+
+TODO
+
+## Types of encounters
+
+TODO

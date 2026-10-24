@@ -102,6 +102,20 @@ func TestValidateRejectsInvalidContent(t *testing.T) {
 			"would always be empty",
 		},
 		{
+			"negative monster crit",
+			[]MonsterAsset{{ID: "rat", Name: "Rat", Difficulty: 1, HP: 10, Crit: -1}},
+			[]SectionAsset{{ID: "s", Name: "S", MinFloor: 1, MaxFloor: -1,
+				Spawns: []SpawnEntry{{MonsterID: "rat", Weight: 1}}}},
+			"crit",
+		},
+		{
+			"crit over 100 percent",
+			[]MonsterAsset{{ID: "rat", Name: "Rat", Difficulty: 1, HP: 10, Crit: 101}},
+			[]SectionAsset{{ID: "s", Name: "S", MinFloor: 1, MaxFloor: -1,
+				Spawns: []SpawnEntry{{MonsterID: "rat", Weight: 1}}}},
+			"crit",
+		},
+		{
 			"uncovered floor",
 			validMonsters(),
 			[]SectionAsset{{ID: "s", Name: "S", MinFloor: 2, MaxFloor: -1,

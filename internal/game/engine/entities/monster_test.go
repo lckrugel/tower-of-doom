@@ -91,6 +91,34 @@ func TestMonsterHeal(t *testing.T) {
 }
 
 // Table: hpPercent = floor(CurrentHP / MaxHP * 100).
+func TestMonsterCritThreshold(t *testing.T) {
+	// The crit percentage comes straight from the asset;
+	// an absent field means the monster never crits.
+	tests := []struct {
+		name       string
+		assetCrit  int
+		wantThresh int
+	}{
+		{"absent field defaults to never crit", 0, 0},
+		{"asset value is used", 15, 15},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := newTestMonsterWithCrit(tt.assetCrit)
+			if got := m.CritThreshold(); got != tt.wantThresh {
+				t.Errorf("CritThreshold = %d, want %d", got, tt.wantThresh)
+			}
+		})
+	}
+}
+
+// newTestMonsterWithCrit builds a monster with the given crit percentage.
+func newTestMonsterWithCrit(crit int) Monster {
+	return NewMonsterFromAsset(game.MonsterAsset{
+		ID: "m", Name: "Test Monster", Difficulty: 1, HP: 10, Crit: crit,
+	})
+}
+
 func TestMonsterCurrentHPPercent(t *testing.T) {
 	tests := []struct {
 		name      string

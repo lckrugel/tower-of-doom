@@ -15,6 +15,7 @@ type Monster struct {
 	BaseDMG   int
 	BaseSPD   int
 	BaseDEF   int
+	BaseCRIT  int
 	// Vida atual, persistida
 	CurrentHP int
 }
@@ -29,6 +30,7 @@ func NewMonsterFromAsset(asset game.MonsterAsset) Monster {
 		BaseDMG:    asset.Damage,
 		BaseSPD:    asset.Speed,
 		BaseDEF:    asset.Defense,
+		BaseCRIT:   asset.Crit,
 	}
 }
 
@@ -36,7 +38,7 @@ func (m *Monster) Damage() int        { return m.BaseDMG }
 func (m *Monster) Speed() int         { return m.BaseSPD }
 func (m *Monster) MaxHP() int         { return m.BaseMaxHP }
 func (m *Monster) Defense() int       { return m.BaseDEF }
-func (m *Monster) CritThreshold() int { return 10 }
+func (m *Monster) CritThreshold() int { return m.BaseCRIT }
 func (m *Monster) Name() string       { return m.name }
 
 func (m *Monster) CurrentHPPercent() int {

@@ -39,6 +39,8 @@ type MonsterAsset struct {
 	Damage     int    `json:"dmg"`
 	Speed      int    `json:"spd"`
 	Defense    int    `json:"def"`
+	// Critical hit chance as a percentage; 0 means the monster never crits.
+	Crit int `json:"crit"`
 }
 
 // Define o mostro e seu peso para spawnar em uma seção.
@@ -150,6 +152,12 @@ func (r *Registry) Validate(topFloor int) error {
 					"content validation: monster %q has difficulty %d, want >= 1 "+
 						"(garante que geração de encontros termina)",
 					m.ID, m.Difficulty,
+				)
+			}
+			if m.Crit < 0 || m.Crit > 100 {
+				return fmt.Errorf(
+					"content validation: monster %q has crit %d, want within [0, 100] (percentage)",
+					m.ID, m.Crit,
 				)
 			}
 		}
