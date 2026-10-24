@@ -131,6 +131,8 @@ func renderEvent(ev engine.Event) string {
 		return "Victory! The floor is clear — ASCEND to continue your climb."
 	case engine.EventFled:
 		return "You fled the combat successfully."
+	case engine.EventHeroHealed:
+		return renderHeroHealed(ev.Data)
 	case engine.EventQuit:
 		return "You persistently close your eyes. Goodbye."
 	case engine.EventItemFound:
@@ -173,13 +175,23 @@ func renderDamageTaken(data map[string]any) string {
 	return fmt.Sprintf("%vYou take %v damage and your vision fades...", prefix, dmg)
 }
 
+// renderHeroHealed renders the instant sanctuary restore, including the
+// nothing-to-heal case (the sanctuary clears an encounter at full health).
+func renderHeroHealed(data map[string]any) string {
+	healed, _ := data["healed"].(int)
+	if healed <= 0 {
+		return "An ancient sanctuary embraces you in quiet rest — your wounds are already healed."
+	}
+	return fmt.Sprintf("While exploring, you find an ancient sanctuary and rest. You recover %v HP (%v%% HP left).", healed, data["hero_hp"])
+}
+
 // renderItemFound renders the auto-equipped loot reward.
 func renderItemFound(data map[string]any) string {
 	item, ok := data["item"].(*entities.Item)
 	if !ok {
 		return "You found some gear, but the tower swallowed it."
 	}
-	return fmt.Sprintf("While climbing, you loot a %v%s and put it on.", item.Name, itemBonusList(item))
+	return fmt.Sprintf("You find a %v%s and put it on.", item.Name, itemBonusList(item))
 }
 
 // itemBonusList renders an item's bonuses, e.g. " (+5 HP, +5 DEF)".
