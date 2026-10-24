@@ -210,7 +210,7 @@ func (m Model) lootPanel() string {
 	} else {
 		b.WriteString(styleDim.Render("   (the chest is empty)") + "\n")
 	}
-	b.WriteString(styleDim.Render("decide — wear it, bag it, or let it go."))
+	b.WriteString(styleDim.Render("  decide — wear it, bag it, or let it go."))
 	return b.String()
 }
 
