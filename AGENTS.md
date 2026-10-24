@@ -17,3 +17,8 @@ Comments, documentation and design decisions should be in english.
 - **Engine randomness:** encounter generation goes through the injectable `rng` interface; combat will use the same seam. `weightedPick` panics if no positive weights — content validation guarantees `weight ≥ 1` and `difficulty ≥ 1` (terminating encounter generation); `MAX_ENCOUNTER_SIZE` stays as defense in depth.
 - **Duplicate content ids** fail at load time (`indexBy`), not at validation.
 - **Engine invariants** (e.g. "content validated at startup") may panic; anything reachable by a player must not. `cmd/cli` calls `Load → Validate → NewEngine` with a large validation horizon (infinite tower).
+
+## Agent Behaviour
+
+- Split work into commits. You're free to commit as soon as you consider a subtask done.
+- Implmentation starts with tests. Write tests that define the logic and then use them as indicator of success.
