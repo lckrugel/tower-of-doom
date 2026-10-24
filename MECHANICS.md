@@ -6,8 +6,12 @@
 - Game starts (StateExploring)
 - Player can EXPLORE or ASCEND
     - ASCEND starts blocked
-- EXPLORE generates an encounter (StateEncounter)
-    - TODO: adds different types of encounters
+- EXPLORE generates an encounter
+    - The encounter TYPE is rolled from the section's `encounter_types`
+      weights (combat/sanctuary/chest; a section without the table is
+      combat-only) — see "Types of encounters"
+    - COMBAT encounters keep the two-step flow (StateEncounter)
+    - SANCTUARY and CHEST encounters resolve instantly, on the spot
 - PLayer can FIGHT or SNEAK
 - FIGHT leads to combat (StateCombat)
 - SKEAK leads to a roll to determined success
@@ -74,4 +78,25 @@ TODO
 
 ## Types of encounters
 
-TODO
+Each section defines weights per encounter kind in its `encounter_types`
+table (`combat` / `sanctuary` / `chest`). The engine rolls the KIND first
+(one `Intn` over the total weight; the roll order is combat, sanctuary,
+chest), then fills the section difficulty budget with monsters only when the
+kind is combat. A section without the table (or with every weight at 0) is
+combat-only and consumes no rng for the kind roll, so old sections/mods keep
+their exact spawn behavior.
+
+- **COMBAT** — enemies spawn per the section spawn table:
+    - The Hero can FIGHT (StateCombat) or SNEAK past it (50/50)
+    - Victory unlocks ASCEND; sneaking/fleeing past does not
+- **SANCTUARY** — a healing spot; resolves instantly on EXPLORE:
+    - Heals `20%` of the Hero's **base** max HP (equipment excluded, floored)
+    - Clamped by `Hero.Heal`: a Hero at full health gains nothing
+    - Does NOT unlock ASCEND
+- **CHEST OF RICHES** — resolves instantly on EXPLORE:
+    - Grants a random item from the registry (any slot, sorted-ID roll),
+      auto-equipped on the spot; whatever it replaced is gone (there is no
+      inventory yet)
+    - Does NOT unlock ASCEND
+
+Only a combat victory clears the floor path and unlocks ASCEND.
