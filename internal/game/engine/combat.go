@@ -112,6 +112,7 @@ func (e *Engine) appendEnemyDefeat(events []Event) []Event {
 	oldLvl := e.Player.Lvl
 
 	e.Player.GiveXP(xp)
+	e.kills++
 	events = append(events, NewEnemyDefeated(enemy.Name(), xp))
 	if e.Player.Lvl > oldLvl {
 		events = append(events, NewLevelUp(e.Player.Lvl))
@@ -126,10 +127,11 @@ func (e *Engine) appendEnemyDefeat(events []Event) []Event {
 	return events
 }
 
-// appendHeroDefeat ends the game.
+// appendHeroDefeat ends the game, reporting the run state at death:
+// floor reached, hero level and enemies defeated so far.
 func (e *Engine) appendHeroDefeat(events []Event) []Event {
 	e.State = StateGameOver
-	return append(events, NewHeroDefeated())
+	return append(events, NewHeroDefeatedWithStats(e.CurrentFloor, e.Player.Lvl, e.kills))
 }
 
 // defCurveK tunes the defense mitigation curve — mitigation per hit is

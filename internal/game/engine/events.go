@@ -180,8 +180,29 @@ func NewEnemyDefeated(monsterName string, xp int) Event {
 	}
 }
 
+// NewHeroDefeated reports the Hero's death without any run statistics
+// (kept for compatibility; the engine itself emits the richer payload).
 func NewHeroDefeated() Event {
 	return Event{Type: EventHeroDefeated}
+}
+
+// NewHeroDefeatedWithStats reports the Hero's death together with the run
+// state at that moment:
+//   - "floor": the floor the Hero died on (CurrentFloor).
+//   - "level": the Hero's level at death.
+//   - "kills": enemies defeated during the run up to (and including) this
+//     round of combat.
+//
+// No extra data arrives with the legacy NewHeroDefeated payload.
+func NewHeroDefeatedWithStats(floor, level, kills int) Event {
+	return Event{
+		Type: EventHeroDefeated,
+		Data: map[string]any{
+			"floor": floor,
+			"level": level,
+			"kills": kills,
+		},
+	}
 }
 
 // NewLevelUp reports that the Hero gained at least one level.

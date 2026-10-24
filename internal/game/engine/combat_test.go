@@ -729,6 +729,84 @@ func TestDamageEventsExactHPClampsAtZeroOnDeath(t *testing.T) {
 	}
 }
 
+// Run statistics: the kills counter increments on every EventEnemyDefeated
+// path (mid-combat kills included) and never on a player defeat.
+func TestKillsCounter(t *testing.T) {
+	t.Run("fresh engine has zero kills", func(t *testing.T) {
+		if got := newTestEngine().kills; got != 0 {
+			t.Errorf("fresh engine kills = %d, want 0", got)
+		}
+	})
+
+	t.Run("increments across a multi-monster encounter", func(t *testing.T) {
+		e := newTestEngine(1, 50) // average spread (no crit) per strike, cycling
+		heroWithDamage(e, 60)     // one-hit kills each foe
+		startEncounter(e, monsterFromFixture("goblin"), monsterFromFixture("orc"))
+		e.State = StateCombat
+
+		e.Process(Command{Type: CmdAttack}) // goblin falls
+		if got := e.kills; got != 1 {
+			t.Errorf("kills after the first kill = %d, want 1", got)
+		}
+
+		e.Process(Command{Type: CmdAttack}) // orc falls → victory
+		if got := e.kills; got != 2 {
+			t.Errorf("kills after the second kill = %d, want 2", got)
+		}
+	})
+
+	t.Run("does not increment when the player loses", func(t *testing.T) {
+		e := newTestEngine(1, 50, 1, 50)
+		heroWithDamage(e, 5)
+		e.Player.CurrentHP = 1
+		startEncounter(e, monsterFromFixture("orc")) // dmg 8, slower than hero
+		e.State = StateCombat
+
+		e.Process(Command{Type: CmdAttack}) // hero strikes, then the orc wins
+
+		if got := e.kills; got != 0 {
+			t.Errorf("kills after a defeat = %d, want 0", got)
+		}
+	})
+}
+
+// EventHeroDefeated reports the run state at the moment of death.
+func TestHeroDefeatedEventCarriesRunStats(t *testing.T) {
+	e := newTestEngine(1, 50) // average spread (no crit) per strike, cycling
+	e.CurrentFloor = 3
+	e.Player.Lvl = 7
+	heroWithDamage(e, 40)
+
+	// First kill of the run: kills → 1, then a scripted death.
+	startEncounter(e, monsterFromFixture("goblin"))
+	e.State = StateCombat
+	e.Process(Command{Type: CmdAttack})
+	if got := e.kills; got != 1 {
+		t.Fatalf("kills after the goblin = %d, want 1", got)
+	}
+
+	heroWithDamage(e, 5) // weak hits never kill the orc
+	e.Player.CurrentHP = 1
+	startEncounter(e, monsterFromFixture("orc")) // dmg 8, slower than hero
+	e.State = StateCombat
+	events := e.Process(Command{Type: CmdAttack})
+
+	if got := eventTypes(events); !typesEqual(got,
+		EventCombatDamageDealt, EventCombatDamageTaken, EventHeroDefeated) {
+		t.Fatalf("events = %v, want [dealt taken hero-defeated]", got)
+	}
+	death := events[2]
+	if floor := death.Data["floor"]; floor != 3 {
+		t.Errorf("floor = %v, want 3 (CurrentFloor at death)", floor)
+	}
+	if level := death.Data["level"]; level != 7 {
+		t.Errorf("level = %v, want 7 (Lvl at death)", level)
+	}
+	if kills := death.Data["kills"]; kills != 1 {
+		t.Errorf("kills = %v, want 1 (the earlier goblin kill)", kills)
+	}
+}
+
 // A 0% threshold can never crit, even on a 0 roll.
 func TestCritNeverFiresWithZeroThreshold(t *testing.T) {
 	e := newTestEngine(1, 0)
