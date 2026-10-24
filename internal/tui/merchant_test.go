@@ -133,6 +133,10 @@ func TestBuyPurchasesTheSelectedOffer(t *testing.T) {
 	if m.bagCursor != 0 {
 		t.Errorf("row cursor after dispatch = %d, want back on the first row", m.bagCursor)
 	}
+	last := stripANSI(m.log[len(m.log)-1])
+	if last != "You buy the Offer A (+2 DEF) for 100 gold." {
+		t.Errorf("last log line = %q, want the purchase", last)
+	}
 }
 
 // Pressing v on a bag row sells that item: its SellValue moves to the
@@ -154,6 +158,23 @@ func TestSellSellsTheSelectedBagItem(t *testing.T) {
 	}
 	if bag := m.engine.Player.Bag(); len(bag) != 1 || bag[0] == second {
 		t.Error("the sold item must leave the bag")
+	}
+	last := stripANSI(m.log[len(m.log)-1])
+	if last != "The merchant pays 25 gold for the Spare Charm (+1 DEF)." {
+		t.Errorf("last log line = %q, want the sale", last)
+	}
+}
+
+// The merchant's entrance renders through the same log path the engine
+// events take (the byte-exact texts are locked in the event table).
+func TestMerchantFoundRendersInTheLog(t *testing.T) {
+	m := New(testEngine())
+
+	m.absorb(engine.NewMerchantFound(3))
+
+	last := stripANSI(m.log[len(m.log)-1])
+	if last != "A wandering merchant appears — 3 wares for sale." {
+		t.Errorf("last log line = %q, want the merchant's entrance", last)
 	}
 }
 

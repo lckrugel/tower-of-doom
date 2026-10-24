@@ -342,6 +342,36 @@ func TestEventText(t *testing.T) {
 			nil,
 		},
 		{
+			"merchant found",
+			engine.NewMerchantFound(3),
+			"A wandering merchant appears — 3 wares for sale.",
+			nil,
+		},
+		{
+			"item bought",
+			engine.NewItemBought(testItem(), 250),
+			"You buy the Espada de Madeira (+5 DMG) for 250 gold.",
+			nil,
+		},
+		{
+			"item bought without an item payload",
+			engine.Event{Type: engine.EventItemBought, Data: map[string]any{"price": 50}},
+			"You buy the wares for 50 gold.",
+			nil,
+		},
+		{
+			"item sold",
+			engine.NewItemSold(testItem(), 125),
+			"The merchant pays 125 gold for the Espada de Madeira (+5 DMG).",
+			nil,
+		},
+		{
+			"item sold without an item payload",
+			engine.Event{Type: engine.EventItemSold, Data: map[string]any{"price": 50}},
+			"The merchant pays 50 gold for the wares.",
+			nil,
+		},
+		{
 			"message",
 			engine.NewMessage("Cannot ascend yet"),
 			"Cannot ascend yet",

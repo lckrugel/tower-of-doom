@@ -59,6 +59,12 @@ func eventText(ev engine.Event) string {
 		return "Your bag is full."
 	case engine.EventGoldGained:
 		return goldGainedText(ev.Data)
+	case engine.EventMerchantFound:
+		return fmt.Sprintf("A wandering merchant appears — %v wares for sale.", ev.Data["count"])
+	case engine.EventItemBought:
+		return boughtText(ev.Data)
+	case engine.EventItemSold:
+		return soldText(ev.Data)
 	case engine.EventQuit:
 		return "You persistently close your eyes. Goodbye."
 	case engine.EventMessage:
@@ -212,6 +218,29 @@ func goldGainedText(data map[string]any) string {
 	default:
 		return fmt.Sprintf("You gain %v gold.", data["amount"])
 	}
+}
+
+// boughtText renders a merchant purchase (the item lands in the hero
+// bag). A malformed payload (no item) still owns up to the gold leaving
+// the purse.
+func boughtText(data map[string]any) string {
+	price, _ := data["price"].(int)
+	item, ok := itemOf(data)
+	if !ok {
+		return fmt.Sprintf("You buy the wares for %d gold.", price)
+	}
+	return fmt.Sprintf("You buy the %v%v for %d gold.", item.Name, itemBonusList(item), price)
+}
+
+// soldText renders selling a bag item to the merchant — the item is
+// destroyed, so the price is all that comes back.
+func soldText(data map[string]any) string {
+	price, _ := data["price"].(int)
+	item, ok := itemOf(data)
+	if !ok {
+		return fmt.Sprintf("The merchant pays %d gold for the wares.", price)
+	}
+	return fmt.Sprintf("The merchant pays %d gold for the %v%v.", price, item.Name, itemBonusList(item))
 }
 
 // itemBonusList renders an item's bonuses, e.g. " (+5 HP, +5 DEF)".
