@@ -8,6 +8,9 @@ import (
 type Combatant interface {
 	Name() string
 	CurrentHPPercent() int
+	// HP is the exact current HP value; CurrentHPPercent is its
+	// percentage view.
+	HP() int
 	MaxHP() int
 	Damage() int
 	Speed() int

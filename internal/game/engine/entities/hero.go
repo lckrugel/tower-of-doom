@@ -104,6 +104,10 @@ func (h *Hero) CurrentHPPercent() int {
 	return int(math.Floor(float64(h.CurrentHP) / float64(h.MaxHP()) * 100))
 }
 
+// HP reports the exact current HP value (Combatant interface;
+// CurrentHPPercent is its percentage view).
+func (h *Hero) HP() int { return h.CurrentHP }
+
 func (h *Hero) CritThreshold() int {
 	return 10
 }
