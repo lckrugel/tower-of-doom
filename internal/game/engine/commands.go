@@ -44,14 +44,26 @@ const (
 	CmdDrop
 	// Closes the bag, returning to exploring (StateInventory).
 	CmdClose
+	// Buys the merchant offer at `ItemIndex` into the hero bag
+	// (StateMerchant). Rejected with no state change when the hero
+	// cannot afford it or the bag is full.
+	CmdBuy
+	// Sells the bag item at `ItemIndex` to the merchant (StateMerchant):
+	// the item is destroyed and its SellValue added to the purse.
+	CmdSell
+	// Leaves the merchant, discarding the remaining stock
+	// (StateMerchant → StateExploring).
+	CmdLeave
 )
 
 // `Command` is an action taken.
 type Command struct {
 	Type CommandType
 	// ItemIndex points into the hero bag for the bag commands (CmdEquip
-	// and CmdDrop in StateInventory). Every other command ignores it. An
-	// out-of-range/negative index is rejected as a generic invalid
-	// command (EventMessage) with no state change — never a panic.
+	// and CmdDrop in StateInventory) and for selling (CmdSell in
+	// StateMerchant); it points into Engine.MerchantStock for CmdBuy.
+	// Every other command ignores it. An out-of-range/negative index is
+	// rejected as a generic invalid command (EventMessage) with no state
+	// change — never a panic.
 	ItemIndex int
 }

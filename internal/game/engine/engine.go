@@ -3,7 +3,6 @@ package engine
 import (
 	"fmt"
 	"log"
-	"maps"
 	"math/rand"
 	"slices"
 
@@ -36,7 +35,12 @@ type Engine struct {
 	// chest opens and cleared on every resolution path; it is meaningful
 	// only while State == StateLoot.
 	PendingLoot *entities.Item
-	reg         *game.Registry
+	// MerchantStock holds the merchant's offers while State ==
+	// StateMerchant (like PendingLoot for chests). Buying removes an
+	// offer; leaving discards them all; it is meaningful only while the
+	// shop is open.
+	MerchantStock []*entities.Item
+	reg           *game.Registry
 	// rng é a fonte de aleatoriedade para decisões do engine
 	// (geração de encontros hoje; combates no futuro).
 	// Testes injetam um rng determinístico.
@@ -89,6 +93,8 @@ func (e *Engine) Process(cmd Command) []Event {
 		return e.handleLoot(cmd)
 	case StateInventory:
 		return e.handleInventory(cmd)
+	case StateMerchant:
+		return e.handleMerchant(cmd)
 	case StateGameOver:
 		return e.handleGameOver(cmd)
 	default:
@@ -132,15 +138,9 @@ func (e *Engine) handleExploring(cmd Command) []Event {
 		}
 		e.CurrentFloor++
 		e.CanAscend = false
-		sectionDef, err := e.reg.SectionForFloor(e.CurrentFloor)
-		if err != nil {
-			// Must be unreachable while the tower is infinite:
-			// there is a section with max_floor == -1 covering all floors
-			// above the last finite one, and initialization validates that.
-			panic(fmt.Sprintf("unreachable: no section covers floor %d despite passing content validation: %v", e.CurrentFloor, err))
-		}
+		sectionDef := e.currentSection()
 		events := []Event{NewFloorEntered(e.CurrentFloor, sectionDef.Name)}
-		if item := e.rollArmorReward(); item != nil {
+		if item := e.rollArmorReward(sectionDef.ItemTiers); item != nil {
 			// Ascend keeps auto-equipping (fast pacing by design), but the
 			// displaced gear is not lost anymore: it goes to the bag when
 			// there is room, else it is destroyed.
@@ -342,13 +342,13 @@ func (e *Engine) generateEncounter(floor int) (Encounter, error) {
 }
 
 // pickItem rolls a random item from the registry whose slot passes the
-// `accept` filter. The candidate pool is built from sorted IDs, so the roll
+// `accept` filter and whose tier is one of `tiers` (empty/nil tiers =
+// unrestricted). The candidate pool is built from sorted ids, so the roll
 // is deterministic under a seeded rng. Returns nil when no registry entry
-// matches the filter.
-func (e *Engine) pickItem(accept func(entities.ItemSlot) bool) *entities.Item {
-	ids := slices.Sorted(maps.Keys(e.reg.Items))
-	pool := make([]string, 0, len(ids))
-	for _, id := range ids {
+// matches the filters (an empty pool consumes no rng).
+func (e *Engine) pickItem(accept func(entities.ItemSlot) bool, tiers []int) *entities.Item {
+	pool := make([]string, 0, len(e.reg.Items))
+	for _, id := range e.reg.ItemIDsForTiers(tiers) {
 		if accept(entities.ItemSlot(e.reg.Items[id].Slot)) {
 			pool = append(pool, id)
 		}
@@ -361,20 +361,20 @@ func (e *Engine) pickItem(accept func(entities.ItemSlot) bool) *entities.Item {
 }
 
 // rollArmorReward rolls a random armor piece (helmet, body or boots) from
-// the registry as the reward for ascending — a temporary stand-in for the
-// full gold/item drops. The Hero auto-equips it (fast pacing by design);
-// whatever it displaced flows to the hero bag when there is room, else it
-// is destroyed.
-func (e *Engine) rollArmorReward() *entities.Item {
-	return e.pickItem(entities.IsArmor)
+// the registry as the reward for ascending, restricted to the section's
+// allowed item tiers (empty = unrestricted). The Hero auto-equips it (fast
+// pacing by design); whatever it displaced flows to the hero bag when
+// there is room, else it is destroyed.
+func (e *Engine) rollArmorReward(tiers []int) *entities.Item {
+	return e.pickItem(entities.IsArmor, tiers)
 }
 
 // rollItemReward rolls a random item from the whole registry (any slot) as
-// the reward for a chest of riches. The roll is the same as it ever was —
-// the engine now holds the item as PendingLoot instead of auto-equipping
-// it, letting the player decide in StateLoot.
-func (e *Engine) rollItemReward() *entities.Item {
-	return e.pickItem(func(entities.ItemSlot) bool { return true })
+// the reward for a chest of riches, restricted to the section's allowed
+// item tiers (empty = unrestricted). The engine holds the item as
+// PendingLoot, letting the player decide in StateLoot.
+func (e *Engine) rollItemReward(tiers []int) *entities.Item {
+	return e.pickItem(func(entities.ItemSlot) bool { return true }, tiers)
 }
 
 // weightedPick escolhe um item aleatoriamente, proporcional ao seu peso.
@@ -411,16 +411,33 @@ func (e *Engine) SectionName(floor int) string {
 	return section.Name
 }
 
+// currentSection returns the section covering the current floor. The error
+// is unreachable: the floor was just resolved or validated at startup, and
+// Validate guarantees full coverage up to the infinite top floor.
+func (e *Engine) currentSection() game.SectionAsset {
+	section, err := e.reg.SectionForFloor(e.CurrentFloor)
+	if err != nil {
+		panic(fmt.Sprintf("unreachable: no section covers floor %d despite passing content validation: %v", e.CurrentFloor, err))
+	}
+	return section
+}
+
 func (e *Engine) isValidCommand(cmd Command) bool {
 	allowed := AllowedCommands(e.State)
 	if !slices.Contains(allowed, cmd.Type) {
 		return false
 	}
-	// Bag commands carry a bag index: it must point at a real bag slot,
-	// otherwise it is a generic invalid command with no state change
-	// (never a panic — the index is player-reachable).
-	if cmd.Type == CmdEquip || cmd.Type == CmdDrop {
+	// Index-carrying commands must point at a real slot, otherwise it is
+	// a generic invalid command with no state change (never a panic —
+	// the index is player-reachable): bag commands and selling at a bag
+	// item, buying at a stock offer.
+	if cmd.Type == CmdEquip || cmd.Type == CmdDrop || cmd.Type == CmdSell {
 		if cmd.ItemIndex < 0 || cmd.ItemIndex >= len(e.Player.Bag()) {
+			return false
+		}
+	}
+	if cmd.Type == CmdBuy {
+		if cmd.ItemIndex < 0 || cmd.ItemIndex >= len(e.MerchantStock) {
 			return false
 		}
 	}

@@ -16,6 +16,10 @@ const (
 	// Riches: opens the loot decision (StateLoot) on EXPLORE with a
 	// random item.
 	EncounterChest
+	// A wandering shop: opens StateMerchant with a stocked offer list.
+	// APPENDED LAST in the kind roll on purpose — a zero/absent merchant
+	// weight keeps every pre-merchant rng sequence identical.
+	EncounterMerchant
 )
 
 func (t EncounterType) String() string {
@@ -26,6 +30,8 @@ func (t EncounterType) String() string {
 		return "Sanctuary"
 	case EncounterChest:
 		return "Chest"
+	case EncounterMerchant:
+		return "Merchant"
 	default:
 		return "Unknown"
 	}
@@ -44,20 +50,31 @@ type Encounter struct {
 // restores, as a percentage.
 const sanctuaryHealPercent = 35
 
+// chestGoldChance is the chance (percentage) that a chest pays out gold
+// instead of holding an item.
+const chestGoldChance = 40
+
+// goldPerDifficulty is the economy's gold coefficient: kills pay it per
+// unit of enemy difficulty, gold chests per unit of floor difficulty.
+const goldPerDifficulty = 5
+
 // rollEncounterType sorteia o tipo do encontro a partir dos pesos da seção.
 //
-// A ordem dentro do sorteio é [combat, sanctuary, chest], o que torna a
-// sequência determinística sob um rng semeado. Toda a tabela zerada
-// (ou ausente no JSON) devolve combate sem consumir rng: assim as seções
-// de combate puro não deslocam a sequência usada pelos sorteios de monstros.
+// A ordem dentro do sorteio é [combat, sanctuary, chest, merchant], o que
+// torna a sequência determinística sob um rng semeado — e é um contrato
+// de determinismo: o merchant foi ANEXADO por último, então um peso
+// zerado/ausente mantém intactas todas as sequências de rng anteriores
+// (os buckets anteriores não se deslocam). Toda a tabela zerada (ou
+// ausente no JSON) devolve combate sem consumir rng: assim as seções de
+// combate puro não deslocam a sequência usada pelos sorteios de monstros.
 func (e *Engine) rollEncounterType(w game.EncounterTypeWeights) EncounterType {
-	if w.Combat <= 0 && w.Sanctuary <= 0 && w.Chest <= 0 {
+	if w.Combat <= 0 && w.Sanctuary <= 0 && w.Chest <= 0 && w.Merchant <= 0 {
 		return EncounterCombat
 	}
 	return weightedPick(
 		e.rng,
-		[]EncounterType{EncounterCombat, EncounterSanctuary, EncounterChest},
-		[]int{w.Combat, w.Sanctuary, w.Chest},
+		[]EncounterType{EncounterCombat, EncounterSanctuary, EncounterChest, EncounterMerchant},
+		[]int{w.Combat, w.Sanctuary, w.Chest, w.Merchant},
 	)
 }
 
@@ -75,9 +92,20 @@ func (e *Engine) resolveEncounter(encounter Encounter) []Event {
 		healed := e.restAtSanctuary()
 		return []Event{NewHeroHealedExact(e.Player, healed, e.Player.CurrentHPPercent())}
 	case EncounterChest:
-		// The rng roll stays exactly as before; only the disposition of
-		// the rolled item changed (no auto-equip anymore).
-		if item := e.rollItemReward(); item != nil {
+		section := e.currentSection()
+		// One extra roll right after the kind roll decides gold-vs-item: a
+		// gold chest pays out on the spot and skips the loot decision
+		// entirely — exploring continues directly.
+		if e.rng.Intn(100) < chestGoldChance {
+			amount := goldPerDifficulty * section.FloorDifficulty(e.CurrentFloor)
+			e.Player.Gold += amount
+			return []Event{NewGoldGained(amount, GoldSourceChest)}
+		}
+		// The rng roll for the item stays exactly as before; only the
+		// disposition of the rolled item changed (no auto-equip anymore).
+		// The pool is gated by the section's item_tiers (empty =
+		// unrestricted).
+		if item := e.rollItemReward(section.ItemTiers); item != nil {
 			e.PendingLoot = item
 			e.State = StateLoot
 			return []Event{NewLootFound(item)}
@@ -85,6 +113,19 @@ func (e *Engine) resolveEncounter(encounter Encounter) []Event {
 		// Registry defines no items at all — the chest is just empty,
 		// and exploring continues.
 		return []Event{NewMessage("The chest creaks open... but it is empty.")}
+	case EncounterMerchant:
+		// EXPLORE opens the shop: the stock is rolled from the section's
+		// allowed item tiers and held in MerchantStock until the player
+		// leaves (or quits). Merchants never unlock ASCEND.
+		stock := e.rollMerchantStock(e.currentSection())
+		if len(stock) == 0 {
+			// Validation keeps every merchant section stocked; this guard
+			// only exists for registries that skipped validation.
+			return []Event{NewMessage("The merchant spreads empty hands: nothing to sell today.")}
+		}
+		e.MerchantStock = stock
+		e.State = StateMerchant
+		return []Event{NewMerchantFound(len(stock))}
 	default:
 		// Combat encounters are never resolved instantly; the caller must
 		// only send sanctuary/chest encounters through this path.

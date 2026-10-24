@@ -17,6 +17,9 @@ const (
 	StateLoot
 	// The hero bag is open (only reachable from StateExploring).
 	StateInventory
+	// A merchant is shopped at: Engine.MerchantStock holds the offers;
+	// the player buys, sells or leaves.
+	StateMerchant
 )
 
 func (s GameState) String() string {
@@ -33,6 +36,8 @@ func (s GameState) String() string {
 		return "Loot"
 	case StateInventory:
 		return "Inventory"
+	case StateMerchant:
+		return "Merchant"
 	default:
 		return "Unknown"
 	}
@@ -51,6 +56,8 @@ func AllowedCommands(s GameState) []CommandType {
 		return []CommandType{CmdEquipLoot, CmdStashLoot, CmdDiscardLoot, CmdQuit}
 	case StateInventory:
 		return []CommandType{CmdEquip, CmdDrop, CmdClose, CmdQuit}
+	case StateMerchant:
+		return []CommandType{CmdBuy, CmdSell, CmdLeave, CmdQuit}
 	case StateGameOver:
 		return []CommandType{CmdQuit}
 	default:

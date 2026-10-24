@@ -8,12 +8,16 @@
     - ASCEND starts blocked
 - EXPLORE generates an encounter
     - The encounter TYPE is rolled from the section's `encounter_types`
-      weights (combat/sanctuary/chest; a section without the table is
-      combat-only) — see "Types of encounters"
+      weights (combat/sanctuary/chest/merchant; a section without the
+      table is combat-only) — see "Types of encounters"
     - COMBAT encounters keep the two-step flow (StateEncounter)
     - SANCTUARY encounters resolve instantly, on the spot (heal)
-    - CHEST encounters roll an item and open StateLoot: decide
+    - CHEST encounters roll gold-vs-item first (one extra rng roll):
+      a GOLD chest pays out and exploring continues directly, an ITEM
+      chest rolls an item and opens StateLoot: decide
       EQUIP LOOT / STASH / DISCARD — see "Items"
+    - MERCHANT encounters open StateMerchant: BUY / SELL / LEAVE —
+      see "Gold & prices" and "Types of encounters"
 - PLayer can FIGHT or SNEAK
 - FIGHT leads to combat (StateCombat)
 - SKEAK leads to a roll to determined success
@@ -32,12 +36,14 @@
 - ATTACK trigger a normal attack
 - When an enemy die mid combat the player gets the XP reward instantly
     - mid combat level ups are possible
+    - every defeat also pays `5 × enemy difficulty` gold (no rng)
 - When all enemies die, the encounter ends with a victory for the player
     - Unlocks climbing: ASCEND to the next floor
     - Ascending also grants a random armor piece (helmet/body/boots) from
-      the registry, auto-equipped on the spot; whatever it displaced goes
-      to the hero bag when there is room, else it is destroyed
-      (temporary reward; gold and proper item drops TODO)
+      the registry, restricted to the section's `item_tiers`, auto-equipped
+      on the spot; whatever it displaced goes to the hero bag when there
+      is room, else it is destroyed (gold and item tiers: see "Gold &
+      prices" / "Item tiers")
 - After combat games goes to StateExploring again
     - If combat was won, ASCEND is now permitted
 - From StateExploring the bag can be opened (StateInventory): EQUIP /
@@ -95,9 +101,15 @@ current HP as a fraction of the previous max (`rescaleHP`).
 - **Hero bag** — bounded by `InventoryCapacity` = 10. `Hero.StashItem`
   appends at the end (insertion order preserved) and refuses when the bag
   is full: "bag full" is a player-facing condition, never an overflow.
-- **Chest flow** — a chest keeps its rng roll unchanged, but no longer
-  auto-equips: the rolled item is held as `Engine.PendingLoot` and the
-  game enters StateLoot. The player decides:
+- **Chest flow** — after the encounter-kind roll, ONE extra rng roll
+  (`Intn(100) < 40`) decides gold-vs-item:
+    - GOLD chest — pays `5 × floor difficulty` on the spot
+      (`event-gold-gained`, source "chest") and returns to exploring
+      directly: NO StateLoot decision for gold.
+    - ITEM chest — rolls an item from the section's allowed tiers (sorted
+      pool; rng roll unchanged apart from the gold check ahead of it) and
+      holds it as `Engine.PendingLoot`, entering StateLoot. The player
+      decides:
     - `EQUIP LOOT` — equips it; the displaced item goes to the bag when
       there is room, else it is destroyed (`event-item-lost`). Either
       way back to StateExploring with nothing pending. Chests still never
@@ -128,15 +140,76 @@ New events (additive; no existing key changed meaning):
 blocked command is the stash, and the pending item is visible as
 `Engine.PendingLoot`).
 
+## Item tiers
+
+Every item sits on a progression ladder: `Item.Tier`, taken from the
+asset's `"tier"` field. An absent field means tier 1 (JSON cannot tell
+`"tier": 0` from an absent field), so the tier-less embedded assets and
+older mods keep working.
+
+- **Section gating** — a section may list `"item_tiers": [..]`; every
+  item roll it makes (chest loot, ascend armor reward, merchant stock)
+  draws from a pool restricted to those tiers. Absent/empty = NO
+  restriction (mods keep rolling the whole registry). The pool is the
+  registry's `ItemIDsForTiers` lookup: sorted ids, unrestricted when no
+  tiers are listed, and an error-free empty result when nothing matches
+  (an item chest then degrades to the "empty chest" message).
+- **Merchant reach** — the merchant's tier+1 upgrade (below) is the one
+  mechanism that deliberately EXCEEDS the section's tiers: the upgraded
+  offer rolls registry-wide at the target tier.
+- **Validation** (content bugs fail at startup): item tier < 1 is an
+  error (absent/0 defaults to 1 at Load); `item_tiers` values < 1 are an
+  error; an `item_tiers` entry with zero registry items of that tier is
+  an error (typo protection); a section with a merchant weight but no
+  stockable item in its allowed tiers is an error (tier+1 upgrades only
+  REPLACE offers, so they cannot stock an empty shop).
+
+## Gold & prices
+
+- **Kill gold** — every defeat (mid-combat kills included) pays
+  `5 × enemy difficulty` gold alongside the instant XP. The grant
+  consumes no rng; reported as `event-gold-gained{amount, source:
+  "kill"}`.
+- **Chest gold** — a gold chest pays `5 × floor difficulty` (floor
+  difficulty = `base_difficulty + difficulty_per_floor × floors into the
+  section`); reported as `event-gold-gained{amount, source: "chest"}`.
+- **Prices** — both derive from the item's `Value()` (bonuses ×50,
+  durability-scaled; indestructible items are always at full value):
+    - `BuyPrice` = full value — what a merchant charges.
+    - `SellValue` = half the value, floored at 1 — what a merchant pays
+      (even junk sells for something).
+- **Merchant flow** — EXPLORE opens the shop (StateMerchant) with the
+  offers held in `Engine.MerchantStock`:
+    - `BUY <stock index>` — not enough gold: `event-message`, no change;
+      full bag: `event-bag-full`, no change; success: the item goes to
+      the bag at its `BuyPrice` and the offer leaves the stock
+      (`event-item-bought{item, price}`). Shopping continues.
+    - `SELL <bag index>` — the item is destroyed (the hero's existing
+      bag drop) and its `SellValue` added to the purse
+      (`event-item-sold{item, price}`). Shopping continues.
+    - `LEAVE` — the remaining stock is discarded, back to exploring.
+    - `QUIT` works as everywhere else. Merchants do NOT unlock ASCEND —
+      only combat victories do.
+- **Stock generation** — 3 offers rolled from the section's allowed item
+  tiers (sorted pool; duplicates possible when the pool is smaller),
+  then ONE `Intn(100) < 20` check: on fire, ONE `Intn(3)` picks which
+  offer is replaced by a tier+1 item, capped at the registry's max tier
+  (an empty replacement pool keeps the original offer). The exact rng
+  order is a determinism contract, documented in `merchant.go`:
+  3 offer rolls → `Intn(100)` → on upgrade `Intn(3)` → replacement-pool
+  roll.
+
 ## Types of encounters
 
 Each section defines weights per encounter kind in its `encounter_types`
-table (`combat` / `sanctuary` / `chest`). The engine rolls the KIND first
-(one `Intn` over the total weight; the roll order is combat, sanctuary,
-chest), then fills the section difficulty budget with monsters only when the
-kind is combat. A section without the table (or with every weight at 0) is
-combat-only and consumes no rng for the kind roll, so old sections/mods keep
-their exact spawn behavior.
+table (`combat` / `sanctuary` / `chest` / `merchant`). The engine rolls
+the KIND first (one `Intn` over the total weight; the roll order is
+combat, sanctuary, chest, merchant — the merchant bucket was APPENDED
+last, so a zero/absent merchant weight keeps every pre-merchant rng
+sequence identical), then fills the section difficulty budget with
+monsters only when the kind is combat. A section without the table (or
+with every weight at 0) is combat-only and consumes no rng for the kind
+roll, so old sections/mods keep their exact spawn behavior.
 
 - **COMBAT** — enemies spawn per the section spawn table:
     - The Hero can FIGHT (StateCombat) or SNEAK past it (50/50)
@@ -146,9 +219,19 @@ their exact spawn behavior.
     - Clamped by `Hero.Heal`: a Hero at full health gains nothing
     - Does NOT unlock ASCEND
 - **CHEST OF RICHES** — resolves on EXPLORE:
-    - Rolls a random item from the registry (any slot, sorted-ID roll; the
-      rng roll is unchanged from the old auto-equip behavior) and holds it
-      as `Engine.PendingLoot`, entering StateLoot — see "Items"
+    - ONE extra rng roll (`Intn(100) < 40`) decides gold-vs-item
+    - GOLD — pays `5 × floor difficulty` (`event-gold-gained`, source
+      "chest") and exploring continues directly: no StateLoot decision
+    - ITEM — rolls a random item from the section's allowed tiers (any
+      slot, sorted-ID pool; the same roll as before, now tier-gated) and
+      holds it as `Engine.PendingLoot`, entering StateLoot — see "Items"
+    - Does NOT unlock ASCEND
+- **MERCHANT** — a wandering shop; opens StateMerchant on EXPLORE:
+    - Stocks 3 offers from the section's allowed item tiers; one offer
+      may be upgraded to a tier+1 item (20%, capped at the registry's
+      max tier) — see "Gold & prices"
+    - BUY / SELL / LEAVE (and QUIT); buying and selling never unlock
+      ASCEND
     - Does NOT unlock ASCEND
 
 Only a combat victory clears the floor path and unlocks ASCEND.

@@ -135,9 +135,10 @@ func TestExploreSanctuaryAtFullHealth(t *testing.T) {
 // (Moved to loot_test.go: chests no longer auto-equip — they hold the item
 // as PendingLoot and open the StateLoot decision.)
 
-// A registry without any items makes the chest resolve as empty.
+// A registry without any items makes an ITEM chest resolve as empty (a
+// gold chest would still pay out — it needs no item registry).
 func TestExploreChestWithoutItemRegistryGrantsNothing(t *testing.T) {
-	e := newKindEngine(20) // chest
+	e := newKindEngine(20, 50) // chest, then rng 50 ≥ 40 → item chest
 
 	events := e.Process(Command{Type: CmdExplore})
 

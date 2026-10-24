@@ -103,17 +103,21 @@ func (e *Engine) enemyFreeTurn() []Event {
 	return events
 }
 
-// appendEnemyDefeat grants the kill XP instantly (mid-combat level ups are
-// possible), advances the encounter queue and transitions back to exploring
-// when the last enemy of the encounter falls.
+// appendEnemyDefeat grants the kill XP and the kill gold instantly
+// (mid-combat level ups are possible), advances the encounter queue and
+// transitions back to exploring when the last enemy of the encounter
+// falls. The gold grant consumes no rng.
 func (e *Engine) appendEnemyDefeat(events []Event) []Event {
 	enemy := e.currentEnemy()
 	xp := enemy.GetKillXp()
+	gold := goldPerDifficulty * enemy.Difficulty
 	oldLvl := e.Player.Lvl
 
 	e.Player.GiveXP(xp)
+	e.Player.Gold += gold
 	e.kills++
 	events = append(events, NewEnemyDefeated(enemy.Name(), xp))
+	events = append(events, NewGoldGained(gold, GoldSourceKill))
 	if e.Player.Lvl > oldLvl {
 		events = append(events, NewLevelUp(e.Player.Lvl))
 	}

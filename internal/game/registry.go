@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 )
 
 // Arquivos .json na pasta `assets/` serão compilados juntamente do executável da aplicação.
@@ -18,14 +19,18 @@ var embeddedAssets embed.FS
 //
 // Usado para spawnar uma instância de `Item` no jogo.
 type ItemAsset struct {
-	ID         string `json:"id"`
-	Name       string `json:"name"`
-	Slot       string `json:"slot"`
-	BonusHP    int    `json:"bonus_hp"`
-	BonusDMG   int    `json:"bonus_dmg"`
-	BonusDEF   int    `json:"bonus_def"`
-	BonusSPD   int    `json:"bonus_spd"`
-	Durability int    `json:"durability"`
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	Slot string `json:"slot"`
+	// Tier places the item on the progression ladder (1 = earliest gear).
+	// An absent field means tier 1, so older assets/mods keep working.
+	Tier int `json:"tier"`
+
+	BonusHP    int `json:"bonus_hp"`
+	BonusDMG   int `json:"bonus_dmg"`
+	BonusDEF   int `json:"bonus_def"`
+	BonusSPD   int `json:"bonus_spd"`
+	Durability int `json:"durability"`
 }
 
 // Definição de um asset para monstro.
@@ -58,6 +63,10 @@ type EncounterTypeWeights struct {
 	Combat    int `json:"combat"`
 	Sanctuary int `json:"sanctuary"`
 	Chest     int `json:"chest"`
+	// Merchant weights the wandering-shop encounter (StateMerchant).
+	// Absent/zero keeps every existing rng sequence identical: the
+	// merchant bucket only exists when the weight is positive.
+	Merchant int `json:"merchant"`
 }
 
 // Define um asset para uma seção da torre.
@@ -73,6 +82,10 @@ type SectionAsset struct {
 	MaxFloor           int                  `json:"max_floor"`
 	Spawns             []SpawnEntry         `json:"spawns"`
 	EncounterTypes     EncounterTypeWeights `json:"encounter_types"`
+	// ItemTiers restricts which item tiers this section can roll as
+	// rewards or merchant stock. Absent/empty means NO restriction, so
+	// older sections/mods keep rolling the whole registry.
+	ItemTiers []int `json:"item_tiers"`
 }
 
 // Registro de todos os assets carregados em memória.
@@ -92,6 +105,37 @@ func (r *Registry) SectionForFloor(floor int) (SectionAsset, error) {
 		}
 	}
 	return SectionAsset{}, fmt.Errorf("no section found for floor %d", floor)
+}
+
+// ItemIDsForTiers returns the sorted ids of every registry item whose tier
+// is one of `tiers`. Empty/nil `tiers` lifts the restriction: every item
+// id is returned. A pool with no matches comes back empty — never an
+// error; the caller decides what an empty pool means (empty chest,
+// unstockable shop, ...).
+func (r *Registry) ItemIDsForTiers(tiers []int) []string {
+	restricted := len(tiers) > 0
+	allowed := make(map[int]bool, len(tiers))
+	for _, tier := range tiers {
+		allowed[tier] = true
+	}
+	ids := make([]string, 0, len(r.Items))
+	for id, asset := range r.Items {
+		if !restricted || allowed[asset.Tier] {
+			ids = append(ids, id)
+		}
+	}
+	slices.Sort(ids)
+	return ids
+}
+
+// MaxItemTier reports the highest item tier in the registry (0 when the
+// registry holds no items). The merchant's tier+1 upgrade caps at it.
+func (r *Registry) MaxItemTier() int {
+	maxTier := 0
+	for _, asset := range r.Items {
+		maxTier = max(maxTier, asset.Tier)
+	}
+	return maxTier
 }
 
 // Calcula a dificuldade para o andar com base na seção atual.
@@ -127,6 +171,7 @@ func Load(externalDir string) (*Registry, error) {
 	if err != nil {
 		return nil, fmt.Errorf("loading items: %w", err)
 	}
+	defaultAbsentItemTiers(itemsMap)
 
 	r := &Registry{
 		Monsters: monstersMap,
@@ -144,16 +189,59 @@ func Load(externalDir string) (*Registry, error) {
 // content bug (bad JSON), not something a player can hit by playing —
 // so the caller should treat it as fatal and refuse to start.
 func (r *Registry) Validate(topFloor int) error {
+	// Item tiers must be real. Load defaults the absent field to 1, so a
+	// non-positive tier here is a content bug, not a missing field.
+	for _, item := range r.Items {
+		if item.Tier < 1 {
+			return fmt.Errorf(
+				"content validation: item %q has tier %d, want >= 1 (absent/0 defaults to tier 1)",
+				item.ID, item.Tier,
+			)
+		}
+	}
+
 	for _, s := range r.Sections {
 		if len(s.Spawns) == 0 {
 			return fmt.Errorf("content validation: section %q has no spawn table", s.ID)
 		}
 		// Negativos distorceriam o sorteio do tipo de encontro. Pesos zerados
 		// (ou o campo ausente) são válidos: significam "apenas combate".
-		if s.EncounterTypes.Combat < 0 || s.EncounterTypes.Sanctuary < 0 || s.EncounterTypes.Chest < 0 {
+		if s.EncounterTypes.Combat < 0 || s.EncounterTypes.Sanctuary < 0 ||
+			s.EncounterTypes.Chest < 0 || s.EncounterTypes.Merchant < 0 {
 			return fmt.Errorf(
 				"content validation: section %q has a negative encounter type weight, want >= 0",
 				s.ID,
+			)
+		}
+		// item_tiers: every listed value must be a real tier, and each
+		// listed tier must have at least one item in the registry — a
+		// listed tier with no items is a typo.
+		listed := make(map[int]bool, len(s.ItemTiers))
+		for _, tier := range s.ItemTiers {
+			if tier < 1 {
+				return fmt.Errorf(
+					"content validation: section %q has item_tiers value %d, want >= 1",
+					s.ID, tier,
+				)
+			}
+			listed[tier] = true
+		}
+		for tier := range listed {
+			if len(r.ItemIDsForTiers([]int{tier})) == 0 {
+				return fmt.Errorf(
+					"content validation: section %q allows item tier %d, but the registry has no items of that tier",
+					s.ID, tier,
+				)
+			}
+		}
+		// A merchant section must be able to stock its shop: at least one
+		// registry item in the allowed tiers (unrestricted when no
+		// item_tiers). Tier+1 upgrades only REPLACE offers, so they can
+		// never stock an otherwise-empty shop.
+		if s.EncounterTypes.Merchant > 0 && len(r.ItemIDsForTiers(s.ItemTiers)) == 0 {
+			return fmt.Errorf(
+				"content validation: section %q has a merchant weight but no items to stock it (allowed tiers: %v)",
+				s.ID, s.ItemTiers,
 			)
 		}
 		for _, spawn := range s.Spawns {
@@ -288,4 +376,17 @@ func indexBy[T any](items []T, keyFn func(T) string) (map[string]T, error) {
 		out[key] = item
 	}
 	return out, nil
+}
+
+// defaultAbsentItemTiers applies the item tier default in place: JSON
+// cannot tell an explicit "tier": 0 from an absent field, and both mean
+// tier 1. After this, every registry item carries a real tier and
+// Validate's "tier >= 1" rule only rejects genuine content bugs.
+func defaultAbsentItemTiers(items map[string]ItemAsset) {
+	for id, asset := range items {
+		if asset.Tier == 0 {
+			asset.Tier = 1
+			items[id] = asset
+		}
+	}
 }
