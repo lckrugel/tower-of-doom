@@ -45,6 +45,12 @@ type Engine struct {
 	// (geração de encontros hoje; combates no futuro).
 	// Testes injetam um rng determinístico.
 	rng rng
+	// firstExploreDone tracks whether the run's first EXPLORE already
+	// happened. The first encounter-kind decision of a run is forced
+	// combat without consuming rng (pacing rule — see
+	// decideEncounterKind), so a sanctuary/chest/merchant can never open
+	// a run. Per run: ascension does not reset it.
+	firstExploreDone bool
 }
 
 // `rng` é a fonte de aleatoriedade usada pelo engine.
@@ -291,7 +297,7 @@ func (e *Engine) generateEncounter(floor int) (Encounter, error) {
 		return Encounter{}, err
 	}
 
-	kind := e.rollEncounterType(section.EncounterTypes)
+	kind := e.decideEncounterKind(section.EncounterTypes)
 	if kind != EncounterCombat {
 		return Encounter{Type: kind}, nil
 	}

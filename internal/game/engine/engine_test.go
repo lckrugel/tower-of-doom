@@ -50,6 +50,17 @@ func newTestEngine(rngValues ...int) *Engine {
 	return e
 }
 
+// pastFirstExplore marks the run's forced first combat (the pacing rule —
+// see encounter_test.go) as already spent, so the next EXPLORE rolls the
+// encounter-kind table exactly as before the rule existed. Tests of the
+// kind roll, chests, merchants and tiers use it to keep their scripted
+// rng sequences untouched; the rule itself is covered by the fresh-engine
+// pacing tests in encounter_test.go.
+func pastFirstExplore(e *Engine) *Engine {
+	e.firstExploreDone = true
+	return e
+}
+
 func monsterIDs(monsters []entities.Monster) []string {
 	ids := make([]string, len(monsters))
 	for i, m := range monsters {

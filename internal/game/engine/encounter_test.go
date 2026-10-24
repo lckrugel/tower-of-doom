@@ -70,7 +70,7 @@ func TestRollEncounterTypeWithoutTableConsumesNoRng(t *testing.T) {
 // Exploring into a sanctuary heals 35% of the hero's BASE max HP
 // (equipment excluded), instantly and without unlocking ascending.
 func TestExploreSanctuary(t *testing.T) {
-	e := newKindEngine(10) // Intn(30) = 10 → sanctuary
+	e := pastFirstExplore(newKindEngine(10)) // Intn(30) = 10 → sanctuary
 	// A cheap item to show the % is taken over the base max HP, not MaxHP().
 	helm := entities.NewItemFromAsset(game.ItemAsset{
 		ID: "helm", Name: "Helm", Slot: "helmet", BonusHP: 50,
@@ -115,7 +115,7 @@ func TestExploreSanctuary(t *testing.T) {
 
 // At full health a sanctuary heals nothing.
 func TestExploreSanctuaryAtFullHealth(t *testing.T) {
-	e := newKindEngine(10)
+	e := pastFirstExplore(newKindEngine(10))
 	e.Player.CurrentHP = e.Player.MaxHP()
 
 	events := e.Process(Command{Type: CmdExplore})
@@ -138,7 +138,7 @@ func TestExploreSanctuaryAtFullHealth(t *testing.T) {
 // A registry without any items makes an ITEM chest resolve as empty (a
 // gold chest would still pay out — it needs no item registry).
 func TestExploreChestWithoutItemRegistryGrantsNothing(t *testing.T) {
-	e := newKindEngine(20, 50) // chest, then rng 50 ≥ 40 → item chest
+	e := pastFirstExplore(newKindEngine(20, 50)) // chest, then rng 50 ≥ 40 → item chest
 
 	events := e.Process(Command{Type: CmdExplore})
 
@@ -154,7 +154,7 @@ func TestExploreChestWithoutItemRegistryGrantsNothing(t *testing.T) {
 // consuming one rng value for the kind and then the monster rolls.
 func TestExploreCombatInMixedSection(t *testing.T) {
 	// rng 5 → combat; then Intn(105)=104 → orc (5), resta 4 → 0 → goblin.
-	e := newKindEngine(5, 104, 0)
+	e := pastFirstExplore(newKindEngine(5, 104, 0))
 
 	events := e.Process(Command{Type: CmdExplore})
 
@@ -166,5 +166,88 @@ func TestExploreCombatInMixedSection(t *testing.T) {
 	}
 	if !idsEqual(monsterIDs(e.CurrentEncounter.Monsters), "orc", "goblin") {
 		t.Errorf("encounter = %v, want [orc goblin]", monsterIDs(e.CurrentEncounter.Monsters))
+	}
+}
+
+// ——— Encounter pacing rules ———
+
+// The FIRST explore of a run is forced combat: the kind roll is skipped
+// entirely — zero rng consumed for the kind decision — even where the
+// section's table could roll sanctuaries. A sanctuary, chest or merchant
+// can never open a run.
+func TestFirstExploreIsForcedCombat(t *testing.T) {
+	// All-zero stub: every monster pick takes the cheapest goblin; a kind
+	// roll would consume a leading Intn(30) and show up in the call count.
+	e := newKindEngine()
+	stub := &stubRng{values: []int{0}}
+	e.rng = stub
+
+	events := e.Process(Command{Type: CmdExplore})
+
+	if got := eventTypes(events); !typesEqual(got, EventEncounterFound) {
+		t.Fatalf("events = %v, want [encounter-found] (forced combat)", got)
+	}
+	if e.State != StateEncounter {
+		t.Errorf("state after first explore = %v, want StateEncounter", e.State)
+	}
+	if !idsEqual(monsterIDs(e.CurrentEncounter.Monsters), "goblin", "goblin", "goblin") {
+		t.Errorf("encounter = %v, want [goblin goblin goblin]", monsterIDs(e.CurrentEncounter.Monsters))
+	}
+	// Exactly the three monster picks: the kind roll never touched the rng
+	// (a rolled kind would add an Intn(30) ahead of the picks).
+	if stub.calls != 3 {
+		t.Errorf("rng calls after first explore = %d, want 3 (monster picks only)", stub.calls)
+	}
+}
+
+// After the forced first combat, exploring rolls the kind table normally
+// again: stub values are consumed and non-combat kinds become possible.
+func TestSecondExploreResumesKindRolls(t *testing.T) {
+	// Forced combat: 3 picks (0,0,0); sneak away (0); kind Intn(30) = 10
+	// → sanctuary.
+	e := newKindEngine()
+	stub := &stubRng{values: []int{0, 0, 0, 0, 10}}
+	e.rng = stub
+
+	e.Process(Command{Type: CmdExplore}) // forced combat
+	if e.State != StateEncounter {
+		t.Fatalf("state after first explore = %v, want StateEncounter", e.State)
+	}
+	e.Process(Command{Type: CmdSneak}) // 0 → slips past
+
+	events := e.Process(Command{Type: CmdExplore})
+
+	if got := eventTypes(events); !typesEqual(got, EventHeroHealed) {
+		t.Fatalf("events = %v, want [hero-healed] (kind roll resumed)", got)
+	}
+	if stub.calls != 5 {
+		t.Errorf("rng calls = %d, want 5 (3 picks + sneak + kind roll)", stub.calls)
+	}
+}
+
+// The first-explore flag is per RUN: ascension does not reset it, so the
+// first explore after ASCEND rolls the kind table instead of repeating
+// the forced combat.
+func TestAscendDoesNotResetFirstExploreFlag(t *testing.T) {
+	// Forced combat: 3 picks (0,0,0); sneak away (0); ASCEND (empty armor
+	// pool → no rng); kind Intn(30) = 10 → sanctuary.
+	e := newKindEngine()
+	stub := &stubRng{values: []int{0, 0, 0, 0, 10}}
+	e.rng = stub
+	e.CanAscend = true
+
+	e.Process(Command{Type: CmdExplore}) // forced combat
+	e.Process(Command{Type: CmdSneak})   // away
+	if got := eventTypes(e.Process(Command{Type: CmdAscend})); !typesEqual(got, EventFloorEntered) {
+		t.Fatalf("ascend events = %v, want [floor-entered]", got)
+	}
+
+	events := e.Process(Command{Type: CmdExplore})
+
+	if got := eventTypes(events); !typesEqual(got, EventHeroHealed) {
+		t.Fatalf("events = %v, want [hero-healed] (flag survived ascension)", got)
+	}
+	if stub.calls != 5 {
+		t.Errorf("rng calls = %d, want 5 (3 picks + sneak + kind roll)", stub.calls)
 	}
 }

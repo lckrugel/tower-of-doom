@@ -78,6 +78,20 @@ func (e *Engine) rollEncounterType(w game.EncounterTypeWeights) EncounterType {
 	)
 }
 
+// decideEncounterKind resolves one encounter-kind decision (the EXPLORE
+// path) on top of the raw weighted roll (rollEncounterType): the FIRST
+// explore of a run is forced combat, skipping the kind roll entirely —
+// zero rng consumed, so a sanctuary, chest or merchant can never open a
+// run. The flag is per run: ascension does not reset it. Every later
+// explore rolls the kind table exactly as before the rule existed.
+func (e *Engine) decideEncounterKind(w game.EncounterTypeWeights) EncounterType {
+	if !e.firstExploreDone {
+		e.firstExploreDone = true
+		return EncounterCombat
+	}
+	return e.rollEncounterType(w)
+}
+
 // resolveEncounter handles the EncounterTypes that resolve on the spot:
 // a sanctuary (heal) resolves instantly, while a chest rolls its item and
 // holds it as PendingLoot for the StateLoot decision (equip/stash/discard).
