@@ -25,13 +25,15 @@ var (
 			Foreground(lipgloss.Color("241"))
 
 	// Log tones, resolved per event by toneOf.
-	styleDamage  = lipgloss.NewStyle().Foreground(lipgloss.Color("215")) // dealt hits: warm amber
-	styleHurt    = lipgloss.NewStyle().Foreground(lipgloss.Color("174")) // damage taken: soft red
-	styleKill    = lipgloss.NewStyle().Foreground(lipgloss.Color("213")) // kills: bright violet
-	styleHeal    = lipgloss.NewStyle().Foreground(lipgloss.Color("114")) // heals: green
-	styleLoot    = lipgloss.NewStyle().Foreground(lipgloss.Color("75"))  // items: cyan
-	styleXP      = lipgloss.NewStyle().Foreground(lipgloss.Color("179")) // XP & levels: gold
-	styleVictory = lipgloss.NewStyle().
+	styleDamage   = lipgloss.NewStyle().Foreground(lipgloss.Color("215")) // dealt hits: warm amber
+	styleMerchant = lipgloss.NewStyle().Foreground(lipgloss.Color("215")) // merchant found: warm amber welcome
+	styleHurt     = lipgloss.NewStyle().Foreground(lipgloss.Color("174")) // damage taken: soft red
+	styleKill     = lipgloss.NewStyle().Foreground(lipgloss.Color("213")) // kills: bright violet
+	styleHeal     = lipgloss.NewStyle().Foreground(lipgloss.Color("114")) // heals: green
+	styleLoot     = lipgloss.NewStyle().Foreground(lipgloss.Color("75"))  // items: cyan
+	styleXP       = lipgloss.NewStyle().Foreground(lipgloss.Color("179")) // XP & levels: gold
+	styleGold     = lipgloss.NewStyle().Foreground(lipgloss.Color("179")) // gold gains: the XP gold
+	styleVictory  = lipgloss.NewStyle().
 			Bold(true).
 			Foreground(lipgloss.Color("228"))
 
@@ -102,6 +104,12 @@ func toneOf(ev engine.Event) lipgloss.Style {
 		return styleKill
 	case engine.EventLevelUp:
 		return styleXP
+	case engine.EventGoldGained:
+		return styleGold
+	case engine.EventMerchantFound:
+		return styleMerchant
+	case engine.EventItemBought, engine.EventItemSold:
+		return styleLoot
 	case engine.EventItemFound:
 		return styleLoot
 	case engine.EventLootFound, engine.EventItemEquipped, engine.EventItemStashed:

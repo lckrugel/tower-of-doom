@@ -18,8 +18,8 @@ type action struct {
 	// (e.g. a locked ASCEND). Dispatching a disabled action still reaches
 	// the engine, which explains the block as a log message.
 	enabled bool
-	// usesIndex marks the bag commands (WEAR/DROP): dispatch must carry
-	// the bag cursor as the command's ItemIndex.
+	// usesIndex marks the row-indexed commands (WEAR/DROP/BUY/SELL):
+	// dispatch must carry the selected row as the command's ItemIndex.
 	usesIndex bool
 }
 
@@ -48,6 +48,9 @@ var orderedOptions = []struct {
 	{"w", "Wear", engine.CmdEquip}, // wear the selected bag item
 	{"x", "Drop", engine.CmdDrop},  // destroy the selected bag item
 	{"c", "Close", engine.CmdClose},
+	{"p", "Buy", engine.CmdBuy},   // buy the offer under the shop cursor
+	{"v", "Sell", engine.CmdSell}, // sell the selected bag item
+	{"l", "Leave", engine.CmdLeave},
 	{"q", "Quit", engine.CmdQuit},
 }
 
@@ -67,11 +70,42 @@ func actionsFor(e *engine.Engine) []action {
 			// An empty bag has nothing to wear or drop; dispatching
 			// anyway still reaches the engine, which rejects it in the log.
 			enabled = len(e.Player.Bag()) > 0
+		case engine.CmdBuy:
+			// Static floor (the shop cursor refines these in barActions):
+			// a bought-out merchant has nothing to sell.
+			enabled = len(e.MerchantStock) > 0
+		case engine.CmdSell:
+			enabled = len(e.Player.Bag()) > 0
 		}
 		actions = append(actions, action{
 			key: opt.key, label: opt.label, cmd: opt.cmd, enabled: enabled,
-			usesIndex: opt.cmd == engine.CmdEquip || opt.cmd == engine.CmdDrop,
+			usesIndex: opt.cmd == engine.CmdEquip || opt.cmd == engine.CmdDrop ||
+				opt.cmd == engine.CmdBuy || opt.cmd == engine.CmdSell,
 		})
+	}
+	return actions
+}
+
+// barActions is the state's action bar with cursor-sensitive enablement
+// applied. In the shop, BUY and SELL act on the row the cursor walks:
+// each is enabled only while the cursor sits on its own section of the
+// combined list (stock rows vs bag rows). Dispatching a disabled action
+// still reaches the engine, which explains the rejection in the log.
+func (m Model) barActions() []action {
+	actions := actionsFor(m.engine)
+	if m.engine.State != engine.StateMerchant {
+		return actions
+	}
+	onStock := m.bagCursor < len(m.engine.MerchantStock)
+	for i := range actions {
+		switch actions[i].cmd {
+		case engine.CmdBuy:
+			actions[i].enabled = onStock
+		case engine.CmdSell:
+			// onStock is false only when bag rows exist to select — but
+			// a bought-out shop with an emptied bag must keep SELL off.
+			actions[i].enabled = !onStock && len(m.engine.Player.Bag()) > 0
+		}
 	}
 	return actions
 }
