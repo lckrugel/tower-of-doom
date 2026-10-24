@@ -79,15 +79,15 @@ func (e *Engine) rollDamage(attacker Combatant) (dmg int, crit bool) {
 // heroStrike performs the Hero's attack against the current enemy.
 func (e *Engine) heroStrike() []Event {
 	enemy := e.currentEnemy()
-	dmg, crit := e.rollDamage(e.Player)
-	return []Event{NewDamageDealt(enemy, enemy.TakeDmg(dmg), crit)}
+	swing, crit := e.rollDamage(e.Player)
+	return []Event{NewDamageDealt(enemy, enemy.TakeDmg(effectiveDamage(swing, enemy.Defense())), crit)}
 }
 
 // enemyStrike performs the current enemy's attack against the Hero.
 func (e *Engine) enemyStrike() []Event {
 	enemy := e.currentEnemy()
-	dmg, crit := e.rollDamage(enemy)
-	return []Event{NewDamageTaken(e.Player, e.Player.TakeDmg(dmg), crit)}
+	swing, crit := e.rollDamage(enemy)
+	return []Event{NewDamageTaken(e.Player, e.Player.TakeDmg(effectiveDamage(swing, e.Player.Defense())), crit)}
 }
 
 // enemyFreeTurn is the single enemy attack granted by a failed sneak or a
@@ -127,6 +127,18 @@ func (e *Engine) appendEnemyDefeat(events []Event) []Event {
 func (e *Engine) appendHeroDefeat(events []Event) []Event {
 	e.State = StateGameOver
 	return append(events, NewHeroDefeated())
+}
+
+// defCurveK tunes the defense mitigation curve — mitigation per hit is
+// DEF/(DEF+K), so a defender with DEF == K halves incoming damage.
+// Easily tweakable: lower K makes armor stronger, higher K weaker.
+const defCurveK = 45
+
+// effectiveDamage applies the defender's mitigation to a swung hit:
+// swing × K/(DEF+K), floored at 1 so no landed hit is fully nullified.
+// Pure math — consumes no rng.
+func effectiveDamage(swing, def int) int {
+	return max(1, swing*defCurveK/(def+defCurveK))
 }
 
 // fleeChance returns the flee probability in percent, weighted by the speed

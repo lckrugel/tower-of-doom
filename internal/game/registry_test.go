@@ -102,6 +102,13 @@ func TestValidateRejectsInvalidContent(t *testing.T) {
 			"would always be empty",
 		},
 		{
+			"negative monster defense",
+			[]MonsterAsset{{ID: "rat", Name: "Rat", Difficulty: 1, HP: 10, Defense: -2}},
+			[]SectionAsset{{ID: "s", Name: "S", MinFloor: 1, MaxFloor: -1,
+				Spawns: []SpawnEntry{{MonsterID: "rat", Weight: 1}}}},
+			"def",
+		},
+		{
 			"negative monster crit",
 			[]MonsterAsset{{ID: "rat", Name: "Rat", Difficulty: 1, HP: 10, Crit: -1}},
 			[]SectionAsset{{ID: "s", Name: "S", MinFloor: 1, MaxFloor: -1,

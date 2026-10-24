@@ -154,6 +154,13 @@ func (r *Registry) Validate(topFloor int) error {
 					m.ID, m.Difficulty,
 				)
 			}
+			if m.Defense < 0 {
+				return fmt.Errorf(
+					"content validation: monster %q has def %d, want >= 0 "+
+						"(negative defense would amplify incoming damage)",
+					m.ID, m.Defense,
+				)
+			}
 			if m.Crit < 0 || m.Crit > 100 {
 				return fmt.Errorf(
 					"content validation: monster %q has crit %d, want within [0, 100] (percentage)",

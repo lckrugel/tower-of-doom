@@ -392,6 +392,68 @@ func TestAscendUnlocking(t *testing.T) {
 	})
 }
 
+// Mitigation per hit is DEF/(DEF+K) applied over the swung damage.
+func TestEffectiveDamage(t *testing.T) {
+	tests := []struct {
+		name  string
+		swing int
+		def   int
+		want  int
+	}{
+		{"no defense is a clean hit", 5, 0, 5},
+		{"single leather armor mitigates a chunk", 5, 5, 4},
+		{"full leather set mitigates a third", 5, 15, 3},
+		{"half mitigation exactly at DEF == K", 10, defCurveK, 5},
+		{"armor cannot fully nullify weak hits", 1, 100, 1},
+		{"heavy monsters take less from the same swing", 5, 3, 4}, // 5×45/48
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := effectiveDamage(tt.swing, tt.def); got != tt.want {
+				t.Errorf("effectiveDamage(%d, %d) = %d, want %d", tt.swing, tt.def, got, tt.want)
+			}
+		})
+	}
+}
+
+// The defense of each side is applied to incoming damage during real rounds.
+func TestDefenseMitigationInCombat(t *testing.T) {
+	t.Run("hero wearing armor takes less damage", func(t *testing.T) {
+		// stub [1, 50, 1, 50]: each strike rolls nothing special.
+		e := newTestEngine(1, 50, 1, 50)
+		heroWithDamage(e, 5)
+		helm := entities.NewItemFromAsset(game.ItemAsset{
+			ID: "helm", Name: "Helm", Slot: "helmet", BonusDEF: 5,
+		})
+		e.Player.EquipItem(&helm)
+		startEncounter(e, monsterFromFixture("goblin"))
+
+		e.Process(Command{Type: CmdFight})
+
+		// goblin swing 2 mitigated by DEF 5: 2×45/50 = 1.
+		if hp := e.Player.CurrentHP; hp != 99 {
+			t.Errorf("hero HP = %d, want 99 (2 dmg mitigated to 1)", hp)
+		}
+	})
+
+	t.Run("armored monsters take less damage", func(t *testing.T) {
+		e := newTestEngine(1, 50, 1, 50)
+		heroWithDamage(e, 5)
+		armored := entities.NewMonsterFromAsset(game.MonsterAsset{
+			ID: "armored", Name: "Armored Rat", Difficulty: 2, HP: 30, Damage: 2, Speed: 5, Defense: 5,
+		})
+		startEncounter(e, armored)
+
+		e.Process(Command{Type: CmdFight})
+
+		// hero swing 5 mitigated by monster DEF 5: 5×45/50 = 4.
+		if hp := e.CurrentEncounter[0].CurrentHP; hp != 26 {
+			t.Errorf("monster HP = %d, want 26 (5 dmg mitigated to 4)", hp)
+		}
+	})
+}
+
 func TestQuitAllowedInEveryState(t *testing.T) {
 	for _, state := range []GameState{StateExploring, StateEncounter, StateCombat, StateGameOver} {
 		e := newTestEngine()

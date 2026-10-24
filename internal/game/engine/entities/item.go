@@ -25,6 +25,12 @@ type Item struct {
 	CurrentDurability int
 }
 
+// IsArmor reports whether the slot is defensive gear (helmet, body or boots) —
+// the slots considered armor for drop/reward purposes.
+func IsArmor(slot ItemSlot) bool {
+	return slot == helmet || slot == body || slot == boots
+}
+
 func NewItemFromAsset(asset game.ItemAsset) Item {
 	return Item{
 		ID:                asset.ID,

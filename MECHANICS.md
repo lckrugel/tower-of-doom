@@ -54,8 +54,17 @@ helpers are for non-engine use only (e.g. item durability).
 
 ### Defense
 
-Deferred for now: `Defense()` exists on the Combatant interface but is not
-consumed by the combat math yet.
+- Per hit, the defender mitigates the swung damage (spread + crit included)
+  with a smooth percentage curve: mitigation = `DEF/(DEF+K)`, so the hit
+  deals `swing × K/(DEF+K)`.
+- `K` is the tunable `defCurveK` constant in `combat.go`, currently **45**:
+  a single leather piece (DEF 5) mitigates ~10%, the full leather set
+  (DEF 15) ~25%, and DEF == K exactly halves incoming damage. Lower `K`
+  makes armor stronger, higher `K` weaker.
+- Floored at 1: a landed hit is never fully nullified by armor.
+- Applied engine-side on both directions (hero taking damage and monsters
+  taking damage); `TakeDmg` itself stays a plain clamp. Pure math —
+  consumes no rng. Content validation rejects negative DEF.
 
 ## Items
 
