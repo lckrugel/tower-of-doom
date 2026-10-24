@@ -80,6 +80,20 @@ func TestEscapeAlsoQuits(t *testing.T) {
 	}
 }
 
+// An unknown state must keep the badge visible and name itself: a
+// silently empty chip would hide a broken FSM from the player.
+func TestBadgeFallbackForUnknownStates(t *testing.T) {
+	e := testEngine()
+	e.State = engine.GameState(99) // not part of the FSM
+	m := New(e)
+
+	view := stripControls(stripANSI(m.View()))
+
+	if !strings.Contains(view, "UNKNOWN") {
+		t.Errorf("unknown state rendered without a visible badge:\n%s", view)
+	}
+}
+
 func TestUnknownKeyIsANoOp(t *testing.T) {
 	m := New(testEngine())
 	logLen := len(m.log)

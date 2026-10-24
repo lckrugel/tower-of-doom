@@ -145,7 +145,8 @@ func (m Model) locationLabel() string {
 	return fmt.Sprintf("Floor %d", m.engine.CurrentFloor)
 }
 
-// badge marks the current state for a quick state read.
+// badge marks the current state for a quick state read. Unknown states
+// fall onto their own style so a broken FSM never renders a blank chip.
 func (m Model) badge() string {
 	var style lipgloss.Style
 	switch m.engine.State {
@@ -157,6 +158,8 @@ func (m Model) badge() string {
 		style = styleBadgeCombat
 	case engine.StateGameOver:
 		style = styleBadgeOver
+	default:
+		style = styleBadgeUnknown
 	}
 	return style.MarginLeft(2).Render(badgeText(m.engine.State))
 }

@@ -153,7 +153,7 @@ func TestEventText(t *testing.T) {
 			"item found lists bonuses",
 			engine.NewItemFound(testItem()),
 			"",
-			[]string{"You find a Espada de Madeira", "+5 DMG", "and put it on."},
+			[]string{"You find Espada de Madeira", "+5 DMG", "and put it on."},
 		},
 		{
 			"message",

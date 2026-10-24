@@ -96,7 +96,11 @@ func itemFoundText(data map[string]any) string {
 	if !ok {
 		return "You found some gear, but the tower swallowed it."
 	}
-	return fmt.Sprintf("You find a %v%s and put it on.", item.Name, itemBonusList(item))
+	// No indefinite article: "You find a Espada..." shows the article
+	// bug for vowels, and English articles can't be derived from a
+	// multilingual item name. Sentence-style naming is article-free and
+	// reads the same for every asset.
+	return fmt.Sprintf("You find %v%s and put it on.", item.Name, itemBonusList(item))
 }
 
 // itemBonusList renders an item's bonuses, e.g. " (+5 HP, +5 DEF)".
