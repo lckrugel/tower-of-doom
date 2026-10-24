@@ -59,13 +59,26 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 }
 
-// handleKey resolves a key press: ctrl+c/esc always quit, arrows move
+// handleKey resolves a key press: ctrl+c always quits, esc quits —
+// except where it means something closer (it closes the bag; while a
+// chest loot is pending it does nothing, since the decision is
+// mandatory and quitting would silently destroy the item). Arrows move
 // the action-bar cursor (or the bag's item cursor while the bag is
 // open), Enter dispatches the selection, and single-letter shortcuts
 // dispatch their action directly (case-insensitive).
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
-	case "ctrl+c", "esc":
+	case "ctrl+c":
+		return m.dispatch(quitAction())
+	case "esc":
+		switch m.engine.State {
+		case engine.StateInventory:
+			return m.dispatch(closeAction())
+		case engine.StateLoot:
+			// The loot decision is mandatory: esc is a no-op, never a
+			// silent destruction of the pending item.
+			return m, nil
+		}
 		return m.dispatch(quitAction())
 	case "left":
 		if m.engine.State == engine.StateInventory {

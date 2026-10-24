@@ -79,3 +79,7 @@ func actionsFor(e *engine.Engine) []action {
 func quitAction() action {
 	return action{key: "q", label: "Quit", cmd: engine.CmdQuit, enabled: true}
 }
+
+func closeAction() action {
+	return action{key: "c", label: "Close", cmd: engine.CmdClose, enabled: true}
+}

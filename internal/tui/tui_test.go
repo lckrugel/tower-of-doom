@@ -70,13 +70,63 @@ func TestQuitShortcutWorksInEveryState(t *testing.T) {
 	}
 }
 
+// esc quits everywhere except where it has a closer meaning: it closes
+// the bag (StateInventory) and is a deliberate no-op while a chest loot
+// decision is pending — quitting there would silently destroy the item.
 func TestEscapeAlsoQuits(t *testing.T) {
-	m := New(testEngine())
+	for _, state := range []engine.GameState{
+		engine.StateExploring, engine.StateEncounter, engine.StateCombat, engine.StateGameOver,
+	} {
+		m := New(testEngine())
+		m.engine.State = state
 
-	_, cmd := press(m, "esc")
+		_, cmd := press(m, "esc")
 
-	if cmd == nil {
-		t.Error("esc did not request a quit")
+		if cmd == nil {
+			t.Errorf("state %v: esc did not request a quit", state)
+		}
+	}
+}
+
+func TestEscapeClosesTheBag(t *testing.T) {
+	e := testEngine()
+	stashTestItem(e)
+	e.State = engine.StateInventory
+	m := New(e)
+
+	m, cmd := press(m, "esc")
+
+	if cmd != nil {
+		t.Error("esc in the bag must not request a quit")
+	}
+	if m.engine.State != engine.StateExploring {
+		t.Errorf("state after esc = %v, want StateExploring", m.engine.State)
+	}
+	last := stripANSI(m.log[len(m.log)-1])
+	if last != "You close your bag." {
+		t.Errorf("last log line = %q, want the close-bag message", last)
+	}
+}
+
+// The loot decision is mandatory: esc must neither quit nor resolve the
+// pending item — the model stays exactly where it was.
+func TestEscapeIsANoOpWhileLooting(t *testing.T) {
+	m := chestModel()
+
+	logLen := len(m.log)
+	m, cmd := press(m, "esc")
+
+	if cmd != nil {
+		t.Error("esc in StateLoot must not request a quit")
+	}
+	if m.engine.State != engine.StateLoot {
+		t.Errorf("state after esc = %v, want to stay in StateLoot", m.engine.State)
+	}
+	if m.engine.PendingLoot == nil {
+		t.Error("esc consumed the pending loot")
+	}
+	if len(m.log) != logLen {
+		t.Error("esc wrote to the log in StateLoot")
 	}
 }
 
