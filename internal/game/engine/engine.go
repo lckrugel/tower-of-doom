@@ -31,7 +31,12 @@ type Engine struct {
 	// CurrentEncounter is the encounter currently being dealt with: the
 	// enemy queue while in StateEncounter/StateCombat, zeroed otherwise.
 	CurrentEncounter Encounter
-	reg              *game.Registry
+	// PendingLoot is the item a chest yielded, waiting for the player's
+	// decision in StateLoot (equip/stash/discard). It is set when the
+	// chest opens and cleared on every resolution path; it is meaningful
+	// only while State == StateLoot.
+	PendingLoot *entities.Item
+	reg         *game.Registry
 	// rng é a fonte de aleatoriedade para decisões do engine
 	// (geração de encontros hoje; combates no futuro).
 	// Testes injetam um rng determinístico.
@@ -105,9 +110,10 @@ func (e *Engine) handleExploring(cmd Command) []Event {
 				e.CurrentFloor, err))
 		}
 		if encounter.Type != EncounterCombat {
-			// Sanctuary and chest encounters resolve instantly, on the spot:
-			// no StateEncounter, no FIGHT/SNEAK choice, nothing held back —
-			// `CurrentEncounter` only ever holds the combat queue.
+			// Sanctuary resolves instantly, chest opens the StateLoot
+			// decision over its item: no StateEncounter, no FIGHT/SNEAK
+			// choice — `CurrentEncounter` only ever holds the combat
+			// queue.
 			e.CurrentEncounter = Encounter{}
 			return e.resolveEncounter(encounter)
 		}
@@ -184,11 +190,37 @@ func (e *Engine) handleCombat(cmd Command) []Event {
 	}
 }
 
-// handleLoot resolves what happens to the pending chest loot (StateLoot).
-// The equip/stash/discard semantics land together with the chest flow
-// change; until then every command falls to the default branch.
+// handleLoot resolves the pending chest loot (StateLoot). Every branch
+// consumes the pending item (clears PendingLoot) and returns to exploring,
+// except a stash rejected by a full bag, which keeps the decision open.
 func (e *Engine) handleLoot(cmd Command) []Event {
 	switch cmd.Type {
+	case CmdEquipLoot:
+		item := e.PendingLoot
+		displaced := e.Player.EquipItem(item)
+		events := []Event{NewItemEquipped(item, displaced)}
+		if displaced != nil && !e.Player.StashItem(displaced) {
+			// No bag room: the displaced item is destroyed right here.
+			events = append(events, NewItemLost(displaced))
+		}
+		e.PendingLoot = nil
+		e.State = StateExploring
+		return events
+	case CmdStashLoot:
+		if e.Player.StashItem(e.PendingLoot) {
+			item := e.PendingLoot
+			e.PendingLoot = nil
+			e.State = StateExploring
+			return []Event{NewItemStashed(item)}
+		}
+		// Staying in StateLoot: the player must choose another option
+		// (the bag-full branch also keeps the item pending).
+		return []Event{NewBagFull()}
+	case CmdDiscardLoot:
+		item := e.PendingLoot
+		e.PendingLoot = nil
+		e.State = StateExploring
+		return []Event{NewItemDiscarded(item)}
 	default:
 		return []Event{NewMessage("Unhandled command")}
 	}
@@ -328,8 +360,9 @@ func (e *Engine) rollArmorReward() *entities.Item {
 }
 
 // rollItemReward rolls a random item from the whole registry (any slot) as
-// the reward for a chest of riches. The Hero auto-equips it on the spot —
-// whatever it replaced is gone (there is no inventory).
+// the reward for a chest of riches. The roll is the same as it ever was —
+// the engine now holds the item as PendingLoot instead of auto-equipping
+// it, letting the player decide in StateLoot.
 func (e *Engine) rollItemReward() *entities.Item {
 	return e.pickItem(func(entities.ItemSlot) bool { return true })
 }
