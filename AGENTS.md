@@ -11,7 +11,7 @@ Comments, documentation and design decisions should be in english.
 ## Design notes (decided)
 
 - **XP curve:** cost to level up from Lvl = `100 · max(Lvl−1, 1)^1.5` (`baseReqXp`, `requiredXpGrowth`). Levels 1→2 and 2→3 cost the same (100) — known consequence of `max()`, kept on purpose ("cheap early levels").
-- **%HP preservation:** when the hero's max HP changes (level-up, equip/unequip), `CurrentHP` is rescaled as a fraction of the *pre-change* `MaxHP()` (equipment included), floored and clamped to the new max. Centralized in `rescaleHP`.
+- **%HP preservation:** when the hero's max HP changes (level-up, equip/unequip), `CurrentHP` is rescaled as a fraction of the *pre-change* `MaxHP()` (equipment included), floored and clamped to the new max. Centralized in `rescaleHP`. The rescale is unchanged, and after it a level-up heals +25% of base max HP (equipment excluded, floored, clamped — `levelUpHealPercent`).
 - **Damage:** `TakeDmg` never increases HP (negative damage is ignored) and clamps at 0. Hero/Monster `TakeDmg` behavior is identical and locked by tests.
 - **Dice:** `RollD*` return values in `[1, n]` inclusive.
 - **Engine randomness:** encounter generation goes through the injectable `rng` interface; combat will use the same seam. `weightedPick` panics if no positive weights — content validation guarantees `weight ≥ 1` and `difficulty ≥ 1` (terminating encounter generation); `MAX_ENCOUNTER_SIZE` stays as defense in depth.

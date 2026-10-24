@@ -8,21 +8,21 @@ import (
 )
 
 // merchantStockSize is how many offers a merchant rolls.
-const merchantStockSize = 3
+const merchantStockSize = 4
 
 // merchantUpgradeChance is the chance (percentage) that one offer is
 // replaced by a tier+1 item.
-const merchantUpgradeChance = 20
+const merchantUpgradeChance = 35
 
 // rollMerchantStock rolls the merchant's offers from the section's
 // allowed item tiers (empty = unrestricted). The rng sequence is a
 // determinism contract, in this exact order:
 //
-//  1. Three offer rolls: one Intn over the sorted allowed-tier pool per
+//  1. Four offer rolls: one Intn over the sorted allowed-tier pool per
 //     offer (duplicates possible when the pool is smaller than the
 //     stock).
-//  2. One Intn(100): an upgrade fires when the roll is < 20.
-//  3. On an upgrade, one Intn(3) — the stock size — picks which offer is
+//  2. One Intn(100): an upgrade fires when the roll is < 35.
+//  3. On an upgrade, one Intn(4) — the stock size — picks which offer is
 //     replaced.
 //  4. On an upgrade, one Intn over the replacement pool: every registry
 //     item one tier above the replaced offer, capped at the registry's

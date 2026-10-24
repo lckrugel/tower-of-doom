@@ -43,6 +43,8 @@
 - ATTACK trigger a normal attack
 - When an enemy die mid combat the player gets the XP reward instantly
     - mid combat level ups are possible
+    - each level-up also heals 25% of the base max HP (no rng — see
+      "Kill XP")
     - every defeat also pays `5 × enemy difficulty` gold (no rng)
 - When all enemies die, the encounter ends with a victory for the player
     - Unlocks climbing: ASCEND to the next floor
@@ -81,9 +83,9 @@ helpers are for non-engine use only (e.g. item durability).
 - Per hit, the defender mitigates the swung damage (spread + crit included)
   with a smooth percentage curve: mitigation = `DEF/(DEF+K)`, so the hit
   deals `swing × K/(DEF+K)`.
-- `K` is the tunable `defCurveK` constant in `combat.go`, currently **45**:
-  a single leather piece (DEF 5) mitigates ~10%, the full leather set
-  (DEF 15) ~25%, and DEF == K exactly halves incoming damage. Lower `K`
+- `K` is the tunable `defCurveK` constant in `combat.go`, currently **35**:
+  a single leather piece (DEF 5) mitigates ~12.5%, the full leather set
+  (DEF 15) ~30%, and DEF == K exactly halves incoming damage. Lower `K`
   makes armor stronger, higher `K` weaker.
 - Floored at 1: a landed hit is never fully nullified by armor.
 - Applied engine-side on both directions (hero taking damage and monsters
@@ -98,6 +100,14 @@ mirrors the hero level-cost curve (`100 · max(Lvl−1, 1)^1.5`), which
 keeps the time to level flat per floor tier instead of ballooning as
 content difficulty rises: a goblin (difficulty 3) pays 21 XP, an orc
 warlord (12) pays 166, an ancient red dragon (40) pays 1012.
+
+Every level-up ALSO heals the hero by `25%` of the **base** max HP
+(equipment excluded, floored, clamped by `Hero.Heal` — a full-health
+hero gains nothing, and HP never exceeds the max), on top of the
+unchanged %HP rescale that preserves the current HP as a fraction of
+the pre-change max. The heal consumes no rng and rides the level-up
+event as the ADDITIVE `healed` key (`event-level-up{level, healed}`):
+consumers predating the key keep working.
 
 ## Items
 
@@ -197,13 +207,13 @@ older mods keep working.
     - `LEAVE` — the remaining stock is discarded, back to exploring.
     - `QUIT` works as everywhere else. Merchants do NOT unlock ASCEND —
       only combat victories do.
-- **Stock generation** — 3 offers rolled from the section's allowed item
+- **Stock generation** — 4 offers rolled from the section's allowed item
   tiers (sorted pool; duplicates possible when the pool is smaller),
-  then ONE `Intn(100) < 20` check: on fire, ONE `Intn(3)` picks which
+  then ONE `Intn(100) < 35` check: on fire, ONE `Intn(4)` picks which
   offer is replaced by a tier+1 item, capped at the registry's max tier
   (an empty replacement pool keeps the original offer). The exact rng
   order is a determinism contract, documented in `merchant.go`:
-  3 offer rolls → `Intn(100)` → on upgrade `Intn(3)` → replacement-pool
+  4 offer rolls → `Intn(100)` → on upgrade `Intn(4)` → replacement-pool
   roll.
 
 ## Types of encounters
@@ -242,7 +252,7 @@ an extra roll):
     - The Hero can FIGHT (StateCombat) or SNEAK past it (50/50)
     - Victory unlocks ASCEND; sneaking/fleeing past does not
 - **SANCTUARY** — a healing spot; resolves instantly on EXPLORE:
-    - Heals `35%` of the Hero's **base** max HP (equipment excluded, floored)
+    - Heals `50%` of the Hero's **base** max HP (equipment excluded, floored)
     - Clamped by `Hero.Heal`: a Hero at full health gains nothing
     - Does NOT unlock ASCEND
 - **CHEST OF RICHES** — resolves on EXPLORE:
@@ -254,8 +264,8 @@ an extra roll):
       holds it as `Engine.PendingLoot`, entering StateLoot — see "Items"
     - Does NOT unlock ASCEND
 - **MERCHANT** — a wandering shop; opens StateMerchant on EXPLORE:
-    - Stocks 3 offers from the section's allowed item tiers; one offer
-      may be upgraded to a tier+1 item (20%, capped at the registry's
+    - Stocks 4 offers from the section's allowed item tiers; one offer
+      may be upgraded to a tier+1 item (35%, capped at the registry's
       max tier) — see "Gold & prices"
     - BUY / SELL / LEAVE (and QUIT); buying and selling never unlock
       ASCEND

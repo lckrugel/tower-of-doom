@@ -67,7 +67,7 @@ func TestRollEncounterTypeWithoutTableConsumesNoRng(t *testing.T) {
 	}
 }
 
-// Exploring into a sanctuary heals 35% of the hero's BASE max HP
+// Exploring into a sanctuary heals 50% of the hero's BASE max HP
 // (equipment excluded), instantly and without unlocking ascending.
 func TestExploreSanctuary(t *testing.T) {
 	e := pastFirstExplore(newKindEngine(10)) // Intn(30) = 10 → sanctuary
@@ -76,7 +76,7 @@ func TestExploreSanctuary(t *testing.T) {
 		ID: "helm", Name: "Helm", Slot: "helmet", BonusHP: 50,
 	})
 	e.Player.EquipItem(&helm)
-	e.Player.CurrentHP = 50 // MaxHP 150, BaseMaxHP 100 → heal 35
+	e.Player.CurrentHP = 50 // MaxHP 150, BaseMaxHP 100 → heal 50
 
 	events := e.Process(Command{Type: CmdExplore})
 
@@ -84,22 +84,22 @@ func TestExploreSanctuary(t *testing.T) {
 		t.Fatalf("events = %v, want [hero-healed]", got)
 	}
 	healed, _ := events[0].Data["healed"].(int)
-	if healed != 35 {
-		t.Errorf("healed = %d, want 35 (35%% of baseMaxHP 100)", healed)
+	if healed != 50 {
+		t.Errorf("healed = %d, want 50 (50%% of baseMaxHP 100)", healed)
 	}
 	// Exact defender state after the heal.
-	if hp, _ := events[0].Data["hero_hp_exact"].(int); hp != 85 {
-		t.Errorf("hero_hp_exact = %d, want 85", hp)
+	if hp, _ := events[0].Data["hero_hp_exact"].(int); hp != 100 {
+		t.Errorf("hero_hp_exact = %d, want 100", hp)
 	}
 	if mhp, _ := events[0].Data["hero_max_hp"].(int); mhp != 150 {
 		t.Errorf("hero_max_hp = %d, want 150", mhp)
 	}
-	// Legacy percentage key keeps its meaning: 85/150, floored.
-	if pct, _ := events[0].Data["hero_hp"].(int); pct != 56 {
-		t.Errorf("hero_hp = %d, want 56 (legacy percentage key untouched)", pct)
+	// Legacy percentage key keeps its meaning: 100/150, floored.
+	if pct, _ := events[0].Data["hero_hp"].(int); pct != 66 {
+		t.Errorf("hero_hp = %d, want 66 (legacy percentage key untouched)", pct)
 	}
-	if hp := e.Player.CurrentHP; hp != 85 {
-		t.Errorf("hero HP = %d, want 85", hp)
+	if hp := e.Player.CurrentHP; hp != 100 {
+		t.Errorf("hero HP = %d, want 100", hp)
 	}
 	// Sanctuary is a stopover: back to exploring, nothing unlocked.
 	if e.State != StateExploring {
@@ -318,10 +318,10 @@ func TestThirdDifferentKindStillHappens(t *testing.T) {
 // overridden to combat — and the override skips the merchant entirely (no
 // stock is rolled).
 func TestMerchantStreakBecomesCombat(t *testing.T) {
-	// Merchant kind 30 twice (stock offers 0,1,0; upgrade check 99 → none
-	// — LEAVE consumes no rng), then a third merchant kind 30 →
+	// Merchant kind 30 twice (stock offers 0,1,0,1; upgrade check 99 →
+	// none — LEAVE consumes no rng), then a third merchant kind 30 →
 	// overridden; picks 104 → orc (5), 0 → goblin (3).
-	e := merchantEngine(30, 0, 1, 0, 99, 30, 0, 1, 0, 99, 30, 104, 0)
+	e := merchantEngine(30, 0, 1, 0, 1, 99, 30, 0, 1, 0, 1, 99, 30, 104, 0)
 	stub := e.rng.(*stubRng)
 
 	for range 2 {
@@ -347,10 +347,10 @@ func TestMerchantStreakBecomesCombat(t *testing.T) {
 	if !idsEqual(monsterIDs(e.CurrentEncounter.Monsters), "orc", "goblin") {
 		t.Errorf("encounter = %v, want [orc goblin]", monsterIDs(e.CurrentEncounter.Monsters))
 	}
-	// 13 = 2 × (kind + 3 offers + upgrade check) + the overridden kind's
+	// 15 = 2 × (kind + 4 offers + upgrade check) + the overridden kind's
 	// one Intn + 2 monster picks; a reroll would shift the count.
-	if stub.calls != 13 {
-		t.Errorf("rng calls = %d, want 13 (no extra rng for the override)", stub.calls)
+	if stub.calls != 15 {
+		t.Errorf("rng calls = %d, want 15 (no extra rng for the override)", stub.calls)
 	}
 }
 
@@ -360,7 +360,7 @@ func TestMerchantStreakBecomesCombat(t *testing.T) {
 func TestDifferentKindAfterMerchantPairHappens(t *testing.T) {
 	// Merchant kind 30 twice, then sanctuary kind 10 — a different
 	// non-combat kind, so no override.
-	e := merchantEngine(30, 0, 1, 0, 99, 30, 0, 1, 0, 99, 10)
+	e := merchantEngine(30, 0, 1, 0, 1, 99, 30, 0, 1, 0, 1, 99, 10)
 
 	for range 2 {
 		if got := eventTypes(e.Process(Command{Type: CmdExplore})); !typesEqual(got, EventMerchantFound) {

@@ -38,10 +38,11 @@ func merchantEngine(rngValues ...int) *Engine {
 }
 
 // stockOffers is the rng for finding a merchant with an all-tier-1 stock
-// (offers 0,1,0 from the two-item pool; upgrade roll 99 → none).
-var stockOffers = []int{30, 0, 1, 0, 99}
+// (offers 0,1,0,1 from the three-item pool — never the tier-2 pick at
+// index 2; upgrade roll 99 → none).
+var stockOffers = []int{30, 0, 1, 0, 1, 99}
 
-// EXPLORE into a merchant opens the shop: StateMerchant with exactly 3
+// EXPLORE into a merchant opens the shop: StateMerchant with exactly 4
 // offers, reported by EventMerchantFound. ASCEND stays locked.
 func TestExploreMerchantOpensShop(t *testing.T) {
 	e := merchantEngine(stockOffers...)
@@ -51,11 +52,11 @@ func TestExploreMerchantOpensShop(t *testing.T) {
 	if got := eventTypes(events); !typesEqual(got, EventMerchantFound) {
 		t.Fatalf("events = %v, want [merchant-found]", got)
 	}
-	if count, _ := events[0].Data["count"].(int); count != 3 {
-		t.Errorf("count = %v, want 3", count)
+	if count, _ := events[0].Data["count"].(int); count != 4 {
+		t.Errorf("count = %v, want 4", count)
 	}
-	if len(e.MerchantStock) != 3 {
-		t.Fatalf("stock size = %d, want 3", len(e.MerchantStock))
+	if len(e.MerchantStock) != 4 {
+		t.Fatalf("stock size = %d, want 4", len(e.MerchantStock))
 	}
 	for i, item := range e.MerchantStock {
 		if item == nil || item.Tier != 1 {
@@ -73,10 +74,10 @@ func TestExploreMerchantOpensShop(t *testing.T) {
 	}
 }
 
-// The 20% tier-above upgrade replaces exactly one offer — or none.
+// The 35% tier-above upgrade replaces exactly one offer — or none.
 func TestMerchantStockUpgrade(t *testing.T) {
-	t.Run("no upgrade on a roll of 20", func(t *testing.T) {
-		e := merchantEngine(30, 0, 1, 0, 20) // 20 is not < 20
+	t.Run("no upgrade on a roll of 35", func(t *testing.T) {
+		e := merchantEngine(30, 0, 1, 0, 1, 35) // 35 is not < 35
 
 		e.Process(Command{Type: CmdExplore})
 
@@ -87,13 +88,14 @@ func TestMerchantStockUpgrade(t *testing.T) {
 		}
 	})
 
-	t.Run("upgrade replaces the Intn(3) offer with a tier+1 item", func(t *testing.T) {
-		// rng: 30 merchant; offers 0,1,0; upgrade 0 < 20; offer 2; t2 pool pick 0.
-		e := merchantEngine(30, 0, 1, 0, 0, 2, 0)
+	t.Run("upgrade replaces the Intn(4) offer with a tier+1 item", func(t *testing.T) {
+		// rng: 30 merchant; offers 0,1,0,1; upgrade 34 < 35; offer 3; t2
+		// pool pick 0.
+		e := merchantEngine(30, 0, 1, 0, 1, 34, 3, 0)
 
 		e.Process(Command{Type: CmdExplore})
 
-		want := []string{"t1_ring", "t1_sword", "t2_crown"}
+		want := []string{"t1_ring", "t1_sword", "t1_ring", "t2_crown"}
 		for i, id := range want {
 			if got := e.MerchantStock[i].ID; got != id {
 				t.Errorf("stock[%d] = %q, want %q", i, got, id)
@@ -104,7 +106,7 @@ func TestMerchantStockUpgrade(t *testing.T) {
 	t.Run("the upgrade is capped at the registry max tier", func(t *testing.T) {
 		// Only tier-2 items are allowed: the "tier+1" target is capped at
 		// the registry max (2) and rerolled within it.
-		e := merchantEngine(30, 0, 0, 0, 0, 1, 0)
+		e := merchantEngine(30, 0, 0, 0, 0, 0, 1, 0)
 		s := mixedSection()
 		s.ItemTiers = []int{2}
 		s.EncounterTypes.Merchant = 10
@@ -112,8 +114,8 @@ func TestMerchantStockUpgrade(t *testing.T) {
 
 		e.Process(Command{Type: CmdExplore})
 
-		if len(e.MerchantStock) != 3 {
-			t.Fatalf("stock size = %d, want 3", len(e.MerchantStock))
+		if len(e.MerchantStock) != 4 {
+			t.Fatalf("stock size = %d, want 4", len(e.MerchantStock))
 		}
 		for i, item := range e.MerchantStock {
 			if item.Tier != 2 {
@@ -189,8 +191,8 @@ func TestMerchantBuy(t *testing.T) {
 		if len(bag) != 1 || bag[0] != offer {
 			t.Errorf("bag = %v, want the bought item", bag)
 		}
-		if got := len(e.MerchantStock); got != 2 {
-			t.Errorf("stock size = %d, want 2 (offer removed)", got)
+		if got := len(e.MerchantStock); got != 3 {
+			t.Errorf("stock size = %d, want 3 (offer removed)", got)
 		}
 		if e.State != StateMerchant {
 			t.Errorf("state = %v, want StateMerchant (shopping continues)", e.State)
@@ -206,7 +208,7 @@ func TestMerchantBuy(t *testing.T) {
 		if got := eventTypes(events); !typesEqual(got, EventMessage) {
 			t.Fatalf("events = %v, want [message (not enough gold)]", got)
 		}
-		if e.Player.Gold != 100 || len(e.Player.Bag()) != 0 || len(e.MerchantStock) != 3 {
+		if e.Player.Gold != 100 || len(e.Player.Bag()) != 0 || len(e.MerchantStock) != 4 {
 			t.Error("a rejected buy changed gold, bag or stock")
 		}
 		if e.State != StateMerchant {
@@ -223,7 +225,7 @@ func TestMerchantBuy(t *testing.T) {
 		if got := eventTypes(events); !typesEqual(got, EventBagFull) {
 			t.Fatalf("events = %v, want [bag-full]", got)
 		}
-		if e.Player.Gold != 1000 || len(e.MerchantStock) != 3 {
+		if e.Player.Gold != 1000 || len(e.MerchantStock) != 4 {
 			t.Error("a rejected buy changed gold or stock")
 		}
 		if e.State != StateMerchant {
@@ -308,7 +310,7 @@ func TestMerchantCommandGuards(t *testing.T) {
 		e := merchantEngine(stockOffers...)
 		e.Process(Command{Type: CmdExplore})
 
-		for _, index := range []int{-1, 3, 100} {
+		for _, index := range []int{-1, 4, 100} {
 			if got := eventTypes(e.Process(Command{Type: CmdBuy, ItemIndex: index})); len(got) != 1 || got[0] != EventMessage {
 				t.Errorf("CmdBuy(%d): events = %v, want a single [invalid command] message", index, got)
 			}
@@ -318,7 +320,7 @@ func TestMerchantCommandGuards(t *testing.T) {
 				t.Errorf("CmdSell(%d): events = %v, want a single [invalid command] message", index, got)
 			}
 		}
-		if e.State != StateMerchant || len(e.MerchantStock) != 3 {
+		if e.State != StateMerchant || len(e.MerchantStock) != 4 {
 			t.Error("invalid indexes changed the shop")
 		}
 	})

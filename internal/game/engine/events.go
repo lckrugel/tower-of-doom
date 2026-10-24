@@ -233,6 +233,8 @@ func NewHeroDefeatedWithStats(floor, level, kills int) Event {
 
 // NewLevelUp reports that the Hero gained at least one level.
 // `lvl` is the level reached after all pending level ups.
+// Kept for compatibility: this payload has no "healed" key, so consumers
+// predating the level-up heal keep working unchanged.
 func NewLevelUp(lvl int) Event {
 	return Event{
 		Type: EventLevelUp,
@@ -240,6 +242,18 @@ func NewLevelUp(lvl int) Event {
 			"level": lvl,
 		},
 	}
+}
+
+// NewLevelUpWithHeal is the full EventLevelUp payload: the legacy keys
+// above plus the ADDITIVE key:
+//   - "healed": total HP the level up(s) actually healed — 25% of the
+//     BASE max HP per level (equipment excluded), floored and clamped by
+//     Hero.Heal; 0 when the Hero was at full health. Legacy consumers
+//     that ignore the key keep working.
+func NewLevelUpWithHeal(lvl, healed int) Event {
+	data := NewLevelUp(lvl).Data
+	data["healed"] = healed
+	return Event{Type: EventLevelUp, Data: data}
 }
 
 // NewQuit tells the caller to stop the game loop and exit.
