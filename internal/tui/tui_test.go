@@ -236,7 +236,7 @@ func TestWearEquipsTheSelectedBagItem(t *testing.T) {
 		t.Fatalf("bag cursor after right = %d, want 1", m.bagCursor)
 	}
 
-	m, _ = press(m, "g")
+	m, _ = press(m, "w")
 
 	if m.engine.State != engine.StateInventory {
 		t.Fatalf("state after wear = %v, want the bag to stay open", m.engine.State)

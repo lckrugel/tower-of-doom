@@ -42,7 +42,7 @@ var orderedOptions = []struct {
 	{"s", "Sneak", engine.CmdSneak},
 	{"a", "Attack", engine.CmdAttack},
 	{"r", "Flee", engine.CmdFlee},     // r for "run"
-	{"g", "Wear", engine.CmdWear},     // wears the chest loot or the selected bag item
+	{"w", "Wear", engine.CmdWear},     // wears the chest loot or the selected bag item
 	{"b", "Bag", engine.CmdStashLoot}, // stash the chest loot in the bag
 	{"d", "Discard", engine.CmdDiscardLoot},
 	{"x", "Drop", engine.CmdDrop}, // destroy the selected bag item

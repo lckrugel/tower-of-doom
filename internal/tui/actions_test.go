@@ -63,8 +63,8 @@ func TestActionsPerState(t *testing.T) {
 		{"exploring", engine.StateExploring, false, false, []string{"e", "u", "i", "q"}},
 		{"encounter", engine.StateEncounter, false, false, []string{"f", "s", "q"}},
 		{"combat", engine.StateCombat, false, false, []string{"a", "r", "q"}},
-		{"loot", engine.StateLoot, false, false, []string{"g", "b", "d", "q"}},
-		{"inventory", engine.StateInventory, true, false, []string{"g", "x", "c", "q"}},
+		{"loot", engine.StateLoot, false, false, []string{"w", "b", "d", "q"}},
+		{"inventory", engine.StateInventory, true, false, []string{"w", "x", "c", "q"}},
 		{"merchant", engine.StateMerchant, true, true, []string{"p", "v", "l", "q"}},
 		{"game over", engine.StateGameOver, false, false, []string{"q"}},
 	}

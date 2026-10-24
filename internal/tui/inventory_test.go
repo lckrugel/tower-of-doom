@@ -137,13 +137,13 @@ func TestExploreOnAChestOpensTheLootDecision(t *testing.T) {
 	}
 }
 
-// WEAR (loot-state key g until the bar is rekeyed) equips the pending
-// loot and returns to exploring.
+// WEAR (key w — the same command and key the bag state wears with)
+// equips the pending loot and returns to exploring.
 func TestWearEquipsThePendingLoot(t *testing.T) {
 	m := chestModel(t)
 	item := m.engine.PendingLoot
 
-	m, _ = press(m, "g")
+	m, _ = press(m, "w")
 
 	if m.engine.State != engine.StateExploring {
 		t.Errorf("state after wear = %v, want StateExploring", m.engine.State)
@@ -153,6 +153,66 @@ func TestWearEquipsThePendingLoot(t *testing.T) {
 	}
 	if !isWorn(m.engine.Player, item) {
 		t.Errorf("the pending item %q is not worn after 'g'", item.Name)
+	}
+}
+
+// ascendEngine builds an engine one victory away from climbing: the
+// section spans every floor and its tier pool holds a single armor
+// piece, so the ascend's armor roll is deterministic (the same trick
+// chestEngine uses for its all-chest table).
+func ascendEngine() *engine.Engine {
+	return engine.NewEngine(&game.Registry{
+		Monsters: map[string]game.MonsterAsset{
+			"goblin": {ID: "goblin", Name: "Goblin", Difficulty: 3, HP: 30, Damage: 2, Speed: 10, Crit: 5},
+		},
+		Items: map[string]game.ItemAsset{
+			"leather_helm": {ID: "leather_helm", Name: "Leather Helm", Slot: "helmet", BonusHP: 3, Tier: 1, Durability: 20},
+		},
+		Sections: []game.SectionAsset{{
+			ID:             "pits",
+			Name:           "Goblin Pits",
+			BaseDifficulty: 10,
+			MinFloor:       1,
+			MaxFloor:       -1,
+			Spawns:         []game.SpawnEntry{{MonsterID: "goblin", Weight: 1}},
+			ItemTiers:      []int{1},
+		}},
+	})
+}
+
+// Ascending no longer equips the reward: the new floor's armor piece
+// opens the same loot decision a chest does, and W wears it from there.
+func TestAscendPresentsTheArmorRewardAsLoot(t *testing.T) {
+	e := ascendEngine()
+	e.CanAscend = true
+	m := New(e)
+
+	m, _ = press(m, "u")
+
+	if m.engine.State != engine.StateLoot {
+		t.Fatalf("state after 'u' = %v, want StateLoot", m.engine.State)
+	}
+	if m.engine.PendingLoot == nil {
+		t.Fatal("the ascend left no pending armor piece")
+	}
+	item := m.engine.PendingLoot
+	view := stripControls(stripANSI(m.View()))
+	for _, want := range []string{
+		"◈ CHEST LOOT", "Leather Helm",
+		"[W] Wear", "[B] Bag", "[D] Discard",
+	} {
+		if !strings.Contains(view, want) {
+			t.Errorf("ascend loot view missing %q:\n%s", want, view)
+		}
+	}
+
+	m, _ = press(m, "w")
+
+	if m.engine.State != engine.StateExploring {
+		t.Errorf("state after wear = %v, want StateExploring", m.engine.State)
+	}
+	if !isWorn(m.engine.Player, item) {
+		t.Errorf("the armor piece %q is not worn after wear", item.Name)
 	}
 }
 
@@ -236,7 +296,7 @@ func TestViewInventoryListsTheBag(t *testing.T) {
 	for _, want := range []string{
 		"◈ BAG (3/10)",
 		"Spare Charm",
-		"[G] Wear", "[X] Drop", "[C] Close", "[Q] Quit",
+		"[W] Wear", "[X] Drop", "[C] Close", "[Q] Quit",
 	} {
 		if !strings.Contains(view, want) {
 			t.Errorf("bag view missing %q:\n%s", want, view)
@@ -309,7 +369,7 @@ func TestWearFromTheOpenBagEquipsTheSelection(t *testing.T) {
 	m := New(e)
 	m, _ = press(m, "i")
 	m, _ = press(m, "right") // selects bag[1]: Hero's Blade
-	m, _ = press(m, "g")
+	m, _ = press(m, "w")
 
 	if m.engine.State != engine.StateInventory {
 		t.Fatalf("state after wear = %v, want the bag to stay open", m.engine.State)
@@ -340,7 +400,7 @@ func TestViewLootPanel(t *testing.T) {
 		"◈ CHEST LOOT",
 		m.engine.PendingLoot.Name,
 		"decide — wear it, bag it, or let it go.",
-		"[G] Wear", "[B] Bag", "[D] Discard",
+		"[W] Wear", "[B] Bag", "[D] Discard",
 	} {
 		if !strings.Contains(view, want) {
 			t.Errorf("loot view missing %q:\n%s", want, view)
