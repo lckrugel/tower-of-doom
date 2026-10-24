@@ -70,6 +70,42 @@ func idsEqual(got []string, want ...string) bool {
 	return true
 }
 
+// The hero starts with the starter weapon from the registry equipped,
+// so combat is actually winnable.
+func TestNewEngineEquipsStarterWeapon(t *testing.T) {
+	reg := &game.Registry{
+		Monsters: testMonsters(),
+		Items: map[string]game.ItemAsset{
+			starterItemID: {
+				ID: "wooden_sword", Name: "Espada de Madeira", Slot: "weapon",
+				BonusDMG: 5, Durability: 50,
+			},
+		},
+		Sections: testSections(),
+	}
+	e := NewEngine(reg)
+
+	if got := e.Player.Damage(); got != 5 {
+		t.Errorf("starter hero damage = %d, want 5 (starter weapon equipped)", got)
+	}
+	if e.Player.Weapon == nil || e.Player.Weapon.ID != starterItemID {
+		t.Errorf("starter weapon = %v, want %q", e.Player.Weapon, starterItemID)
+	}
+	// NewPlayer() without items is the baseline max HP.
+	if hp := e.Player.MaxHP(); hp != entities.NewPlayer().MaxHP() {
+		t.Errorf("maxHP = %d, want %d (weapon has no HP bonus)", hp, entities.NewPlayer().MaxHP())
+	}
+}
+
+// A registry without the starter item still builds a valid engine.
+func TestNewEngineWithoutStarterItem(t *testing.T) {
+	e := newTestEngine()
+
+	if e.Player.Damage() != 0 {
+		t.Errorf("damage = %d, want 0 (no starter item in registry)", e.Player.Damage())
+	}
+}
+
 func TestWeightedPickHonorsRngSequence(t *testing.T) {
 	e := newTestEngine()
 	e.rng = &stubRng{values: []int{0}} // sempre o primeiro candidato

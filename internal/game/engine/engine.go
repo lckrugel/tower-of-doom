@@ -12,6 +12,10 @@ import (
 
 const MAX_ENCOUNTER_SIZE = 6
 
+// starterItemID identifies the item the Hero starts the game equipped with,
+// loaded from the registry (so mods can redefine the starter gear).
+const starterItemID = "wooden_sword"
+
 type Engine struct {
 	State            GameState
 	Player           *entities.Hero
@@ -38,8 +42,13 @@ type mathRandRng struct{}
 func (mathRandRng) Intn(n int) int { return rand.Intn(n) }
 
 func NewEngine(reg *game.Registry) *Engine {
+	player := entities.NewPlayer()
+	if asset, ok := reg.Items[starterItemID]; ok {
+		starter := entities.NewItemFromAsset(asset)
+		player.EquipItem(&starter)
+	}
 	return &Engine{
-		Player:       entities.NewPlayer(),
+		Player:       player,
 		CurrentFloor: 1,
 		State:        StateExploring,
 		CanAscend:    false,
