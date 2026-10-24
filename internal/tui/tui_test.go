@@ -231,7 +231,7 @@ func TestViewExploring(t *testing.T) {
 	}
 }
 
-func TestViewEncounterHighlightsTheQueue(t *testing.T) {
+func encounterWithQueue(state engine.GameState) Model {
 	e := testEngine()
 	e.Player = entities.NewPlayer()
 	e.CurrentEncounter = engine.Encounter{
@@ -241,16 +241,40 @@ func TestViewEncounterHighlightsTheQueue(t *testing.T) {
 			entities.NewMonsterFromAsset(game.MonsterAsset{ID: "orc", Name: "Orc", HP: 50}),
 		},
 	}
-	e.State = engine.StateCombat
-	m := New(e)
+	e.State = state
+	return New(e)
+}
+
+// At an encounter the whole queue is shown: the player needs it to weigh
+// FIGHT against SNEAK.
+func TestViewEncounterShowsTheFullQueue(t *testing.T) {
+	m := encounterWithQueue(engine.StateEncounter)
 
 	view := stripControls(stripANSI(m.View()))
 
 	if !strings.Contains(view, "Goblin") || !strings.Contains(view, "Orc") {
-		t.Errorf("view must show the enemy queue:\n%s", view)
+		t.Errorf("encounter view must show every enemy:\n%s", view)
 	}
-	if !strings.Contains(view, "▶") {
-		t.Error("view must mark the current enemy with ▶")
+	if !strings.Contains(view, "[F] Fight") || !strings.Contains(view, "[S] Sneak") {
+		t.Errorf("encounter action bar incomplete:\n%s", view)
+	}
+}
+
+// Combat focuses on the front enemy; the rest of the queue is only a
+// counter, distilled so the eye doesn't track dead weight mid-fight.
+func TestViewCombatShowsOnlyTheCurrentEnemy(t *testing.T) {
+	m := encounterWithQueue(engine.StateCombat)
+
+	view := stripControls(stripANSI(m.View()))
+
+	if !strings.Contains(view, "▶") || !strings.Contains(view, "Goblin") {
+		t.Errorf("combat view must highlight the current enemy:\n%s", view)
+	}
+	if strings.Contains(view, "Orc") {
+		t.Errorf("combat view must not list queued enemies:\n%s", view)
+	}
+	if !strings.Contains(view, "1 more") {
+		t.Errorf("combat view should hint at the waiting enemies:\n%s", view)
 	}
 	if !strings.Contains(view, "[A] Attack") || !strings.Contains(view, "[R] Flee") {
 		t.Errorf("combat action bar incomplete:\n%s", view)

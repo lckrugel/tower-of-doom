@@ -113,8 +113,10 @@ func (m Model) body() string {
 	switch m.engine.State {
 	case engine.StateExploring:
 		return styleDim.Render("The tower awaits — EXPLORE to investigate.") + "\n\n" + m.heroPanel()
-	case engine.StateEncounter, engine.StateCombat: // both share the queue layout
-		return m.enemyPanel() + "\n" + m.heroPanel()
+	case engine.StateEncounter: // the whole queue helps weigh FIGHT vs SNEAK
+		return m.encounterPanel() + "\n" + m.heroPanel()
+	case engine.StateCombat: // only the front enemy matters mid-fight
+		return m.combatPanel() + "\n" + m.heroPanel()
 	case engine.StateGameOver:
 		return styleDeath.Render("☠ YOU DIED — the tower claims another soul.") + "\n\n" + m.heroPanel()
 	default:
@@ -122,9 +124,9 @@ func (m Model) body() string {
 	}
 }
 
-// enemyPanel shows the encounter queue; the head of the queue (marked ▶)
-// is the enemy currently engaged.
-func (m Model) enemyPanel() string {
+// encounterPanel lists every enemy in the queue. Nothing is engaged yet,
+// so there is no ▶ marker — this is the planning screen for FIGHT/SNEAK.
+func (m Model) encounterPanel() string {
 	var b strings.Builder
 	b.WriteString(stylePanelTitle.Render("⚔ ENEMIES") + "\n")
 	monsters := m.engine.CurrentEncounter.Monsters
@@ -132,23 +134,42 @@ func (m Model) enemyPanel() string {
 		return b.String() + styleDim.Render("   (no enemies in sight)")
 	}
 	// Pad names so the HP bars line up across the queue.
-	nameWidth := 0
-	for i := range monsters {
-		if n := len([]rune(monsters[i].Name())); n > nameWidth {
-			nameWidth = n
-		}
-	}
+	nameWidth := maxNameWidth(monsters)
 	for i := range monsters {
 		mon := monsters[i]
-		marker, nameStyle := "  ", styleAction
-		if i == 0 {
-			marker, nameStyle = "▶ ", stylePanelTitle
-		}
-		name := padRight(mon.Name(), nameWidth)
-		b.WriteString(marker + " " + nameStyle.Render(name) + "  " + hpBar(mon.CurrentHP, mon.MaxHP()))
-		b.WriteString("\n")
+		b.WriteString("  " + styleAction.Render(padRight(mon.Name(), nameWidth)) +
+			"  " + hpBar(mon.CurrentHP, mon.MaxHP()) + "\n")
 	}
 	return b.String()
+}
+
+// combatPanel narrows the screen to the enemy currently in front of the
+// hero; the rest of the queue appears only as a counter.
+func (m Model) combatPanel() string {
+	var b strings.Builder
+	b.WriteString(stylePanelTitle.Render("⚔ ENEMIES") + "\n")
+	monsters := m.engine.CurrentEncounter.Monsters
+	if len(monsters) == 0 {
+		return b.String() + styleDim.Render("   (no enemies in sight)")
+	}
+	front := monsters[0]
+	b.WriteString("▶ " + stylePanelTitle.Render(front.Name()) +
+		"  " + hpBar(front.CurrentHP, front.MaxHP()) + "\n")
+	if waiting := len(monsters) - 1; waiting > 0 {
+		b.WriteString(styleDim.Render(fmt.Sprintf("  · %d more waiting", waiting)) + "\n")
+	}
+	return b.String()
+}
+
+// maxNameWidth is the longest (rune-wise) monster name in the queue.
+func maxNameWidth(monsters []entities.Monster) int {
+	width := 0
+	for i := range monsters {
+		if n := len([]rune(monsters[i].Name())); n > width {
+			width = n
+		}
+	}
+	return width
 }
 
 // padRight pads s with spaces on the right up to width runes.
