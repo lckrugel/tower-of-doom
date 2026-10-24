@@ -290,9 +290,10 @@ func (e *Engine) handleGameOver(cmd Command) []Event {
 	}
 }
 
-// generateEncounter decides what actually spawns on a floor: first it rolls
-// the encounter kind from the section's `encounter_types` weights
-// (an absent/zeroed table means combat-only — see rollEncounterType), then,
+// generateEncounter decides what actually spawns on a floor: first it
+// resolves the encounter kind through the pacing rules (decideEncounterKind)
+// over the section's `encounter_types` weights (an absent/zeroed table means
+// combat-only — see rollEncounterType), then,
 // for combat, computes the section difficulty budget and weighted-randomly
 // picks monsters from the spawn table until the budget runs out. Registry
 // only supplies the data (sections, spawn weights, monster stats) — every
