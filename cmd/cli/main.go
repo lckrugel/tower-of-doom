@@ -30,7 +30,10 @@ func main() {
 
 	gameEngine := engine.NewEngine(registry)
 
-	if _, err := tea.NewProgram(tui.New(gameEngine)).Run(); err != nil {
+	// WithAltScreen keeps the frame off the terminal scrollback: the game
+	// screen is redrawn in place, and quitting restores the shell as it
+	// was.
+	if _, err := tea.NewProgram(tui.New(gameEngine), tea.WithAltScreen()).Run(); err != nil {
 		fmt.Fprintln(os.Stderr, "error running the TUI:", err)
 		os.Exit(1)
 	}
