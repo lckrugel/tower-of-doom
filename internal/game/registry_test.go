@@ -26,7 +26,8 @@ func validSections() []SectionAsset {
 		{
 			ID: "depths", Name: "The Depths", BaseDifficulty: 50, DifficultyPerFloor: 5,
 			MinFloor: 6, MaxFloor: -1,
-			Spawns: []SpawnEntry{{MonsterID: "rat", Weight: 100}, {MonsterID: "orc", Weight: 5}},
+			Spawns:         []SpawnEntry{{MonsterID: "rat", Weight: 100}, {MonsterID: "orc", Weight: 5}},
+			EncounterTypes: EncounterTypeWeights{Combat: 100, Sanctuary: 10, Chest: 5},
 		},
 	}
 }
@@ -121,6 +122,14 @@ func TestValidateRejectsInvalidContent(t *testing.T) {
 			[]SectionAsset{{ID: "s", Name: "S", MinFloor: 1, MaxFloor: -1,
 				Spawns: []SpawnEntry{{MonsterID: "rat", Weight: 1}}}},
 			"crit",
+		},
+		{
+			"negative encounter type weight",
+			validMonsters(),
+			[]SectionAsset{{ID: "s", Name: "S", MinFloor: 1, MaxFloor: -1,
+				Spawns:         []SpawnEntry{{MonsterID: "rat", Weight: 1}},
+				EncounterTypes: EncounterTypeWeights{Combat: 10, Chest: -1}}},
+			"encounter type weight",
 		},
 		{
 			"uncovered floor",

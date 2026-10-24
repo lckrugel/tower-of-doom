@@ -49,6 +49,17 @@ type SpawnEntry struct {
 	Weight    int    `json:"weight"`
 }
 
+// Pesos por tipo de encontro da seção: o engine sorteia o TIPO do
+// encontro antes de preencher o orçamento de monstros.
+//
+// Uma tabela zerada (ou o campo ausente no JSON) significa que a seção
+// sorteia apenas encontros de combate — seções/mods antigos continuam válidos.
+type EncounterTypeWeights struct {
+	Combat    int `json:"combat"`
+	Sanctuary int `json:"sanctuary"`
+	Chest     int `json:"chest"`
+}
+
 // Define um asset para uma seção da torre.
 // Usado para gerar um `Floor`.
 //
@@ -58,9 +69,10 @@ type SectionAsset struct {
 	Name               string       `json:"name"`
 	BaseDifficulty     int          `json:"base_difficulty"`
 	DifficultyPerFloor int          `json:"difficulty_per_floor"`
-	MinFloor           int          `json:"min_floor"`
-	MaxFloor           int          `json:"max_floor"`
-	Spawns             []SpawnEntry `json:"spawns"`
+	MinFloor           int                  `json:"min_floor"`
+	MaxFloor           int                  `json:"max_floor"`
+	Spawns             []SpawnEntry         `json:"spawns"`
+	EncounterTypes     EncounterTypeWeights `json:"encounter_types"`
 }
 
 // Registro de todos os assets carregados em memória.
@@ -135,6 +147,14 @@ func (r *Registry) Validate(topFloor int) error {
 	for _, s := range r.Sections {
 		if len(s.Spawns) == 0 {
 			return fmt.Errorf("content validation: section %q has no spawn table", s.ID)
+		}
+		// Negativos distorceriam o sorteio do tipo de encontro. Pesos zerados
+		// (ou o campo ausente) são válidos: significam "apenas combate".
+		if s.EncounterTypes.Combat < 0 || s.EncounterTypes.Sanctuary < 0 || s.EncounterTypes.Chest < 0 {
+			return fmt.Errorf(
+				"content validation: section %q has a negative encounter type weight, want >= 0",
+				s.ID,
+			)
 		}
 		for _, spawn := range s.Spawns {
 			m, ok := r.Monsters[spawn.MonsterID]

@@ -61,7 +61,12 @@
         "monster_id": "orc_warlord",
         "weight": 5
       }
-    ]
+    ],
+    "encounter_types": {
+      "combat": 100,
+      "sanctuary": 20,
+      "chest": 10
+    }
   },
   {
     "id": "underdark_reaches",
@@ -103,7 +108,12 @@
         "monster_id": "mimic",
         "weight": 12
       }
-    ]
+    ],
+    "encounter_types": {
+      "combat": 100,
+      "sanctuary": 10,
+      "chest": 20
+    }
   },
   {
     "id": "wraithfall_bastion",
@@ -145,7 +155,12 @@
         "monster_id": "lich",
         "weight": 5
       }
-    ]
+    ],
+    "encounter_types": {
+      "combat": 100,
+      "sanctuary": 30,
+      "chest": 10
+    }
   },
   {
     "id": "dragon_hoard",
@@ -175,6 +190,11 @@
         "monster_id": "ancient_red_dragon",
         "weight": 3
       }
-    ]
+    ],
+    "encounter_types": {
+      "combat": 120,
+      "sanctuary": 10,
+      "chest": 30
+    }
   }
 ]
