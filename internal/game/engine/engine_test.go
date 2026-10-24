@@ -106,6 +106,19 @@ func TestNewEngineWithoutStarterItem(t *testing.T) {
 	}
 }
 
+// go test: helper for SectionName coverage.
+func TestEngineSectionName(t *testing.T) {
+	e := newTestEngine()
+
+	if got := e.SectionName(1); got != "Goblin Pits" {
+		t.Errorf("SectionName(1) = %q, want %q", got, "Goblin Pits")
+	}
+	// No section covers floor 0; the UI falls back to just the floor number.
+	if got := e.SectionName(0); got != "" {
+		t.Errorf("SectionName(0) = %q, want an empty string", got)
+	}
+}
+
 func TestWeightedPickHonorsRngSequence(t *testing.T) {
 	e := newTestEngine()
 	e.rng = &stubRng{values: []int{0}} // sempre o primeiro candidato

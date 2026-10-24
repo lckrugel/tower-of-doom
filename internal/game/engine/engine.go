@@ -309,6 +309,16 @@ func weightedPick[T any](r rng, items []T, weights []int) T {
 	return items[len(items)-1] // unreachable
 }
 
+// SectionName reports the name of the section covering the floor for UI
+// display, or "" when no section covers it (validation-timed content bug).
+func (e *Engine) SectionName(floor int) string {
+	section, err := e.reg.SectionForFloor(floor)
+	if err != nil {
+		return ""
+	}
+	return section.Name
+}
+
 func (e *Engine) isValidCommand(cmd Command) bool {
 	allowed := AllowedCommands(e.State)
 	return slices.Contains(allowed, cmd.Type)

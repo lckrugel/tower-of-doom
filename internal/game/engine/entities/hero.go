@@ -136,6 +136,12 @@ func (h *Hero) levelUp() {
 	h.Lvl++
 }
 
+// XpToLevel reports the XP still needed to reach the next level
+// (for UI/progress display).
+func (h *Hero) XpToLevel() int {
+	return h.requiredXp() - h.Xp
+}
+
 func (h *Hero) requiredXp() int {
 	return int(baseReqXp * math.Pow(float64(max(h.Lvl-1, 1)), requiredXpGrowth))
 }

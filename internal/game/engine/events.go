@@ -78,8 +78,8 @@ func NewHeroHealed(healed, heroHPPercent int) Event {
 	return Event{
 		Type: EventHeroHealed,
 		Data: map[string]any{
-			"healed":   healed,
-			"hero_hp":  heroHPPercent,
+			"healed":  healed,
+			"hero_hp": heroHPPercent,
 		},
 	}
 }

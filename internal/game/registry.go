@@ -65,10 +65,10 @@ type EncounterTypeWeights struct {
 //
 // `SectionAsset` com `MaxFloor == -1` não tem um limite máximo de andar.
 type SectionAsset struct {
-	ID                 string       `json:"id"`
-	Name               string       `json:"name"`
-	BaseDifficulty     int          `json:"base_difficulty"`
-	DifficultyPerFloor int          `json:"difficulty_per_floor"`
+	ID                 string               `json:"id"`
+	Name               string               `json:"name"`
+	BaseDifficulty     int                  `json:"base_difficulty"`
+	DifficultyPerFloor int                  `json:"difficulty_per_floor"`
 	MinFloor           int                  `json:"min_floor"`
 	MaxFloor           int                  `json:"max_floor"`
 	Spawns             []SpawnEntry         `json:"spawns"`

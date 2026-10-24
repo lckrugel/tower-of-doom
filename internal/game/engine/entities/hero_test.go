@@ -207,6 +207,26 @@ func TestHeroEquippedItemStats(t *testing.T) {
 	}
 }
 
+func TestHeroXpToLevel(t *testing.T) {
+	h := NewPlayer()
+
+	if got := h.XpToLevel(); got != 100 {
+		t.Errorf("XpToLevel at fresh hero = %d, want 100", got)
+	}
+
+	h.GiveXP(40)
+	if got := h.XpToLevel(); got != 60 {
+		t.Errorf("XpToLevel after 40 XP = %d, want 60", got)
+	}
+
+	// XP carries over across level ups: 40 banked + 100 gained consumes the
+	// 100 cost of Lvl 2 and leaves a 40 carryover toward Lvl 3.
+	h.GiveXP(100) // levels up, 40 carry over
+	if got := h.XpToLevel(); got != 60 {
+		t.Errorf("XpToLevel after level up = %d, want 60 (carryover included)", got)
+	}
+}
+
 func TestHeroHeal(t *testing.T) {
 	tests := []struct {
 		name          string
