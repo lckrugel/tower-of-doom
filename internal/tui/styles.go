@@ -31,6 +31,7 @@ var (
 	styleHeal    = lipgloss.NewStyle().Foreground(lipgloss.Color("114")) // heals: green
 	styleLoot    = lipgloss.NewStyle().Foreground(lipgloss.Color("75"))  // items: cyan
 	styleXP      = lipgloss.NewStyle().Foreground(lipgloss.Color("179")) // XP & levels: gold
+	styleGold    = lipgloss.NewStyle().Foreground(lipgloss.Color("179")) // gold gains: the XP gold
 	styleVictory = lipgloss.NewStyle().
 			Bold(true).
 			Foreground(lipgloss.Color("228"))
@@ -102,6 +103,8 @@ func toneOf(ev engine.Event) lipgloss.Style {
 		return styleKill
 	case engine.EventLevelUp:
 		return styleXP
+	case engine.EventGoldGained:
+		return styleGold
 	case engine.EventItemFound:
 		return styleLoot
 	case engine.EventLootFound, engine.EventItemEquipped, engine.EventItemStashed:

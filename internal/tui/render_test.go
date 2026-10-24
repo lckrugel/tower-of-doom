@@ -324,6 +324,24 @@ func TestEventText(t *testing.T) {
 			nil,
 		},
 		{
+			"gold from a kill",
+			engine.NewGoldGained(15, engine.GoldSourceKill),
+			"The fallen enemy drops 15 gold.",
+			nil,
+		},
+		{
+			"gold from a chest",
+			engine.NewGoldGained(120, engine.GoldSourceChest),
+			"The chest holds 120 gold coins!",
+			nil,
+		},
+		{
+			"gold from an unknown source",
+			engine.NewGoldGained(7, "mystery"),
+			"You gain 7 gold.",
+			nil,
+		},
+		{
 			"message",
 			engine.NewMessage("Cannot ascend yet"),
 			"Cannot ascend yet",

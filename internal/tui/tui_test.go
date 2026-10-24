@@ -383,6 +383,44 @@ func TestViewExploring(t *testing.T) {
 	}
 }
 
+// The purse sits on the hero panel's stats line: DMG/DEF/SPD grow a
+// GOLD segment, and the panel keeps its five rows — the layout
+// invariant (vitals directly above the shortcut bar) depends on that
+// count.
+func TestHeroPanelShowsGold(t *testing.T) {
+	e := testEngine()
+	e.Player.Gold = 123
+	m := New(e)
+
+	lines := viewLines(m.heroPanel())
+
+	if len(lines) != heroHeight {
+		t.Fatalf("hero panel has %d lines, want %d", len(lines), heroHeight)
+	}
+	stats := lines[3]
+	for _, want := range []string{"DMG", "DEF", "SPD", "GOLD 123"} {
+		if !strings.Contains(stats, want) {
+			t.Errorf("stats line %q missing %q", stats, want)
+		}
+	}
+	if w := ansiLen(stats); w > mainColWidth {
+		t.Errorf("stats line is %d wide, overflows the %d-col column: %q", w, mainColWidth, stats)
+	}
+}
+
+// A chest payout (the engine's gold roll) reaches the log through the
+// event's render path: source-aware, coins phrased.
+func TestGoldGainedRendersInTheLog(t *testing.T) {
+	m := New(testEngine())
+
+	m.absorb(engine.NewGoldGained(120, engine.GoldSourceChest))
+
+	last := stripANSI(m.log[len(m.log)-1])
+	if last != "The chest holds 120 gold coins!" {
+		t.Errorf("last log line = %q, want the chest payout", last)
+	}
+}
+
 func encounterWithQueue(state engine.GameState) Model {
 	e := testEngine()
 	e.Player = entities.NewPlayer()

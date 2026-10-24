@@ -348,7 +348,10 @@ func (m Model) heroPanel() string {
 	b.WriteString(styleDim.Render(fmt.Sprintf("   XP %s %d/%d to Lv %d", xpBar(p), p.Xp, p.Xp+p.XpToLevel(), p.Lvl+1)))
 	b.WriteString("\n")
 	b.WriteString(fmt.Sprintf("  HP %s %d/%d\n", hpBarPlain(p.CurrentHP, p.MaxHP()), p.CurrentHP, p.MaxHP()))
-	b.WriteString(fmt.Sprintf("  DMG %d · DEF %d · SPD %d\n", p.Damage(), p.Defense(), p.Speed()))
+	b.WriteString(fmt.Sprintf("  DMG %d · DEF %d · SPD %d · ", p.Damage(), p.Defense(), p.Speed()))
+	// The purse shares the stats line, dim like the panel's XP segment:
+	// the panel labels stay quiet, the log carries the gold-colored news.
+	b.WriteString(styleDim.Render(fmt.Sprintf("GOLD %d", p.Gold)) + "\n")
 	b.WriteString(styleDim.Render("  Gear: " + gearList(p)))
 	return b.String()
 }
