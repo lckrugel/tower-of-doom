@@ -3,6 +3,7 @@ package engine
 import (
 	"fmt"
 	"log"
+	"maps"
 	"math/rand"
 	"slices"
 
@@ -102,12 +103,17 @@ func (e *Engine) handleExploring(cmd Command) []Event {
 		e.CanAscend = false
 		sectionDef, err := e.reg.SectionForFloor(e.CurrentFloor)
 		if err != nil {
-			// Deve ser inacessível enquanto a torre for infinita:
-			// existe uma seção com max_floor == -1 cobrindo todos os andares
-			// acima do último trecho finito, e a inicialização valida isso.
+			// Must be unreachable while the tower is infinite:
+			// there is a section with max_floor == -1 covering all floors
+			// above the last finite one, and initialization validates that.
 			panic(fmt.Sprintf("unreachable: no section covers floor %d despite passing content validation: %v", e.CurrentFloor, err))
 		}
-		return []Event{NewFloorEntered(e.CurrentFloor, sectionDef.Name)}
+		events := []Event{NewFloorEntered(e.CurrentFloor, sectionDef.Name)}
+		if item := e.rollArmorReward(); item != nil {
+			e.Player.EquipItem(item)
+			events = append(events, NewItemFound(item))
+		}
+		return events
 
 	default:
 		return []Event{NewMessage("Unhandled command")}
@@ -226,6 +232,27 @@ func (e *Engine) generateEncounter(floor int) ([]entities.Monster, error) {
 		log.Printf("generated empty encounter for floor %v ", floor)
 	}
 	return encounter, nil
+}
+
+// rollArmorReward rolls a random armor piece (helmet, body or boots) from
+// the registry as the reward for ascending — a temporary stand-in for the
+// full gold/item drops. Returns nil when the registry defines no armor.
+// The Hero auto-equips it (there is no inventory); whatever it replaced is
+// gone. The armor list is built from sorted IDs so the roll is deterministic
+// under a seeded rng.
+func (e *Engine) rollArmorReward() *entities.Item {
+	ids := slices.Sorted(maps.Keys(e.reg.Items))
+	armor := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if entities.IsArmor(entities.ItemSlot(e.reg.Items[id].Slot)) {
+			armor = append(armor, id)
+		}
+	}
+	if len(armor) == 0 {
+		return nil
+	}
+	item := entities.NewItemFromAsset(e.reg.Items[armor[e.rng.Intn(len(armor))]])
+	return &item
 }
 
 // weightedPick escolhe um item aleatoriamente, proporcional ao seu peso.

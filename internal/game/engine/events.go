@@ -29,6 +29,8 @@ const (
 	EventVictory
 	// Hero gained a level (mid-combat level ups included).
 	EventLevelUp
+	// Hero found (and auto-equipped) an item.
+	EventItemFound
 	// Quit requested the game.
 	EventQuit
 	// Generic game message.
@@ -140,4 +142,15 @@ func NewLevelUp(lvl int) Event {
 // NewQuit tells the caller to stop the game loop and exit.
 func NewQuit() Event {
 	return Event{Type: EventQuit}
+}
+
+// NewItemFound reports an item the Hero found and auto-equipped
+// (there is no inventory yet — whatever it replaced is gone).
+func NewItemFound(item *entities.Item) Event {
+	return Event{
+		Type: EventItemFound,
+		Data: map[string]any{
+			"item": item,
+		},
+	}
 }

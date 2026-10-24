@@ -133,6 +133,8 @@ func renderEvent(ev engine.Event) string {
 		return "You fled the combat successfully."
 	case engine.EventQuit:
 		return "You persistently close your eyes. Goodbye."
+	case engine.EventItemFound:
+		return renderItemFound(ev.Data)
 	case engine.EventMessage:
 		return fmt.Sprint(ev.Data["message"])
 	default:
@@ -169,6 +171,36 @@ func renderDamageTaken(data map[string]any) string {
 		return fmt.Sprintf("%vYou take %v damage (%v%% HP left).", prefix, dmg, data["hero_hp"])
 	}
 	return fmt.Sprintf("%vYou take %v damage and your vision fades...", prefix, dmg)
+}
+
+// renderItemFound renders the auto-equipped loot reward.
+func renderItemFound(data map[string]any) string {
+	item, ok := data["item"].(*entities.Item)
+	if !ok {
+		return "You found some gear, but the tower swallowed it."
+	}
+	return fmt.Sprintf("While climbing, you loot a %v%s and put it on.", item.Name, itemBonusList(item))
+}
+
+// itemBonusList renders an item's bonuses, e.g. " (+5 HP, +5 DEF)".
+func itemBonusList(item *entities.Item) string {
+	var parts []string
+	if item.BonusHP != 0 {
+		parts = append(parts, fmt.Sprintf("%+d HP", item.BonusHP))
+	}
+	if item.BonusDEF != 0 {
+		parts = append(parts, fmt.Sprintf("%+d DEF", item.BonusDEF))
+	}
+	if item.BonusDMG != 0 {
+		parts = append(parts, fmt.Sprintf("%+d DMG", item.BonusDMG))
+	}
+	if item.BonusSPD != 0 {
+		parts = append(parts, fmt.Sprintf("%+d SPD", item.BonusSPD))
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return " (" + strings.Join(parts, ", ") + ")"
 }
 
 // describeMonsters renders the spawned encounter, e.g. "Goblin (30 HP), Orc (50 HP)".

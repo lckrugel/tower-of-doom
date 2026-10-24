@@ -454,6 +454,71 @@ func TestDefenseMitigationInCombat(t *testing.T) {
 	})
 }
 
+// Ascending to the next floor grants a random armor piece from the registry.
+func TestAscendGrantsRandomArmor(t *testing.T) {
+	tests := []struct {
+		name    string
+		rngPick int
+		wantID  string
+	}{
+		{"first armor in sorted order", 0, "chain_mail"},
+		{"second armor in sorted order", 1, "helm_cap"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e := newTestEngine(tt.rngPick)
+			e.reg.Items = map[string]game.ItemAsset{
+				"wooden_sword": {ID: "wooden_sword", Name: "Sword", Slot: "weapon", BonusDMG: 5},
+				"chain_mail":   {ID: "chain_mail", Name: "Mail", Slot: "body_armor", BonusDEF: 3},
+				"helm_cap":     {ID: "helm_cap", Name: "Cap", Slot: "helmet", BonusDEF: 5},
+			}
+			e.CanAscend = true
+
+			events := e.Process(Command{Type: CmdAscend})
+
+			// Floor event first, loot second.
+			if got := eventTypes(events); !typesEqual(got, EventFloorEntered, EventItemFound) {
+				t.Fatalf("events = %v, want [floor-entered item-found]", got)
+			}
+			item := events[1].Data["item"].(*entities.Item)
+			if item.ID != tt.wantID {
+				t.Errorf("looted item = %q, want %q (weapons must never roll)", item.ID, tt.wantID)
+			}
+			// The loot must land in its own slot (pointer-equality is enough).
+			switch item.Slot {
+			case entities.ItemSlot("helmet"):
+				if e.Player.Head != item {
+					t.Error("loot not equipped in the helmet slot")
+				}
+			case entities.ItemSlot("body_armor"):
+				if e.Player.Body != item {
+					t.Error("loot not equipped in the body slot")
+				}
+			case entities.ItemSlot("boots"):
+				if e.Player.Feet != item {
+					t.Error("loot not equipped in the boots slot")
+				}
+			}
+			if e.Player.Weapon != nil {
+				t.Error("the weapon pool leaked into armor rewards")
+			}
+		})
+	}
+}
+
+// A registry without armor pieces makes ascending work, just without loot.
+func TestAscendWithoutArmorRegistryGrantsNothing(t *testing.T) {
+	e := newTestEngine()
+	e.CanAscend = true
+
+	events := e.Process(Command{Type: CmdAscend})
+
+	if got := eventTypes(events); !typesEqual(got, EventFloorEntered) {
+		t.Errorf("events = %v, want [floor-entered] only", got)
+	}
+}
+
 func TestQuitAllowedInEveryState(t *testing.T) {
 	for _, state := range []GameState{StateExploring, StateEncounter, StateCombat, StateGameOver} {
 		e := newTestEngine()

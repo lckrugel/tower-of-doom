@@ -27,8 +27,10 @@
 - When an enemy die mid combat the player gets the XP reward instantly
     - mid combat level ups are possible
 - When all enemies die, the encounter ends with a victory for the player
-    - Unlocks ascending to the next floor
-    - TODO: add gold and items reward
+    - Unlocks climbing: ASCEND to the next floor
+    - Ascending also grants a random armor piece (helmet/body/boots) from
+      the registry, auto-equipped on the spot (temporary reward; gold and
+      proper item drops TODO)
 - After combat games goes to StateExploring again
     - If combat was won, ASCEND is now permitted
 - If the Hero's HP reachs zero, it dies
