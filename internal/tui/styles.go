@@ -104,6 +104,12 @@ func toneOf(ev engine.Event) lipgloss.Style {
 		return styleXP
 	case engine.EventItemFound:
 		return styleLoot
+	case engine.EventLootFound, engine.EventItemEquipped, engine.EventItemStashed:
+		return styleLoot
+	case engine.EventItemDiscarded:
+		return styleDim
+	case engine.EventItemLost, engine.EventBagFull:
+		return styleHurt
 	case engine.EventHeroDefeated, engine.EventFled:
 		return styleDeath
 	case engine.EventVictory:

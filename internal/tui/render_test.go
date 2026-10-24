@@ -24,6 +24,16 @@ func testItem() *entities.Item {
 	return &item
 }
 
+// displacedItem is the previously worn gear an equip displaces into the
+// bag (the engine's swapped_from payload).
+func displacedItem() *entities.Item {
+	item := entities.NewItemFromAsset(game.ItemAsset{
+		ID: "old_blade", Name: "Old Blade", Slot: "weapon",
+		BonusDMG: 2, Durability: 20,
+	})
+	return &item
+}
+
 // damagedHero builds a Hero that took `dmg` damage, mirroring the engine's
 // order of operations (damage applied, then the event carries the result).
 func damagedHero(dmg int, crit bool) engine.Event {
@@ -247,6 +257,71 @@ func TestEventText(t *testing.T) {
 			engine.NewItemFound(testItem()),
 			"",
 			[]string{"You find Espada de Madeira", "+5 DMG", "and put it on."},
+		},
+		{
+			"loot found lists bonuses",
+			engine.NewLootFound(testItem()),
+			"The chest holds Espada de Madeira (+5 DMG).",
+			nil,
+		},
+		{
+			"loot found without an item is dust",
+			engine.Event{Type: engine.EventLootFound, Data: map[string]any{}},
+			"The chest holds nothing but dust.",
+			nil,
+		},
+		{
+			"loot found with a typed-nil item is dust",
+			engine.Event{Type: engine.EventLootFound, Data: map[string]any{
+				"item": (*entities.Item)(nil),
+			}},
+			"The chest holds nothing but dust.",
+			nil,
+		},
+		{
+			"item equipped without a swap",
+			engine.NewItemEquipped(testItem(), nil),
+			"You equip Espada de Madeira (+5 DMG).",
+			nil,
+		},
+		{
+			"item equipped over a displaced one",
+			engine.NewItemEquipped(testItem(), displacedItem()),
+			"You equip Espada de Madeira (+5 DMG) — the Old Blade goes into your bag.",
+			nil,
+		},
+		{
+			"item equipped with a malformed swap falls back to the no-swap text",
+			engine.Event{Type: engine.EventItemEquipped, Data: map[string]any{
+				"item":         testItem(),
+				"swapped_from": "not an item",
+			}},
+			"You equip Espada de Madeira (+5 DMG).",
+			nil,
+		},
+		{
+			"item stashed",
+			engine.NewItemStashed(testItem()),
+			"You put the Espada de Madeira (+5 DMG) in your bag.",
+			nil,
+		},
+		{
+			"item discarded",
+			engine.NewItemDiscarded(testItem()),
+			"The Espada de Madeira (+5 DMG) crumbles away — gone for good.",
+			nil,
+		},
+		{
+			"item lost to the overflow",
+			engine.NewItemLost(testItem()),
+			"Your bag overflows — the Espada de Madeira (+5 DMG) is lost to the tower.",
+			nil,
+		},
+		{
+			"bag full",
+			engine.NewBagFull(),
+			"Your bag is full.",
+			nil,
 		},
 		{
 			"message",

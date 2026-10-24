@@ -45,6 +45,18 @@ func eventText(ev engine.Event) string {
 		return heroHealedText(ev.Data)
 	case engine.EventItemFound:
 		return itemFoundText(ev.Data)
+	case engine.EventLootFound:
+		return lootFoundText(ev.Data)
+	case engine.EventItemEquipped:
+		return itemEquippedText(ev.Data)
+	case engine.EventItemStashed:
+		return stashedText(ev.Data)
+	case engine.EventItemDiscarded:
+		return discardedText(ev.Data)
+	case engine.EventItemLost:
+		return lostText(ev.Data)
+	case engine.EventBagFull:
+		return "Your bag is full."
 	case engine.EventQuit:
 		return "You persistently close your eyes. Goodbye."
 	case engine.EventMessage:
@@ -125,6 +137,62 @@ func itemFoundText(data map[string]any) string {
 	// multilingual item name. Sentence-style naming is article-free and
 	// reads the same for every asset.
 	return fmt.Sprintf("You find %v%s and put it on.", item.Name, itemBonusList(item))
+}
+
+// itemOf reads an event's item payload, treating a missing key and a
+// typed nil alike (both mean "no item to name").
+func itemOf(data map[string]any) (*entities.Item, bool) {
+	item, ok := data["item"].(*entities.Item)
+	return item, ok && item != nil
+}
+
+// lootFoundText renders the chest's yield, held pending the StateLoot
+// decision. A chest without an item (malformed payload) is just dust.
+func lootFoundText(data map[string]any) string {
+	item, ok := itemOf(data)
+	if !ok {
+		return "The chest holds nothing but dust."
+	}
+	return fmt.Sprintf("The chest holds %v%v.", item.Name, itemBonusList(item))
+}
+
+// itemEquippedText renders the wear action (from the bag or the chest).
+// The displaced item is optional — the swapped_from key is absent when
+// nothing was worn in that slot before.
+func itemEquippedText(data map[string]any) string {
+	item, ok := itemOf(data)
+	if !ok {
+		return "You equip some gear, but the tower swallowed it."
+	}
+	if swapped, ok := data["swapped_from"].(*entities.Item); ok && swapped != nil {
+		return fmt.Sprintf("You equip %v%v — the %v goes into your bag.",
+			item.Name, itemBonusList(item), swapped.Name)
+	}
+	return fmt.Sprintf("You equip %v%v.", item.Name, itemBonusList(item))
+}
+
+func stashedText(data map[string]any) string {
+	item, ok := itemOf(data)
+	if !ok {
+		return "Some gear slips into your bag."
+	}
+	return fmt.Sprintf("You put the %v%v in your bag.", item.Name, itemBonusList(item))
+}
+
+func discardedText(data map[string]any) string {
+	item, ok := itemOf(data)
+	if !ok {
+		return "Some gear crumbles away — gone for good."
+	}
+	return fmt.Sprintf("The %v%v crumbles away — gone for good.", item.Name, itemBonusList(item))
+}
+
+func lostText(data map[string]any) string {
+	item, ok := itemOf(data)
+	if !ok {
+		return "Your bag overflows — some gear is lost to the tower."
+	}
+	return fmt.Sprintf("Your bag overflows — the %v%v is lost to the tower.", item.Name, itemBonusList(item))
 }
 
 // itemBonusList renders an item's bonuses, e.g. " (+5 HP, +5 DEF)".
