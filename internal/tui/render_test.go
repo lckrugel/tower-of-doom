@@ -378,6 +378,75 @@ func TestEventText(t *testing.T) {
 			nil,
 		},
 		{
+			"hero uses a move",
+			engine.NewMoveUsed("Hero", "Power Slash"),
+			"You use Power Slash!",
+			nil,
+		},
+		{
+			"monster uses a move",
+			engine.NewMoveUsed("Goblin", "Venom Bite"),
+			"The Goblin uses Venom Bite!",
+			nil,
+		},
+		{
+			"debuff lands on the enemy",
+			engine.Event{Type: engine.EventStatusApplied, Data: map[string]any{
+				"target": "Goblin", "status": "Poison", "turns": 3, "kind": "debuff",
+			}},
+			"The Goblin suffers Poison (3 turns).",
+			nil,
+		},
+		{
+			"buff lands on the hero",
+			engine.Event{Type: engine.EventStatusApplied, Data: map[string]any{
+				"target": "Hero", "status": "Guard", "turns": 2, "kind": "buff",
+			}},
+			"You gain Guard (2 turns).",
+			nil,
+		},
+		{
+			"debuff lands on the hero",
+			engine.Event{Type: engine.EventStatusApplied, Data: map[string]any{
+				"target": "Hero", "status": "Poison", "turns": 3, "kind": "debuff",
+			}},
+			"You suffer Poison (3 turns).",
+			nil,
+		},
+		{
+			"buff lands on the enemy",
+			engine.Event{Type: engine.EventStatusApplied, Data: map[string]any{
+				"target": "Goblin", "status": "Guard", "turns": 2, "kind": "buff",
+			}},
+			"The Goblin gains Guard (2 turns).",
+			nil,
+		},
+		{
+			"status expires",
+			engine.Event{Type: engine.EventStatusExpired, Data: map[string]any{
+				"target": "Goblin", "status": "Poison", "kind": "debuff",
+			}},
+			"The Poison wears off.",
+			nil,
+		},
+		{
+			"dot tick with exact HP",
+			engine.Event{Type: engine.EventStatusDamage, Data: map[string]any{
+				"target": "Hero", "status": "Poison", "amount": 3, "kind": "debuff",
+				"target_hp_exact": 12, "target_max_hp": 45,
+			}},
+			"The Poison eats 3 HP (12/45 left).",
+			nil,
+		},
+		{
+			"dot tick without exact HP stays truthful",
+			engine.Event{Type: engine.EventStatusDamage, Data: map[string]any{
+				"target": "Goblin", "status": "Poison", "amount": 3, "kind": "debuff",
+			}},
+			"The Poison eats 3 HP.",
+			nil,
+		},
+		{
 			"message",
 			engine.NewMessage("Cannot ascend yet"),
 			"Cannot ascend yet",
@@ -400,5 +469,26 @@ func TestEventText(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// Status tones follow the status KIND: debuffs render soft-red, buffs
+// green — regardless of which side they landed on.
+func TestStatusTonesFollowKind(t *testing.T) {
+	withKind := func(kind string) engine.Event {
+		return engine.Event{Type: engine.EventStatusApplied, Data: map[string]any{"kind": kind}}
+	}
+
+	if got, want := toneOf(withKind("debuff")).Render("x"), styleHurt.Render("x"); got != want {
+		t.Error("a debuff status must take the soft-red tone")
+	}
+	if got, want := toneOf(withKind("buff")).Render("x"), styleHeal.Render("x"); got != want {
+		t.Error("a buff status must take the green tone")
+	}
+	if got, want := toneOf(engine.Event{Type: engine.EventStatusDamage, Data: map[string]any{"kind": "debuff"}}).Render("x"), styleHurt.Render("x"); got != want {
+		t.Error("a DoT tick must take the soft-red tone")
+	}
+	if got, want := toneOf(engine.Event{Type: engine.EventMoveUsed}).Render("x"), styleDim.Render("x"); got != want {
+		t.Error("a move-used line must stay quiet (dim)")
 	}
 }

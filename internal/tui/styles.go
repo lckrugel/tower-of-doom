@@ -4,6 +4,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/lckrugel/tower-of-doom/internal/game/engine"
+	"github.com/lckrugel/tower-of-doom/internal/game/engine/entities"
 )
 
 // Dark-dungeon palette on 256-color ANSI numbers: golds for titles and
@@ -110,6 +111,14 @@ func toneOf(ev engine.Event) lipgloss.Style {
 		return styleMerchant
 	case engine.EventItemBought, engine.EventItemSold:
 		return styleLoot
+	case engine.EventMoveUsed:
+		return styleDim
+	case engine.EventStatusApplied, engine.EventStatusExpired, engine.EventStatusDamage:
+		// Statuses tone by kind: debuffs soft-red, buffs green.
+		if kind, _ := ev.Data["kind"].(string); kind == string(entities.StatusBuff) {
+			return styleHeal
+		}
+		return styleHurt
 	case engine.EventLootFound, engine.EventItemEquipped, engine.EventItemStashed:
 		return styleLoot
 	case engine.EventItemDiscarded:

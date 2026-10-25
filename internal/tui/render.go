@@ -68,6 +68,14 @@ func eventText(ev engine.Event) string {
 		return boughtText(ev.Data)
 	case engine.EventItemSold:
 		return soldText(ev.Data)
+	case engine.EventMoveUsed:
+		return moveUsedText(ev.Data)
+	case engine.EventStatusApplied:
+		return statusAppliedText(ev.Data)
+	case engine.EventStatusExpired:
+		return statusExpiredText(ev.Data)
+	case engine.EventStatusDamage:
+		return statusDamageText(ev.Data)
 	case engine.EventQuit:
 		return "You persistently close your eyes. Goodbye."
 	case engine.EventMessage:
@@ -253,6 +261,61 @@ func itemBonusList(item *entities.Item) string {
 		return ""
 	}
 	return " (" + strings.Join(parts, ", ") + ")"
+}
+
+// moveUsedText renders a move use: "You use Power Slash!" for the hero,
+// "The Goblin uses Venom Bite!" for monsters. The hero is recognized by
+// its fixed name.
+func moveUsedText(data map[string]any) string {
+	user, _ := data["user"].(string)
+	move, _ := data["move"].(string)
+	if user == "Hero" {
+		return fmt.Sprintf("You use %s!", move)
+	}
+	return fmt.Sprintf("The %s uses %s!", user, move)
+}
+
+// statusAppliedText renders a status landing (fresh or refreshed —
+// never stacked). The verb follows the status's kind: buffs are gained,
+// debuffs are suffered — "You gain Guard (2 turns)." vs "The Goblin
+// suffers Poison (3 turns)."
+func statusAppliedText(data map[string]any) string {
+	target, _ := data["target"].(string)
+	status, _ := data["status"].(string)
+	turns, _ := data["turns"].(int)
+	verb := statusVerb(data)
+	if target == "Hero" {
+		return fmt.Sprintf("You %s %s (%d turns).", verb, status, turns)
+	}
+	return fmt.Sprintf("The %s %ss %s (%d turns).", target, verb, status, turns)
+}
+
+// statusExpiredText renders a status ticking away: "The Poison wears
+// off." — the line names the status, not the host.
+func statusExpiredText(data map[string]any) string {
+	status, _ := data["status"].(string)
+	return fmt.Sprintf("The %s wears off.", status)
+}
+
+// statusDamageText renders a DoT tick: "The Poison eats 3 HP (12/45
+// left)." — the afflicted's exact HP after the tick, when the payload
+// carries it.
+func statusDamageText(data map[string]any) string {
+	status, _ := data["status"].(string)
+	amount, _ := data["amount"].(int)
+	if cur, max, ok := exactHP(data, "target_hp_exact", "target_max_hp"); ok {
+		return fmt.Sprintf("The %s eats %d HP (%d/%d left).", status, amount, cur, max)
+	}
+	return fmt.Sprintf("The %s eats %d HP.", status, amount)
+}
+
+// statusVerb picks gain/suffer by the status's kind (a missing kind
+// degrades to the debuff verb — the safer reading for statuses).
+func statusVerb(data map[string]any) string {
+	if kind, _ := data["kind"].(string); kind == string(entities.StatusBuff) {
+		return "gain"
+	}
+	return "suffer"
 }
 
 // monsterList renders the spawned encounter, e.g. "Goblin (30 HP), Orc (50 HP)".

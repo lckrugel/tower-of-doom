@@ -17,6 +17,9 @@ func testEngine() *engine.Engine {
 		Items: map[string]game.ItemAsset{},
 		Sections: []game.SectionAsset{{
 			ID: "pits", Name: "Goblin Pits", MinFloor: 1, MaxFloor: -1,
+			// A real budget: the flow tests resolve actual rounds, which
+			// needs an encounter that actually spawns monsters.
+			BaseDifficulty: 9, DifficultyPerFloor: 3,
 			Spawns: []game.SpawnEntry{{MonsterID: "goblin", Weight: 1}},
 		}},
 	})
@@ -62,7 +65,7 @@ func TestActionsPerState(t *testing.T) {
 	}{
 		{"exploring", engine.StateExploring, false, false, []string{"e", "u", "i", "q"}},
 		{"encounter", engine.StateEncounter, false, false, []string{"f", "s", "q"}},
-		{"combat", engine.StateCombat, false, false, []string{"a", "r", "q"}},
+		{"combat", engine.StateCombat, false, false, []string{"1", "r", "q"}},
 		{"loot", engine.StateLoot, false, false, []string{"w", "b", "d", "q"}},
 		{"inventory", engine.StateInventory, true, false, []string{"w", "x", "c", "q"}},
 		{"merchant", engine.StateMerchant, true, true, []string{"p", "v", "l", "q"}},
@@ -159,7 +162,8 @@ func TestAscendEnabledFollowsCanAscend(t *testing.T) {
 
 // Only the row-indexed commands dispatch with the cursor: the bag
 // commands (WEAR/DROP) index the hero bag; at the merchant, BUY indexes
-// the stock and SELL the bag. Every other action never sends an index.
+// the stock and SELL the bag. The combat move chips (CmdMove) instead
+// carry their own move position — every one of them is an index user.
 func TestIndexedCommandsUseTheRowCursor(t *testing.T) {
 	states := []engine.GameState{
 		engine.StateExploring, engine.StateEncounter, engine.StateCombat,
@@ -171,10 +175,101 @@ func TestIndexedCommandsUseTheRowCursor(t *testing.T) {
 		e.State = state
 		for _, a := range actionsFor(e) {
 			want := a.cmd == engine.CmdWear || a.cmd == engine.CmdDrop ||
-				a.cmd == engine.CmdBuy || a.cmd == engine.CmdSell
+				a.cmd == engine.CmdBuy || a.cmd == engine.CmdSell ||
+				a.cmd == engine.CmdMove
 			if a.usesIndex != want {
 				t.Errorf("state %v: action %q usesIndex = %v, want %v", state, a.key, a.usesIndex, want)
 			}
 		}
 	}
+}
+
+// The combat bar lists the hero's combat moves as chips keyed 1-4
+// (effective set order), then Flee and Quit.
+func TestCombatBarShowsMoveChips(t *testing.T) {
+	e := testEngine()
+	learnTestMove(e, "power_slash", "Power Slash", 0)
+	learnTestMove(e, "guard_blow", "Guard Blow", 2)
+	e.State = engine.StateCombat
+
+	actions := actionsFor(e)
+
+	if !keysEqual(keysOf(actions), "1", "2", "r", "q") {
+		t.Fatalf("combat keys = %v, want [1 2 r q]", keysOf(actions))
+	}
+	if actions[0].label != "Power Slash" || actions[1].label != "Guard Blow" {
+		t.Errorf("chip labels = %q/%q, want the effective-set order", actions[0].label, actions[1].label)
+	}
+	for i, a := range actions[:2] {
+		if !a.enabled || a.cmd != engine.CmdMove || a.index != i {
+			t.Errorf("chip %d = %+v, want an enabled CmdMove with index %d", i, a, i)
+		}
+	}
+}
+
+// A move on cooldown renders as a disabled chip with a turns-left
+// marker, e.g. "[1] Heavy Slash (2)".
+func TestCombatBarMarksCoolingMoves(t *testing.T) {
+	m := combatWithMoveOnCooldown()
+
+	actions := actionsFor(m.engine)
+
+	if actions[0].enabled {
+		t.Error("the cooling move's chip is enabled")
+	}
+	if actions[0].label != "Heavy Slash (2)" {
+		t.Errorf("cooling chip label = %q, want %q", actions[0].label, "Heavy Slash (2)")
+	}
+	// The rest of the bar is unaffected.
+	if !actions[1].enabled || !actions[2].enabled {
+		t.Error("flee/quit rendered disabled")
+	}
+}
+
+// Single keys 1-4 dispatch the matching chip: Command{CmdMove, Index}.
+func TestNumberKeysDispatchMoves(t *testing.T) {
+	e := testEngine()
+	learnTestMove(e, "power_slash", "Power Slash", 0)
+	learnTestMove(e, "heavy_blow", "Heavy Blow", 2)
+	e.Process(engine.Command{Type: engine.CmdExplore})
+	e.Process(engine.Command{Type: engine.CmdFight})
+	m := New(e)
+
+	m, _ = press(m, "2")
+
+	if m.engine.State != engine.StateCombat {
+		t.Fatalf("state after '2' = %v, want StateCombat", m.engine.State)
+	}
+	// The dispatch locked the move (cooldown 2): a second press is a
+	// blocked action, proving the chip really dispatched CmdMove.
+	m, _ = press(m, "2")
+	last := stripANSI(m.log[len(m.log)-1])
+	if last != "Move on cooldown." {
+		t.Errorf("second '2' logged %q, want the cooldown block", last)
+	}
+	if m.engine.MoveCooldown("heavy_blow") <= 0 {
+		t.Error("heavy_blow was not locked by the dispatched move")
+	}
+}
+
+// learnTestMove teaches the hero a hand-built move. Learned moves are
+// runtime values — the registry is only consulted for monster move refs
+// and status resolution, so no registration is needed here.
+func learnTestMove(e *engine.Engine, id, name string, cooldown int) {
+	e.Player.LearnMove(entities.Move{
+		ID: id, Name: name, Tier: 1, DmgModifier: 100, Cooldown: cooldown, Weight: 10,
+	})
+}
+
+// combatWithMoveOnCooldown runs a real fight until the hero's move
+// (cooldown 2) is locked, then hands the engine over with the chip
+// cooling and the enemy's answer logged.
+func combatWithMoveOnCooldown() Model {
+	e := testEngine()
+	learnTestMove(e, "heavy_slash", "Heavy Slash", 2)
+	e.Process(engine.Command{Type: engine.CmdExplore})
+	e.Process(engine.Command{Type: engine.CmdFight})
+	e.Process(engine.Command{Type: engine.CmdMove, Index: 0})
+	e.State = engine.StateCombat
+	return New(e)
 }

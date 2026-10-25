@@ -52,6 +52,13 @@ func (e *Engine) CombatMoves() []entities.Move {
 	return moves
 }
 
+// MoveCooldown reports how many more rounds the hero's move stays
+// locked (0 = ready) — a read-only view of the combat-scoped cooldown
+// state for the UI's chip rendering.
+func (e *Engine) MoveCooldown(moveID string) int {
+	return e.heroCombat.cooldowns[moveID]
+}
+
 // resolveRound plays one full round of combat from the hero's move
 // choice: whoever has the higher total Speed (items included) acts first
 // — the Hero wins ties — and both combatants act unless someone dies
