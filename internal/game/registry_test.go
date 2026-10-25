@@ -1179,3 +1179,73 @@ func TestValidateCombat2Content(t *testing.T) {
 		})
 	}
 }
+
+// Validate collects every fault in one pass instead of stopping at the
+// first one: a multi-fault registry reports ALL of them, one per line,
+// in a deterministic order (assets walked by id, sections in slice
+// order, floors ascending). Every category appears — asset schema,
+// references, section rules, floor coverage — and every instance of a
+// category (two broken sections yield two lines, not one).
+func TestValidateCollectsEveryError(t *testing.T) {
+	r := combat2Reg()
+
+	// Two faults on the SAME status asset, plus one fault per remaining
+	// category: moves (×2, sorted order pinned), monsters, items,
+	// sections (×2, one per section) and floor coverage.
+	poison := r.Statuses["poison"]
+	poison.Kind = "curse"
+	poison.Duration = 0
+	r.Statuses["poison"] = poison
+
+	stab := r.Moves["quick_stab"]
+	stab.DmgModifier = 10
+	r.Moves["quick_stab"] = stab
+
+	bite := r.Moves["venom_bite"]
+	bite.Status.ID = "nope"
+	r.Moves["venom_bite"] = bite
+
+	rat := r.Monsters["rat"]
+	rat.Moves = []MoveRef{{ID: "ghost_move", Weight: 1}}
+	r.Monsters["rat"] = rat
+
+	r.Items["charm"] = ItemAsset{ID: "charm", Name: "Charm", Slot: "ring", Tier: 1, Moves: []string{"heavy_slash"}}
+
+	r.Sections[0].ItemTiers = []int{9}
+	r.Sections[0].BaseDifficulty = 0 // floor 1's budget drops below the rat
+	r.Sections[1].ItemTiers = []int{7}
+
+	err := r.Validate(10)
+	if err == nil {
+		t.Fatal("Validate = nil, want the collected fault report")
+	}
+
+	want := []string{
+		`status "poison" has kind "curse"`,
+		`status "poison" has duration 0`,
+		`move "quick_stab" has dmg_modifier 10`,
+		`move "venom_bite" references unknown status "nope"`,
+		`monster "rat" references unknown move "ghost_move"`,
+		`item "charm" (slot "ring") grants moves, but only weapons may`,
+		`section "cellar" allows item tier 9`,
+		`section "depths" allows item tier 7`,
+		`floor 1 (section "cellar") has difficulty budget 0`,
+	}
+
+	lines := strings.Split(err.Error(), "\n")
+	if len(lines) != len(want) {
+		t.Fatalf("the report has %d lines, want %d:\n%s", len(lines), len(want), err.Error())
+	}
+	for i, wantLine := range want {
+		if !strings.Contains(lines[i], wantLine) {
+			t.Errorf("report line %d = %q, want it to contain %q", i, lines[i], wantLine)
+		}
+	}
+
+	// The order is stable: Validate only reads, so a second pass over
+	// the same registry produces the same report.
+	again := r.Validate(10)
+	if again == nil || again.Error() != err.Error() {
+		t.Errorf("Validate is not deterministic:\nfirst:  %v\nsecond: %v", err, again)
+	}
+}
