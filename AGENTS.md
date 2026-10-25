@@ -24,3 +24,4 @@ Comments, documentation and design decisions should be in english.
 
 - Split work into commits. You're free to commit as soon as you consider a subtask done.
 - Implmentation starts with tests. Write tests that define the logic and then use them as indicator of success.
+- Testing discipline: extend the EXISTING `_test.go` files instead of creating a new test file per feature; keep test volume proportional to the change (table-driven where the file already is). Standard `go test ./...` only — no standalone script runners, smoke binaries, throwaway debug tests, or repeated "stability" reruns of the suite.
