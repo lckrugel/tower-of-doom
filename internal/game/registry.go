@@ -16,6 +16,10 @@ import (
 //go:embed assets/*.json
 var embeddedAssets embed.FS
 
+// weaponSlot is the only equipment slot allowed to grant Combat 2.0
+// moves (the entities package owns the typed slot constants).
+const weaponSlot = "weapon"
+
 // Define um asset para item.
 //
 // Usado para spawnar uma instância de `Item` no jogo.
@@ -356,6 +360,153 @@ func (r *Registry) Validate(topFloor int) error {
 		}
 	}
 
+	// Combat 2.0: statuses are checked before moves (moves reference
+	// them), and moves before monsters/weapons (those reference moves).
+	for _, st := range r.Statuses {
+		if st.Kind != "buff" && st.Kind != "debuff" {
+			return fmt.Errorf(
+				"content validation: status %q has kind %q, want \"buff\" or \"debuff\"",
+				st.ID, st.Kind,
+			)
+		}
+		if st.Duration < 1 {
+			return fmt.Errorf(
+				"content validation: status %q has duration %d, want >= 1",
+				st.ID, st.Duration,
+			)
+		}
+		switch st.Effect.Type {
+		case "dot":
+			if st.Effect.Amount < 1 {
+				return fmt.Errorf(
+					"content validation: status %q has dot amount %d, want >= 1",
+					st.ID, st.Effect.Amount,
+				)
+			}
+		case "stat":
+			if !slices.Contains([]string{"dmg", "def", "spd"}, st.Effect.Stat) {
+				return fmt.Errorf(
+					"content validation: status %q modifies unknown stat %q, want one of dmg, def, spd",
+					st.ID, st.Effect.Stat,
+				)
+			}
+			if st.Effect.Amount == 0 {
+				return fmt.Errorf(
+					"content validation: status %q has a zero stat amount, want a non-zero modifier",
+					st.ID,
+				)
+			}
+		default:
+			return fmt.Errorf(
+				"content validation: status %q has effect type %q, want \"dot\" or \"stat\"",
+				st.ID, st.Effect.Type,
+			)
+		}
+	}
+
+	for _, mv := range r.Moves {
+		// Load defaults the absent tier to 1, so a non-positive tier here
+		// is a content bug, not a missing field.
+		if mv.Tier < 1 {
+			return fmt.Errorf(
+				"content validation: move %q has tier %d, want >= 1 (absent/0 defaults to tier 1)",
+				mv.ID, mv.Tier,
+			)
+		}
+		if mv.DmgModifier < 50 || mv.DmgModifier > 300 {
+			return fmt.Errorf(
+				"content validation: move %q has dmg_modifier %d, want within [50, 300] (percent, 100 = neutral)",
+				mv.ID, mv.DmgModifier,
+			)
+		}
+		if mv.Cooldown < 0 {
+			return fmt.Errorf(
+				"content validation: move %q has cooldown %d, want >= 0 (0 = spammable)",
+				mv.ID, mv.Cooldown,
+			)
+		}
+		if mv.Weight < 1 {
+			return fmt.Errorf(
+				"content validation: move %q has weight %d, want >= 1 (AI pick weight)",
+				mv.ID, mv.Weight,
+			)
+		}
+		if mv.Status == nil {
+			continue
+		}
+		if mv.Status.Chance < 0 || mv.Status.Chance > 100 {
+			return fmt.Errorf(
+				"content validation: move %q has status chance %d, want within [0, 100] (percentage)",
+				mv.ID, mv.Status.Chance,
+			)
+		}
+		if mv.Status.Target != "enemy" && mv.Status.Target != "self" {
+			return fmt.Errorf(
+				"content validation: move %q has status target %q, want \"enemy\" or \"self\"",
+				mv.ID, mv.Status.Target,
+			)
+		}
+		if _, ok := r.StatusByID(mv.Status.ID); !ok {
+			return fmt.Errorf(
+				"content validation: move %q references unknown status %q",
+				mv.ID, mv.Status.ID,
+			)
+		}
+	}
+
+	// Move references on monsters are checked registry-wide (a monster
+	// absent from every spawn table still cannot carry broken moves).
+	for _, m := range r.Monsters {
+		if len(m.Moves) > MaxMoves {
+			return fmt.Errorf(
+				"content validation: monster %q has %d moves, want at most %d (MAX_MOVES)",
+				m.ID, len(m.Moves), MaxMoves,
+			)
+		}
+		for _, ref := range m.Moves {
+			if ref.Weight < 1 {
+				return fmt.Errorf(
+					"content validation: monster %q move %q has weight %d, want >= 1 (AI pick weight)",
+					m.ID, ref.ID, ref.Weight,
+				)
+			}
+			if _, ok := r.MoveByID(ref.ID); !ok {
+				return fmt.Errorf(
+					"content validation: monster %q references unknown move %q",
+					m.ID, ref.ID,
+				)
+			}
+		}
+	}
+
+	// Only weapons may grant moves, at most MaxWeaponMoves each, and
+	// every granted id must exist.
+	for _, item := range r.Items {
+		if len(item.Moves) == 0 {
+			continue
+		}
+		if item.Slot != weaponSlot {
+			return fmt.Errorf(
+				"content validation: item %q (slot %q) grants moves, but only weapons may",
+				item.ID, item.Slot,
+			)
+		}
+		if len(item.Moves) > MaxWeaponMoves {
+			return fmt.Errorf(
+				"content validation: weapon %q grants %d moves, want at most %d",
+				item.ID, len(item.Moves), MaxWeaponMoves,
+			)
+		}
+		for _, moveID := range item.Moves {
+			if _, ok := r.MoveByID(moveID); !ok {
+				return fmt.Errorf(
+					"content validation: weapon %q references unknown move %q",
+					item.ID, moveID,
+				)
+			}
+		}
+	}
+
 	for _, s := range r.Sections {
 		if len(s.Spawns) == 0 {
 			return fmt.Errorf("content validation: section %q has no spawn table", s.ID)
@@ -386,6 +537,27 @@ func (r *Registry) Validate(topFloor int) error {
 			if len(r.ItemIDsForTiers([]int{tier})) == 0 {
 				return fmt.Errorf(
 					"content validation: section %q allows item tier %d, but the registry has no items of that tier",
+					s.ID, tier,
+				)
+			}
+		}
+		// move_tiers: the same contract as item_tiers — every listed
+		// value must be a real tier with at least one registry move
+		// (typo protection). Absent/empty = unrestricted.
+		listedMoves := make(map[int]bool, len(s.MoveTiers))
+		for _, tier := range s.MoveTiers {
+			if tier < 1 {
+				return fmt.Errorf(
+					"content validation: section %q has move_tiers value %d, want >= 1",
+					s.ID, tier,
+				)
+			}
+			listedMoves[tier] = true
+		}
+		for tier := range listedMoves {
+			if len(r.MovesForTiers([]int{tier})) == 0 {
+				return fmt.Errorf(
+					"content validation: section %q allows move tier %d, but the registry has no moves of that tier",
 					s.ID, tier,
 				)
 			}

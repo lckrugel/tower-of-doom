@@ -445,13 +445,20 @@ func TestLoadJSONBrokenExternalFileIsError(t *testing.T) {
 // ---- Combat 2.0 data layer: moves & statuses ----
 
 // validMoves is a small move registry spanning tiers 1–3, the canonical
-// basic_attack included.
+// basic_attack included. Status wiring mirrors the embedded content.
 func validMoves() []MoveAsset {
 	return []MoveAsset{
 		{ID: "basic_attack", Name: "Basic Attack", Tier: 1, DmgModifier: 100, Weight: 100},
 		{ID: "quick_stab", Name: "Quick Stab", Tier: 1, DmgModifier: 60, CritBonus: 20, Weight: 100},
+		{ID: "guard_strike", Name: "Guard Strike", Tier: 1, DmgModifier: 75, Cooldown: 2, Weight: 50,
+			Status: &MoveStatusAsset{ID: "guard", Chance: 100, Target: "self"}},
+		{ID: "venom_bite", Name: "Venom Bite", Tier: 1, DmgModifier: 80, Cooldown: 2, Weight: 60,
+			Status: &MoveStatusAsset{ID: "poison", Chance: 60, Target: "enemy"}},
 		{ID: "heavy_slash", Name: "Heavy Slash", Tier: 2, DmgModifier: 175, Cooldown: 2, Weight: 60},
-		{ID: "frost_touch", Name: "Frost Touch", Tier: 3, DmgModifier: 90, Cooldown: 3, Weight: 40},
+		{ID: "crushing_blow", Name: "Crushing Blow", Tier: 2, DmgModifier: 120, Cooldown: 3, Weight: 40,
+			Status: &MoveStatusAsset{ID: "weaken", Chance: 75, Target: "enemy"}},
+		{ID: "frost_touch", Name: "Frost Touch", Tier: 3, DmgModifier: 90, Cooldown: 3, Weight: 40,
+			Status: &MoveStatusAsset{ID: "slow", Chance: 80, Target: "enemy"}},
 	}
 }
 
@@ -506,11 +513,12 @@ func TestMovesForTiers(t *testing.T) {
 		want  []string
 	}{
 		{"nil tiers is unrestricted", nil,
-			[]string{"basic_attack", "frost_touch", "heavy_slash", "quick_stab"}},
+			[]string{"basic_attack", "crushing_blow", "frost_touch", "guard_strike", "heavy_slash", "quick_stab", "venom_bite"}},
 		{"empty tiers is unrestricted", []int{},
-			[]string{"basic_attack", "frost_touch", "heavy_slash", "quick_stab"}},
-		{"single tier", []int{1}, []string{"basic_attack", "quick_stab"}},
-		{"union of tiers, sorted", []int{3, 1}, []string{"basic_attack", "frost_touch", "quick_stab"}},
+			[]string{"basic_attack", "crushing_blow", "frost_touch", "guard_strike", "heavy_slash", "quick_stab", "venom_bite"}},
+		{"single tier", []int{1}, []string{"basic_attack", "guard_strike", "quick_stab", "venom_bite"}},
+		{"union of tiers, sorted", []int{3, 1},
+			[]string{"basic_attack", "frost_touch", "guard_strike", "quick_stab", "venom_bite"}},
 		{"unmatched tier is an empty pool", []int{9}, []string{}},
 	}
 	for _, tt := range tests {
@@ -670,4 +678,223 @@ func TestLoadRejectsDuplicateMoveAndStatusIDs(t *testing.T) {
 			t.Errorf("Load(duplicate statuses) = %v, want a duplicate id error", err)
 		}
 	})
+}
+
+// ---- Combat 2.0 content validation ----
+
+// Combat 2.0 validation: content bugs fail at startup. Each case breaks
+// exactly one rule against an otherwise-valid registry; wantErr "" means
+// the mutation is legal and must validate.
+func TestValidateCombat2Content(t *testing.T) {
+	moveRef := func(id string, weight int) MoveRef { return MoveRef{ID: id, Weight: weight} }
+	tests := []struct {
+		name    string
+		mutate  func(r *Registry)
+		wantErr string
+	}{
+		// Move fields.
+		{
+			"move tier below 1",
+			func(r *Registry) { m := r.Moves["heavy_slash"]; m.Tier = 0; r.Moves["heavy_slash"] = m },
+			"tier",
+		},
+		{
+			"move dmg_modifier below range",
+			func(r *Registry) { m := r.Moves["quick_stab"]; m.DmgModifier = 49; r.Moves["quick_stab"] = m },
+			"dmg_modifier",
+		},
+		{
+			"move dmg_modifier above range",
+			func(r *Registry) { m := r.Moves["quick_stab"]; m.DmgModifier = 301; r.Moves["quick_stab"] = m },
+			"dmg_modifier",
+		},
+		{
+			"negative move cooldown",
+			func(r *Registry) { m := r.Moves["heavy_slash"]; m.Cooldown = -1; r.Moves["heavy_slash"] = m },
+			"cooldown",
+		},
+		{
+			"move weight below 1",
+			func(r *Registry) { m := r.Moves["quick_stab"]; m.Weight = 0; r.Moves["quick_stab"] = m },
+			"weight",
+		},
+		// Move status wiring.
+		{
+			"move status chance over 100",
+			func(r *Registry) {
+				m := r.Moves["venom_bite"]
+				m.Status.Chance = 101
+				r.Moves["venom_bite"] = m
+			},
+			"chance",
+		},
+		{
+			"move status negative chance",
+			func(r *Registry) {
+				m := r.Moves["venom_bite"]
+				m.Status.Chance = -1
+				r.Moves["venom_bite"] = m
+			},
+			"chance",
+		},
+		{
+			"move status unknown target",
+			func(r *Registry) {
+				m := r.Moves["guard_strike"]
+				m.Status.Target = "foe"
+				r.Moves["guard_strike"] = m
+			},
+			"target",
+		},
+		{
+			"move referencing unknown status",
+			func(r *Registry) {
+				m := r.Moves["venom_bite"]
+				m.Status.ID = "nope"
+				r.Moves["venom_bite"] = m
+			},
+			"unknown status",
+		},
+		// Status assets.
+		{
+			"status unknown kind",
+			func(r *Registry) { s := r.Statuses["guard"]; s.Kind = "curse"; r.Statuses["guard"] = s },
+			"kind",
+		},
+		{
+			"status duration below 1",
+			func(r *Registry) { s := r.Statuses["poison"]; s.Duration = 0; r.Statuses["poison"] = s },
+			"duration",
+		},
+		{
+			"status unknown effect type",
+			func(r *Registry) { s := r.Statuses["poison"]; s.Effect.Type = "aura"; r.Statuses["poison"] = s },
+			"effect type",
+		},
+		{
+			"dot amount below 1",
+			func(r *Registry) { s := r.Statuses["poison"]; s.Effect.Amount = 0; r.Statuses["poison"] = s },
+			"dot amount",
+		},
+		{
+			"stat amount zero",
+			func(r *Registry) { s := r.Statuses["weaken"]; s.Effect.Amount = 0; r.Statuses["weaken"] = s },
+			"zero stat amount",
+		},
+		{
+			"status unknown stat",
+			func(r *Registry) { s := r.Statuses["slow"]; s.Effect.Stat = "chi"; r.Statuses["slow"] = s },
+			"unknown stat",
+		},
+		// Monster move references.
+		{
+			"monster referencing unknown move",
+			func(r *Registry) {
+				m := r.Monsters["rat"]
+				m.Moves = []MoveRef{moveRef("nope", 1)}
+				r.Monsters["rat"] = m
+			},
+			"unknown move",
+		},
+		{
+			"monster with more than 4 moves",
+			func(r *Registry) {
+				m := r.Monsters["rat"]
+				m.Moves = []MoveRef{
+					moveRef("basic_attack", 1), moveRef("quick_stab", 1), moveRef("heavy_slash", 1),
+					moveRef("frost_touch", 1), moveRef("crushing_blow", 1),
+				}
+				r.Monsters["rat"] = m
+			},
+			"at most 4",
+		},
+		{
+			"monster move ref weight below 1",
+			func(r *Registry) {
+				m := r.Monsters["rat"]
+				m.Moves = []MoveRef{moveRef("basic_attack", 0)}
+				r.Monsters["rat"] = m
+			},
+			"weight",
+		},
+		// Weapon-granted moves.
+		{
+			"weapon referencing unknown move",
+			func(r *Registry) {
+				r.Items["sword"] = ItemAsset{ID: "sword", Name: "Sword", Slot: "weapon", Tier: 1, Moves: []string{"nope"}}
+			},
+			"unknown move",
+		},
+		{
+			"weapon with more than 2 moves",
+			func(r *Registry) {
+				r.Items["sword"] = ItemAsset{ID: "sword", Name: "Sword", Slot: "weapon", Tier: 1,
+					Moves: []string{"basic_attack", "quick_stab", "heavy_slash"}}
+			},
+			"at most 2",
+		},
+		{
+			"non-weapon slot carrying moves",
+			func(r *Registry) {
+				r.Items["helm"] = ItemAsset{ID: "helm", Name: "Helm", Slot: "helmet", Tier: 1,
+					Moves: []string{"heavy_slash"}}
+			},
+			"only weapons",
+		},
+		// Section move_tiers.
+		{
+			"move_tiers value below 1",
+			func(r *Registry) { r.Sections[0].MoveTiers = []int{1, 0} },
+			"move_tiers",
+		},
+		{
+			"move_tiers referencing an empty tier (typo)",
+			func(r *Registry) { r.Sections[0].MoveTiers = []int{1, 9} },
+			"no moves of that tier",
+		},
+		// Legal content.
+		{
+			"monster with a valid move list",
+			func(r *Registry) {
+				m := r.Monsters["rat"]
+				m.Moves = []MoveRef{moveRef("basic_attack", 100), moveRef("venom_bite", 40)}
+				r.Monsters["rat"] = m
+			},
+			"",
+		},
+		{
+			"weapon with valid granted moves",
+			func(r *Registry) {
+				r.Items["sword"] = ItemAsset{ID: "sword", Name: "Sword", Slot: "weapon", Tier: 1,
+					Moves: []string{"heavy_slash", "quick_stab"}}
+			},
+			"",
+		},
+		{
+			"section with populated move_tiers",
+			func(r *Registry) { r.Sections[0].MoveTiers = []int{1, 2} },
+			"",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := combat2Reg()
+			tt.mutate(r)
+			err := r.Validate(10)
+
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Errorf("Validate = %v, want nil (legal content)", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("Validate = nil, want error containing %q", tt.wantErr)
+			}
+			if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Errorf("error = %v, want it to contain %q", err, tt.wantErr)
+			}
+		})
+	}
 }
