@@ -69,7 +69,7 @@ func TestActionsPerState(t *testing.T) {
 		{"loot", engine.StateLoot, false, false, []string{"w", "b", "d", "q"}},
 		{"inventory", engine.StateInventory, true, false, []string{"w", "x", "c", "q"}},
 		{"merchant", engine.StateMerchant, true, true, []string{"p", "v", "l", "q"}},
-		{"learn", engine.StateLearn, false, false, []string{"t", "n", "q"}},
+		{"learn", engine.StateLearn, false, false, []string{"l", "f", "n", "q"}},
 		{"game over", engine.StateGameOver, false, false, []string{"q"}},
 	}
 	for _, tt := range tests {
@@ -147,22 +147,62 @@ func TestBagActionsAreDisabledOnAnEmptyBag(t *testing.T) {
 
 // No shortcut may change meaning across states: combat muscle memory
 // (spamming attack) must never leak into a different command.
+//
+// The ONE documented exception is the shrine's two decision screens:
+// [L] Learn (choosing step) reuses Leave's letter and [F] Forget
+// (forgetting step) reuses Fight's. The shrine is an explicit-only
+// screen (esc is a no-op there; no state flows into it mid-combat or
+// mid-shop) and its bar is rebuilt per STEP — each step's bar shows
+// only its own actions — so no on-screen bar ever carries both meanings
+// of a key.
 func TestShortcutsAreGloballyUnique(t *testing.T) {
-	byKey := make(map[string]engine.CommandType)
-	states := []engine.GameState{
-		engine.StateExploring, engine.StateEncounter, engine.StateCombat, engine.StateGameOver,
-		engine.StateLoot, engine.StateInventory, engine.StateMerchant, engine.StateLearn,
+	// Keys deliberately serving two commands across states.
+	reused := map[string]map[engine.CommandType]bool{
+		"l": {engine.CmdLeave: true, engine.CmdChooseOffer: true},
+		"f": {engine.CmdFight: true, engine.CmdForget: true},
 	}
-	for _, state := range states {
-		e := testEngine()
-		e.State = state
-		for _, a := range actionsFor(e) {
-			if prev, dup := byKey[a.key]; dup && prev != a.cmd {
+	byKey := make(map[string]engine.CommandType)
+	visit := func(state engine.GameState, actions []action) {
+		onBar := make(map[string]bool, len(actions))
+		for _, a := range actions {
+			if onBar[a.key] {
+				t.Errorf("state %v: key %q appears twice on one bar", state, a.key)
+			}
+			onBar[a.key] = true
+			if prev, dup := byKey[a.key]; dup && prev != a.cmd &&
+				!(reused[a.key][prev] && reused[a.key][a.cmd]) {
 				t.Errorf("state %v: key %q maps to both %v and %v", state, a.key, prev, a.cmd)
 			}
 			byKey[a.key] = a.cmd
 		}
 	}
+	for _, state := range []engine.GameState{
+		engine.StateExploring, engine.StateEncounter, engine.StateCombat, engine.StateGameOver,
+		engine.StateLoot, engine.StateInventory, engine.StateMerchant,
+	} {
+		e := testEngine()
+		e.State = state
+		visit(state, actionsFor(e))
+	}
+	// The shrine is visited PER STEP — each step's bar is what actually
+	// renders (the union view never reaches the screen).
+	shrineBar := func(chosen bool) []action {
+		e := testEngine()
+		learnTestMove(e, "guard_strike", "Guard Strike", 2)
+		learnTestMove(e, "heavy_slash", "Heavy Slash", 2)
+		e.PendingMoves = []entities.Move{
+			{ID: "power_slash", Name: "Power Slash", Tier: 2, DmgModifier: 175, Weight: 10},
+			{ID: "venom_shot", Name: "Venom Shot", Tier: 1, DmgModifier: 75, Weight: 10},
+		}
+		if chosen {
+			move := e.PendingMoves[0]
+			e.ChosenMove = &move
+		}
+		e.State = engine.StateLearn
+		return New(e).barActions()
+	}
+	visit(engine.StateLearn, shrineBar(false))
+	visit(engine.StateLearn, shrineBar(true))
 }
 
 // Ascending is unlocked by combat victories only; before that the action
@@ -186,13 +226,15 @@ func TestAscendEnabledFollowsCanAscend(t *testing.T) {
 
 // Only the row-indexed commands dispatch with the cursor: the bag
 // commands (WEAR/DROP) index the hero bag; at the merchant, BUY indexes
-// the stock and SELL the bag. The combat move chips (CmdMove) instead
-// carry their own move position — every one of them is an index user.
+// the stock and SELL the bag; at the shrine, CHOOSE indexes the pending
+// offers and FORGET the learned rows. The combat move chips (CmdMove)
+// instead carry their own move position — every one of them is an index
+// user.
 func TestIndexedCommandsUseTheRowCursor(t *testing.T) {
 	states := []engine.GameState{
 		engine.StateExploring, engine.StateEncounter, engine.StateCombat,
 		engine.StateGameOver, engine.StateLoot, engine.StateInventory,
-		engine.StateMerchant,
+		engine.StateMerchant, engine.StateLearn,
 	}
 	for _, state := range states {
 		e := testEngine()
@@ -200,7 +242,8 @@ func TestIndexedCommandsUseTheRowCursor(t *testing.T) {
 		for _, a := range actionsFor(e) {
 			want := a.cmd == engine.CmdWear || a.cmd == engine.CmdDrop ||
 				a.cmd == engine.CmdBuy || a.cmd == engine.CmdSell ||
-				a.cmd == engine.CmdForget || a.cmd == engine.CmdMove
+				a.cmd == engine.CmdForget || a.cmd == engine.CmdChooseOffer ||
+				a.cmd == engine.CmdMove
 			if a.usesIndex != want {
 				t.Errorf("state %v: action %q usesIndex = %v, want %v", state, a.key, a.usesIndex, want)
 			}

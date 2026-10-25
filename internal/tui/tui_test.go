@@ -730,34 +730,113 @@ func TestViewBossCombatShowsTheBossBadge(t *testing.T) {
 	}
 }
 
-// ——— The shrine's forget prompt (StateLearn) ———
+// ——— The shrine (StateLearn, two steps) ———
 
-// shrineModel is a model in StateLearn: the shrine's offer (Power Slash)
-// pends in PendingMove over the hero's two learned moves — Guard Strike
-// first, Heavy Slash second (learning order).
+// shrineOffers are the moves a fixture shrine offers: a plain striker
+// and a status carrier (the dossier's tag variety).
+func shrineOffers() []entities.Move {
+	return []entities.Move{
+		{ID: "power_slash", Name: "Power Slash", Tier: 2, DmgModifier: 175, Weight: 10},
+		{ID: "venom_shot", Name: "Venom Shot", Tier: 1, DmgModifier: 75, Weight: 10,
+			Status: entities.MoveStatus{ID: "poison", Chance: 60, Target: entities.TargetEnemy}},
+	}
+}
+
+// shrineModel is a model in StateLearn's CHOOSING step: two offers pend
+// in PendingMoves over the hero's two learned moves — at the cap, so
+// choosing opens the forgetting step.
 func shrineModel() Model {
 	e := testEngine()
 	learnTestMove(e, "guard_strike", "Guard Strike", 2)
 	learnTestMove(e, "heavy_slash", "Heavy Slash", 2)
-	offered := entities.Move{ID: "power_slash", Name: "Power Slash", Tier: 2, DmgModifier: 175, Weight: 10}
-	e.PendingMove = &offered
+	e.PendingMoves = shrineOffers()
 	e.State = engine.StateLearn
 	return New(e)
 }
 
-// [T] forgets the row the cursor walks and the offer is learned in its
-// place — the engine's forget flow driven from the shrine screen.
-func TestShrineForgetForgetsTheSelectedMove(t *testing.T) {
-	m := shrineModel()
-	m, _ = press(m, "right") // select the second row: Heavy Slash
+// shrineUnderCapModel is the choosing step with room to learn: one
+// learned move, two offers pending — [L] teaches on the spot.
+func shrineUnderCapModel() Model {
+	e := testEngine()
+	learnTestMove(e, "guard_strike", "Guard Strike", 2)
+	e.PendingMoves = shrineOffers()
+	e.State = engine.StateLearn
+	return New(e)
+}
 
-	m, _ = press(m, "t")
+// shrineChosenModel is the FORGETTING step: the choice (Power Slash)
+// recorded in ChosenMove, the learned set untouched, the row cursor on
+// the second learned move.
+func shrineChosenModel() Model {
+	m := shrineModel()
+	chosen := m.engine.PendingMoves[0]
+	m.engine.ChosenMove = &chosen
+	m.bagCursor = 1
+	return m
+}
+
+// Under the cap [L] teaches the selected offer on the spot: exploring
+// resumes, the offer set drains, the log tells the story.
+func TestShrineLearnTeachesOnTheSpotUnderTheCap(t *testing.T) {
+	m := shrineUnderCapModel()
+
+	m, _ = press(m, "l")
 
 	if m.engine.State != engine.StateExploring {
-		t.Fatalf("state after 't' = %v, want StateExploring", m.engine.State)
+		t.Fatalf("state after 'l' = %v, want StateExploring", m.engine.State)
 	}
-	if m.engine.PendingMove != nil {
-		t.Error("the pending offer survived the forget")
+	if m.engine.PendingMoves != nil {
+		t.Error("the pending offers survived the learn")
+	}
+	learned := m.engine.Player.LearnedMoves()
+	if len(learned) != 2 || learned[0].ID != "guard_strike" || learned[1].ID != "power_slash" {
+		t.Errorf("learned set = %+v, want [guard_strike power_slash]", learned)
+	}
+	last := stripANSI(m.log[len(m.log)-1])
+	if last != "You learned Power Slash!" {
+		t.Errorf("last log line = %q, want the learned line", last)
+	}
+}
+
+// At the cap [L] records the choice and the screen switches to its
+// forgetting step: state stays, the learned set is untouched until a
+// move is forgotten.
+func TestShrineLearnAtTheCapOpensTheForgetStep(t *testing.T) {
+	m := shrineModel()
+	m, _ = press(m, "right") // select the second offer: Venom Shot
+
+	m, _ = press(m, "l")
+
+	if m.engine.State != engine.StateLearn {
+		t.Fatalf("state after 'l' = %v, want to stay in StateLearn", m.engine.State)
+	}
+	if m.engine.ChosenMove == nil || m.engine.ChosenMove.ID != "venom_shot" {
+		t.Errorf("ChosenMove = %+v, want the selected Venom Shot", m.engine.ChosenMove)
+	}
+	if got := m.engine.Player.LearnedMoves(); len(got) != 2 {
+		t.Errorf("learned set = %+v, want untouched (2 moves)", got)
+	}
+	last := stripANSI(m.log[len(m.log)-1])
+	if last != "The shrine waits — forget one of your moves to make room for it." {
+		t.Errorf("last log line = %q, want the forget prompt", last)
+	}
+}
+
+// [F] in the forgetting step trades the selected learned move for the
+// chosen offer — the engine's forget flow driven from the shrine screen.
+func TestShrineForgetForgetsTheSelectedMove(t *testing.T) {
+	m := shrineChosenModel()
+	if m.bagCursor != 1 {
+		t.Fatalf("setup: forget cursor = %d, want 1 (Heavy Slash)", m.bagCursor)
+	}
+
+	m, _ = press(m, "f")
+
+	if m.engine.State != engine.StateExploring {
+		t.Fatalf("state after 'f' = %v, want StateExploring", m.engine.State)
+	}
+	if m.engine.ChosenMove != nil || m.engine.PendingMoves != nil {
+		t.Error("the pending shrine state survived the forget")
 	}
 	learned := m.engine.Player.LearnedMoves()
 	if len(learned) != 2 || learned[0].ID != "guard_strike" || learned[1].ID != "power_slash" {
@@ -769,106 +848,248 @@ func TestShrineForgetForgetsTheSelectedMove(t *testing.T) {
 	}
 }
 
-// [N] declines: both learned moves are kept, the offer is left behind.
+// [N] declines in EITHER step: both learned moves kept, nothing pends.
 func TestShrineDeclineKeepsBothMoves(t *testing.T) {
-	m := shrineModel()
+	t.Run("choosing step", func(t *testing.T) {
+		m := shrineModel()
 
-	m, _ = press(m, "n")
+		m, _ = press(m, "n")
 
-	if m.engine.State != engine.StateExploring {
-		t.Fatalf("state after 'n' = %v, want StateExploring", m.engine.State)
-	}
-	if m.engine.PendingMove != nil {
-		t.Error("the pending offer survived the decline")
-	}
-	if got := m.engine.Player.LearnedMoves(); len(got) != 2 {
-		t.Errorf("learned set = %+v, want both moves kept", got)
-	}
-	last := stripANSI(m.log[len(m.log)-1])
-	if last != "You leave the shrine's teaching behind." {
-		t.Errorf("last log line = %q, want the decline line", last)
-	}
+		if m.engine.State != engine.StateExploring {
+			t.Fatalf("state after 'n' = %v, want StateExploring", m.engine.State)
+		}
+		if m.engine.PendingMoves != nil {
+			t.Error("the pending offers survived the decline")
+		}
+		if got := m.engine.Player.LearnedMoves(); len(got) != 2 {
+			t.Errorf("learned set = %+v, want both moves kept", got)
+		}
+		last := stripANSI(m.log[len(m.log)-1])
+		if last != "You leave the shrine's teaching behind." {
+			t.Errorf("last log line = %q, want the decline line", last)
+		}
+	})
+	t.Run("forgetting step", func(t *testing.T) {
+		m := shrineChosenModel()
+
+		m, _ = press(m, "n")
+
+		if m.engine.State != engine.StateExploring {
+			t.Fatalf("state after 'n' = %v, want StateExploring", m.engine.State)
+		}
+		if m.engine.ChosenMove != nil {
+			t.Error("the recorded choice survived the decline")
+		}
+		if got := m.engine.Player.LearnedMoves(); len(got) != 2 {
+			t.Errorf("learned set = %+v, want both moves kept", got)
+		}
+	})
 }
 
-// The learned moves render as selectable rows: ←/→ walk them with
-// wraparound (the action-bar cursor stays untouched).
+// A wrong-step shortcut reaches the engine anyway and is answered with
+// the generic rejection — the state (and its pending offer) stays
+// exactly as it was.
+func TestShrineWrongStepShortcutsAreRejectedByTheEngine(t *testing.T) {
+	t.Run("forget in the choosing step", func(t *testing.T) {
+		m := shrineModel()
+		logLen := len(m.log)
+
+		m, _ = press(m, "f")
+
+		if m.engine.State != engine.StateLearn {
+			t.Fatalf("state after 'f' = %v, want to stay in StateLearn", m.engine.State)
+		}
+		if len(m.engine.PendingMoves) != 2 || m.engine.ChosenMove != nil {
+			t.Error("the wrong-step dispatch consumed the choosing step")
+		}
+		if last := stripANSI(m.log[len(m.log)-1]); last != "Invalid command" || len(m.log) != logLen+1 {
+			t.Errorf("last log line = %q (+%d lines), want the generic rejection", last, len(m.log)-logLen)
+		}
+	})
+	t.Run("learn in the forgetting step", func(t *testing.T) {
+		m := shrineChosenModel()
+		logLen := len(m.log)
+
+		m, _ = press(m, "l")
+
+		if m.engine.State != engine.StateLearn {
+			t.Fatalf("state after 'l' = %v, want to stay in StateLearn", m.engine.State)
+		}
+		if m.engine.ChosenMove == nil {
+			t.Error("the wrong-step dispatch dropped the recorded choice")
+		}
+		if last := stripANSI(m.log[len(m.log)-1]); last != "Invalid command" || len(m.log) != logLen+1 {
+			t.Errorf("last log line = %q (+%d lines), want the generic rejection", last, len(m.log)-logLen)
+		}
+	})
+}
+
+// The live step's list is what ←/→ walk: the offers while choosing, the
+// learned moves while forgetting — with wraparound, the action-bar
+// cursor untouched, and nothing dispatched.
 func TestShrineRowsWalkWithTheArrows(t *testing.T) {
-	m := shrineModel()
+	t.Run("choosing walks the offers", func(t *testing.T) {
+		m := shrineModel()
 
-	m, _ = press(m, "right")
-	if m.bagCursor != 1 || m.cursor != 0 {
-		t.Fatalf("right: bag cursor = %d, bar cursor = %d, want 1 and untouched", m.bagCursor, m.cursor)
-	}
-	m, _ = press(m, "right")
-	if m.bagCursor != 0 {
-		t.Fatalf("right from the last row = %d, want wraparound to 0", m.bagCursor)
-	}
+		m, _ = press(m, "right")
+		if m.bagCursor != 1 || m.cursor != 0 {
+			t.Fatalf("right: bag cursor = %d, bar cursor = %d, want 1 and untouched", m.bagCursor, m.cursor)
+		}
+		m, _ = press(m, "right")
+		if m.bagCursor != 0 {
+			t.Fatalf("right from the last offer = %d, want wraparound to 0", m.bagCursor)
+		}
+		m, _ = press(m, "left")
+		if m.bagCursor != 1 {
+			t.Fatalf("left from 0 = %d, want wraparound to 1", m.bagCursor)
+		}
+		if len(m.log) != 1 {
+			t.Error("cursor movement wrote to the log")
+		}
+	})
+	t.Run("forgetting walks the learned rows", func(t *testing.T) {
+		m := shrineChosenModel()
 
-	// Navigation dispatches nothing.
-	m, _ = press(m, "left")
-	if m.bagCursor != 1 {
-		t.Fatalf("left from 0 = %d, want wraparound to 1", m.bagCursor)
-	}
-	if len(m.log) != 1 {
-		t.Error("cursor movement wrote to the log")
-	}
+		m, _ = press(m, "right")
+		if m.bagCursor != 0 {
+			t.Fatalf("right from the last learned row = %d, want wraparound to 0", m.bagCursor)
+		}
+		m, _ = press(m, "left")
+		if m.bagCursor != 1 {
+			t.Fatalf("left from 0 = %d, want wraparound to 1", m.bagCursor)
+		}
+	})
 }
 
-// Enter dispatches the Forget action (the bar's first chip): the
-// selected row is the one forgotten.
-func TestShrineEnterForgetsTheSelectedRow(t *testing.T) {
-	m := shrineModel()
-	m, _ = press(m, "right") // select Heavy Slash
+// Enter dispatches the bar's first chip — the live step's action: Learn
+// in the choosing step, Forget in the forgetting step.
+func TestShrineEnterDispatchesTheStepAction(t *testing.T) {
+	t.Run("choosing learns the selected offer", func(t *testing.T) {
+		m := shrineUnderCapModel()
 
-	m, _ = press(m, "enter")
+		m, _ = press(m, "enter")
 
-	learned := m.engine.Player.LearnedMoves()
-	if len(learned) != 2 || learned[0].ID != "guard_strike" || learned[1].ID != "power_slash" {
-		t.Errorf("learned set = %+v, want [guard_strike power_slash] (Heavy Slash forgotten)", learned)
-	}
+		if m.engine.State != engine.StateExploring {
+			t.Fatalf("state after enter = %v, want StateExploring", m.engine.State)
+		}
+		learned := m.engine.Player.LearnedMoves()
+		if len(learned) != 2 || learned[1].ID != "power_slash" {
+			t.Errorf("learned set = %+v, want Power Slash learned (the cursor's offer)", learned)
+		}
+	})
+	t.Run("forgetting forgets the selected row", func(t *testing.T) {
+		m := shrineChosenModel()
+
+		m, _ = press(m, "enter")
+
+		learned := m.engine.Player.LearnedMoves()
+		if len(learned) != 2 || learned[0].ID != "guard_strike" || learned[1].ID != "power_slash" {
+			t.Errorf("learned set = %+v, want [guard_strike power_slash] (Heavy Slash forgotten)", learned)
+		}
+	})
 }
 
-// The forget decision is explicit-only: esc neither quits nor resolves
-// the pending offer — the model stays exactly where it was.
-func TestEscapeIsANoOpInTheForgetPrompt(t *testing.T) {
-	m := shrineModel()
-	logLen := len(m.log)
+// The shrine decision is explicit-only: esc neither quits nor resolves
+// the pending state — in either step the model stays exactly where it
+// was.
+func TestEscapeIsANoOpInTheShrine(t *testing.T) {
+	t.Run("choosing step", func(t *testing.T) {
+		m := shrineModel()
+		logLen := len(m.log)
 
-	m, cmd := press(m, "esc")
+		m, cmd := press(m, "esc")
 
-	if cmd != nil {
-		t.Error("esc in StateLearn must not request a quit")
-	}
-	if m.engine.State != engine.StateLearn {
-		t.Errorf("state after esc = %v, want to stay in StateLearn", m.engine.State)
-	}
-	if m.engine.PendingMove == nil {
-		t.Error("esc consumed the pending offer")
-	}
-	if len(m.log) != logLen {
-		t.Error("esc wrote to the log in StateLearn")
-	}
+		if cmd != nil {
+			t.Error("esc in StateLearn must not request a quit")
+		}
+		if m.engine.State != engine.StateLearn {
+			t.Errorf("state after esc = %v, want to stay in StateLearn", m.engine.State)
+		}
+		if len(m.engine.PendingMoves) != 2 || m.engine.ChosenMove != nil {
+			t.Error("esc consumed the pending offers")
+		}
+		if len(m.log) != logLen {
+			t.Error("esc wrote to the log in StateLearn")
+		}
+	})
+	t.Run("forgetting step", func(t *testing.T) {
+		m := shrineChosenModel()
+		logLen := len(m.log)
+
+		m, cmd := press(m, "esc")
+
+		if cmd != nil {
+			t.Error("esc in StateLearn must not request a quit")
+		}
+		if m.engine.ChosenMove == nil {
+			t.Error("esc consumed the recorded choice")
+		}
+		if len(m.log) != logLen {
+			t.Error("esc wrote to the log in StateLearn")
+		}
+	})
 }
 
-// The shrine screen shows the offer's dossier and the forget selection:
-// the offered move with its tags, the two learned rows, and the bar.
-func TestViewShrineShowsTheOfferAndTheForgetRows(t *testing.T) {
+// The choosing screen renders BOTH offers as dossiers — names, tiers,
+// the grid renderer's tags — with the step label and the bar.
+func TestViewShrineChoosingStepShowsBothOffers(t *testing.T) {
 	m := shrineModel()
 
 	view := stripControls(stripANSI(m.View()))
 
 	for _, want := range []string{
 		"◈ SHRINE",
-		"Power Slash",
-		"tier 2",       // the dossier's tier
-		"175%",         // the dossier's modifier tag (the grid renderer's)
-		"Guard Strike", // the forget rows
-		"Heavy Slash",
-		"LEARN", // the badge
-		"[T] Forget", "[N] Decline", "[Q] Quit",
+		"choose a teaching", // the step label
+		"Power Slash",       // offer 1's dossier
+		"Venom Shot",        // offer 2's dossier
+		"tier 2",            // the dossier's tier line
+		"175%",              // Power Slash's modifier tag
+		"☠poison 60%",       // Venom Shot's status tag
+		"LEARN",             // the badge
+		"[L] Learn", "[N] Decline", "[Q] Quit",
 	} {
 		if !strings.Contains(view, want) {
-			t.Errorf("shrine view missing %q:\n%s", want, view)
+			t.Errorf("shrine choosing view missing %q:\n%s", want, view)
 		}
+	}
+	// The choosing bar filters to the live step: the wrong-step chip is
+	// not shown at all (the step label carries the context).
+	if strings.Contains(view, "[F] Forget") {
+		t.Errorf("shrine choosing view shows the wrong-step chip:\n%s", view)
+	}
+	// The cursor highlights the selected offer, and only it.
+	if !strings.Contains(view, "▶ Power Slash") || strings.Contains(view, "▶ Venom Shot") {
+		t.Errorf("the offer cursor highlights the wrong dossier:\n%s", view)
+	}
+}
+
+// The forgetting screen shows the chosen move as "learning:" over the
+// learned rows — both tagged — with the step label and its bar.
+func TestViewShrineForgettingStepShowsTheLearning(t *testing.T) {
+	m := shrineChosenModel()
+
+	view := stripControls(stripANSI(m.View()))
+
+	for _, want := range []string{
+		"◈ SHRINE",
+		"forget one to make room", // the step label
+		"learning: Power Slash",   // the chosen offer
+		"Guard Strike",            // the learned rows
+		"Heavy Slash",
+		"LEARN", // the badge
+		"[F] Forget", "[N] Decline", "[Q] Quit",
+	} {
+		if !strings.Contains(view, want) {
+			t.Errorf("shrine forgetting view missing %q:\n%s", want, view)
+		}
+	}
+	// The forgetting bar filters to the live step: the wrong-step chip
+	// is not shown at all (the step label carries the context).
+	if strings.Contains(view, "[L] Learn") {
+		t.Errorf("shrine forgetting view shows the wrong-step chip:\n%s", view)
+	}
+	// The cursor highlights the second learned row, and only it.
+	if !strings.Contains(view, "▶ Heavy Slash") || strings.Contains(view, "▶ Guard Strike") {
+		t.Errorf("the forget cursor highlights the wrong row:\n%s", view)
 	}
 }

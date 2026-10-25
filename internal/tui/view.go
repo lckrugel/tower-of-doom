@@ -346,29 +346,90 @@ func (m Model) merchantCursor() int {
 // truncate inside the row instead of stretching the frame.
 const moveRowNameWidth = 20
 
-// shrinePanel is the shrine screen (StateLearn): the offered move's
-// dossier — reusing the move grid's tag renderer — over the forget
-// selection: the hero's learned moves as selectable rows, the row FORGET
-// acts on. The decision is explicit-only (esc is a no-op), like the
-// chest loot: leaving the shrine is a choice, not a stray keystroke.
+// shrinePanel is the shrine screen (StateLearn). The screen plays TWO
+// steps, DERIVED from the engine's pending state (never stored): offers
+// pending with no recorded choice is the CHOOSING step — both offers as
+// selectable dossiers, [L] Learn dispatching CmdChooseOffer{Index}; a
+// recorded ChosenMove is the FORGETTING step — the chosen move shown as
+// "learning:" over the hero's learned moves (weapon-granted ones are
+// not listed: they leave with the weapon), [F] Forget dispatching
+// CmdForget{Index}. [N] Decline resolves either step. The decision is
+// explicit-only (esc is a no-op), like the chest loot.
+//
+// The deprecated PendingMove mirror is never read: a legacy one-offer
+// construction (PendingMove alone, no PendingMoves/ChosenMove) renders
+// the silent guard, like an empty offer list.
+//
+// Height budget, worst case (16 rows): choosing = title + 2 dossiers ×2
+// lines = 5; forgetting = title + learning dossier 2 + label + 2 rows =
+// 6 — the panel always fits, never leaning on slot() to clip.
 func (m Model) shrinePanel() string {
-	var b strings.Builder
-	b.WriteString(stylePanelTitle.Render("◈ SHRINE") + "\n")
-	move := m.engine.PendingMove
-	if move == nil {
-		return b.String() + styleDim.Render("   (the shrine is silent)")
+	step := "choose a teaching"
+	if m.learnForgetStep() {
+		step = "forget one to make room"
 	}
-	offer := "The shrine offers: " + move.Name
-	b.WriteString("  " + stylePanelTitle.Render(truncateRunes(offer, mainColWidth-2)) + "\n")
-	// The dossier line reuses the grid's tag renderer (modifier, status
-	// id, crit) with the move's tier ahead of it.
-	tags := strings.TrimLeft(m.gridTags(*move, false), " ")
-	b.WriteString(styleDim.Render(fmt.Sprintf("    tier %d · %s", move.Tier, tags)) + "\n")
+	title := stylePanelTitle.Render("◈ SHRINE") + styleDim.Render(" · "+step) + "\n"
+	if m.learnForgetStep() {
+		return title + m.shrineForgetStep()
+	}
+	return title + m.shrineChooseStep()
+}
+
+// learnForgetStep reports whether the shrine screen is in its second
+// step: a recorded ChosenMove marks the forgetting step (the same
+// derivation the engine's allow-matrix uses). Offers without a choice
+// are the choosing step.
+func (m Model) learnForgetStep() bool {
+	return m.engine.ChosenMove != nil
+}
+
+// shrineChooseStep renders the pending offers as stacked dossiers, the
+// cursor's dossier highlighted like every other selection.
+func (m Model) shrineChooseStep() string {
+	offers := m.engine.PendingMoves
+	if len(offers) == 0 {
+		return styleDim.Render("   (the shrine is silent)")
+	}
+	var b strings.Builder
+	selected := min(max(m.bagCursor, 0), len(offers)-1)
+	for i, move := range offers {
+		b.WriteString(m.shrineDossier(move, i == selected))
+	}
+	return b.String()
+}
+
+// shrineDossier renders one offer: the selectable name row over the
+// tier + tag line — the grid renderer's tags (modifier, status, crit),
+// trimmed for the full column. Every line is width-guarded: nothing
+// here may lean on slot() to be clipped.
+func (m Model) shrineDossier(move entities.Move, selected bool) string {
+	prefix, style := "  ", styleAction
+	if selected {
+		prefix, style = "▶ ", styleSelected
+	}
+	name := prefix + style.Render(truncateRunes(move.Name, mainColWidth-3))
+	tags := strings.TrimLeft(m.gridTags(move, false), " ")
+	tier := truncateRunes(fmt.Sprintf("    tier %d · %s", move.Tier, tags), mainColWidth)
+	return name + "\n" + styleDim.Render(tier) + "\n"
+}
+
+// shrineForgetStep renders the forgetting step: the chosen offer's
+// "learning:" dossier over the learned rows — the only moves that can
+// make room — the cursor's row the one [F] Forget acts on.
+func (m Model) shrineForgetStep() string {
+	var b strings.Builder
+	if chosen := m.engine.ChosenMove; chosen != nil {
+		learning := truncateRunes("learning: "+chosen.Name, mainColWidth-2)
+		tags := strings.TrimLeft(m.gridTags(*chosen, false), " ")
+		tier := truncateRunes(fmt.Sprintf("    tier %d · %s", chosen.Tier, tags), mainColWidth)
+		b.WriteString("  " + stylePanelTitle.Render(learning) + "\n")
+		b.WriteString(styleDim.Render(tier) + "\n")
+	}
 	learned := m.engine.Player.LearnedMoves()
 	if len(learned) == 0 {
 		return b.String() + styleDim.Render("   (nothing learned to forget)")
 	}
-	b.WriteString(styleDim.Render("  forget one of your moves to make room:") + "\n")
+	b.WriteString(styleDim.Render("  forget one of your moves:") + "\n")
 	width := 0
 	for _, mv := range learned {
 		width = max(width, len([]rune(mv.Name)))
@@ -785,7 +846,11 @@ func (m Model) actionBar() string {
 	case engine.StateLoot:
 		hint = "   decide the loot's fate"
 	case engine.StateLearn:
-		hint = "   ← → pick the move to forget"
+		if m.learnForgetStep() {
+			hint = "   ← → pick the move to forget"
+		} else {
+			hint = "   ← → pick a teaching"
+		}
 	}
 	if hint == "" {
 		return lipgloss.JoinHorizontal(lipgloss.Center, strings.Join(spots, sep))

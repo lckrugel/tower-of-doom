@@ -244,10 +244,12 @@ func (m Model) confirmOrDispatch(a action) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) selectedAction() action {
-	actions := actionsFor(m.engine)
+	// The SHAPED bar — the one the screen renders (the shrine's per
+	// step, the shop's per cursor) — not the raw union.
+	actions := m.barActions()
 	cursor := m.cursor
 	if cursor >= len(actions) {
-		cursor = len(actions) - 1
+		cursor = max(len(actions)-1, 0)
 	}
 	return actions[cursor]
 }
@@ -263,8 +265,13 @@ func (m Model) selectableRows() int {
 	case engine.StateMerchant:
 		return len(m.engine.MerchantStock) + len(m.engine.Player.Bag())
 	case engine.StateLearn:
-		// The forget selection: the learned moves are the rows.
-		return len(m.engine.Player.LearnedMoves())
+		// The shrine's row cursor walks the live step's list: the
+		// pending offers while choosing, the learned moves while
+		// forgetting.
+		if m.learnForgetStep() {
+			return len(m.engine.Player.LearnedMoves())
+		}
+		return len(m.engine.PendingMoves)
 	default:
 		return 0
 	}

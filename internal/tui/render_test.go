@@ -477,6 +477,24 @@ func TestEventText(t *testing.T) {
 			nil,
 		},
 		{
+			"shrine offers two moves",
+			engine.NewShrineOffered(2),
+			"A shrine offers to teach you two moves.",
+			nil,
+		},
+		{
+			"shrine offers one move",
+			engine.NewShrineOffered(1),
+			"A shrine offers to teach you one move.",
+			nil,
+		},
+		{
+			"shrine offered with a malformed count degrades to one",
+			engine.Event{Type: engine.EventShrineOffered, Data: map[string]any{"count": "two"}},
+			"A shrine offers to teach you one move.",
+			nil,
+		},
+		{
 			"move learned",
 			engine.NewMoveLearned(entities.Move{ID: "power_slash", Name: "Power Slash"}, nil),
 			"You learned Power Slash!",
@@ -539,5 +557,13 @@ func TestStatusTonesFollowKind(t *testing.T) {
 	}
 	if got, want := toneOf(engine.Event{Type: engine.EventMoveUsed}).Render("x"), styleDim.Render("x"); got != want {
 		t.Error("a move-used line must stay quiet (dim)")
+	}
+}
+
+// The shrine's offer line renders in the progression gold — a teaching
+// is a level-up-adjacent moment.
+func TestShrineOfferedTone(t *testing.T) {
+	if got, want := toneOf(engine.NewShrineOffered(2)).Render("x"), styleXP.Render("x"); got != want {
+		t.Error("a shrine offer must take the gold tone")
 	}
 }

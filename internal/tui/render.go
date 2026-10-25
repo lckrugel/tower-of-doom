@@ -69,7 +69,12 @@ func eventText(ev engine.Event) string {
 	case engine.EventItemSold:
 		return soldText(ev.Data)
 	case engine.EventShrineFound:
+		// Deprecated: no longer emitted by the engine (superseded by
+		// EventShrineOffered). The case stays — the renderer is total
+		// over the event space, legacy payloads included.
 		return shrineFoundText(ev.Data)
+	case engine.EventShrineOffered:
+		return shrineOfferedText(ev.Data)
 	case engine.EventMoveLearned:
 		return moveLearnedText(ev.Data)
 	case engine.EventMoveUsed:
@@ -261,12 +266,26 @@ func moveOf(data map[string]any) (entities.Move, bool) {
 
 // shrineFoundText renders the shrine's offer, held pending the StateLearn
 // decision. A shrine without a move payload is just silent stone.
+//
+// Deprecated along with its event: no longer emitted, the case kept
+// dormant so the renderer stays total (see eventText).
 func shrineFoundText(data map[string]any) string {
 	move, ok := moveOf(data)
 	if !ok {
 		return "A shrine stirs, but its teaching is lost."
 	}
 	return fmt.Sprintf("A shrine offers to teach you %s.", move.Name)
+}
+
+// shrineOfferedText renders the shrine's teaching offer (the two-offer
+// flow — the offers are held in PendingMoves for the choosing step).
+// The payload carries only the count (1–2, validated upstream); a
+// malformed count degrades to the singular rather than guessing.
+func shrineOfferedText(data map[string]any) string {
+	if count, _ := data["count"].(int); count == 2 {
+		return "A shrine offers to teach you two moves."
+	}
+	return "A shrine offers to teach you one move."
 }
 
 // moveLearnedText renders the shrine's teaching. The forgotten move is
