@@ -11,10 +11,10 @@
 - EXPLORE generates an encounter
     - The FIRST EXPLORE of a run is always COMBAT: the kind roll is
       skipped entirely (no rng consumed), so a run can never open with
-      a sanctuary, chest or merchant
+      a sanctuary, chest, merchant or shrine
     - The encounter TYPE is rolled from the section's `encounter_types`
-      weights (combat/sanctuary/chest/merchant; a section without the
-      table is combat-only) — see "Types of encounters"
+      weights (combat/sanctuary/chest/merchant/shrine; a section
+      without the table is combat-only) — see "Types of encounters"
     - A third identical NON-combat kind in a row never happens: when the
       roll lands on the same non-combat kind as the previous two, it is
       overridden to combat (an override, NOT a reroll — the roll's rng
@@ -27,6 +27,9 @@
       WEAR / STASH / DISCARD — see "Items"
     - MERCHANT encounters open StateMerchant: BUY / SELL / LEAVE —
       see "Gold & prices" and "Types of encounters"
+    - SHRINE encounters offer a move: under the learned cap it is
+      learned on the spot; at the cap StateLearn opens — FORGET one of
+      the two learned moves or DECLINE — see "Shrines"
 - PLayer can FIGHT or SNEAK
 - FIGHT leads to combat (StateCombat)
     - Entering combat resolves NO round: rounds advance from the hero's
@@ -286,14 +289,16 @@ older mods keep working.
 ## Types of encounters
 
 Each section defines weights per encounter kind in its `encounter_types`
-table (`combat` / `sanctuary` / `chest` / `merchant`). The engine rolls
-the KIND first (one `Intn` over the total weight; the roll order is
-combat, sanctuary, chest, merchant — the merchant bucket was APPENDED
-last, so a zero/absent merchant weight keeps every pre-merchant rng
-sequence identical), then fills the section difficulty budget with
-monsters only when the kind is combat. A section without the table (or
-with every weight at 0) is combat-only and consumes no rng for the kind
-roll, so old sections/mods keep their exact spawn behavior.
+table (`combat` / `sanctuary` / `chest` / `merchant` / `shrine`). The
+engine rolls the KIND first (one `Intn` over the total weight; the roll
+order is combat, sanctuary, chest, merchant, shrine — the merchant
+bucket was APPENDED last in its day and the shrine bucket followed it
+the same way, so a zero/absent merchant or shrine weight keeps every
+earlier rng sequence identical), then fills the section difficulty
+budget with monsters only when the kind is combat. A section without
+the table (or with every weight at 0) is combat-only and consumes no
+rng for the kind roll, so old sections/mods keep their exact spawn
+behavior.
 
 Two engine-level PACING rules shape the kind decision (they hold
 regardless of frontend, and both are rng-neutral or rng-saving — never
@@ -338,6 +343,12 @@ an extra roll):
     - BUY / SELL / LEAVE (and QUIT); buying and selling never unlock
       ASCEND
     - Does NOT unlock ASCEND
+- **SHRINE** — a teacher of moves; resolves on EXPLORE (see "Shrines"
+    in the Combat 2.0 section for the full flow):
+    - Draws ONE random unlearned move from the section's `move_tiers`
+      and teaches it on the spot while the hero is under the 2-learned
+      cap; at the cap it opens StateLearn's forget prompt
+    - Does NOT unlock ASCEND
 
 Only a combat victory clears the floor path and unlocks ASCEND.
 
@@ -348,8 +359,9 @@ of the plan at the end are shipped; the stopgap TUI ships with them and
 the game-loop/combat sections above describe the implemented reality).
 **Bosses** are IMPLEMENTED too (the gate flow, the asset block, the
 embedded groups and the TUI) — their section below documents the shipped
-behavior. **Shrines** are decided but NOT YET IMPLEMENTED — their
-section below is the design they will ship with.
+behavior. **Shrines** are IMPLEMENTED (the fifth encounter kind, the
+learning/forget rules, the StateLearn prompt and the TUI screen) — their
+section below documents the shipped behavior.
 
 ### Bosses (IMPLEMENTED)
 
@@ -428,9 +440,8 @@ section below is the design they will ship with.
   weight; an all-locked set falls back to the canonical `basic_attack`
   WITHOUT consuming a pick roll. A monster without a `moves` field uses
   `basic_attack` (cooldown 0), so older assets/mods keep working.
-- Hero moves: up to 2 LEARNED (shrine learning is not implemented yet —
-  today only weapon grants populate the set in practice) plus up to 2
-  granted by the equipped weapon (a `moves` field on weapon assets,
+- Hero moves: up to 2 LEARNED (shrine teaching — see "Shrines") plus up
+  to 2 granted by the equipped weapon (a `moves` field on weapon assets,
   resolved by the engine when the item is built).
 - `CmdMove(index)` replaces ATTACK: every combat turn is a move choice,
   indexing the hero's combat move set (CombatMoves: the effective set,
@@ -470,15 +481,49 @@ section below is the design they will ship with.
 - Starter set: poison (DoT), weaken (−DMG), slow (−SPD), guard
   (+DEF, self).
 
-### Shrines (move learning — NOT YET IMPLEMENTED)
+### Shrines (IMPLEMENTED)
 
-- A fifth encounter kind (`shrine`): offers a random UNLEARNED move
-  drawn from the section's `move_tiers` (the `item_tiers` pattern:
-  absent = unrestricted).
-- Learning is capped at 2 learned moves: at the cap, the shrine asks
-  the player to FORGET one first.
-- `move_tiers` gate shrine offers; weapon-granted moves are gated by
-  the item's own tier gating.
+- A fifth encounter kind (`shrine`): on EXPLORE it draws a random
+  UNLEARNED move from the section's `move_tiers` (the `item_tiers`
+  pattern: absent = unrestricted) and:
+    - **Under the 2-learned cap** — teaches it on the spot
+      (`event-move-learned{move}`) and exploring continues: no decision,
+      no state change.
+    - **At the cap** — holds the offer in `Engine.PendingMove` (the
+      `PendingLoot` discipline: cleared on every exit path) and opens
+      **StateLearn**: `FORGET <index>` forgets the learned move at the
+      index (into `LearnedMoves()`) and learns the offer in its place
+      (`event-move-learned{move, forgotten?}` — the additive optional
+      `forgotten` key carries the displaced move, present only when a
+      forget happened); `DECLINE` keeps both moves (`event-message`).
+      An out-of-range index is a generic invalid command, never a
+      panic; QUIT works as everywhere else.
+- The offer pool (the shrine's ONLY rng — ONE `Intn`):
+  `MovesForTiers(move_tiers)` (sorted by id), filtered to the moves the
+  hero does NOT already know — learned AND weapon-granted alike (dedup
+  by id) — and minus the canonical `basic_attack`: it is the move-less
+  fallback every combatant already fights with, and teaching it would
+  waste one of the two learned slots (a deliberate refinement of the
+  "unlearned move" rule). An empty filtered pool resolves as a flavor
+  message and consumes NO rng; learning and forgetting never consume
+  rng.
+- Shrines are non-combat kinds: the no-triple pacing rule covers them
+  (three shrines in a row is impossible) and they never unlock ASCEND.
+- The TUI: the ◈ SHRINE screen shows the offer's dossier (tier +
+  modifier/status/crit tags — the move grid's tag renderer) over the
+  forget selection; the two learned moves are selectable rows and the
+  bar is `[T] Forget` / `[N] Decline` / `[Q] Quit` (esc is a no-op —
+  explicit-only decision, like the chest loot).
+- Embedded content: every section carries a `shrine` weight (11-13% of
+  its kind roll) and `move_tiers`; six new tier 2-4 moves keep every
+  section's pool supplied mid-run; 19 of the 24 monsters fight with
+  authored move sets (early trash keeps the basic_attack fallback) and
+  the iron/steel/draconic swords grant tier-appropriate moves — see the
+  "Moves & statuses — data model" tables below.
+
+Learning is capped at 2 learned moves (`MaxLearnedMoves`); weapon
+grants sit on top of the learned set (the union capped at 4) and are
+gated by the item's own tier gating.
 
 ### Moves & statuses — data model
 
@@ -528,9 +573,9 @@ have no absent-field defaults:
   the hero's set is always computed from the EQUIPPED weapon (unwearing
   it removes the grants).
 - `SectionAsset.move_tiers` — the exact `item_tiers` pattern: it gates
-  which move tiers the section can offer (shrine draws, phase 4).
-  Absent or empty = unrestricted; every listed tier must have at least
-  one registry move (typo protection).
+  which move tiers the section can offer (the shrine draws). Absent or
+  empty = unrestricted; every listed tier must have at least one
+  registry move (typo protection).
 
 **Registry queries** (mirroring the item ones): `MovesForTiers(tiers)`
 (move assets sorted by id; unrestricted when no tiers are listed; an
@@ -579,7 +624,8 @@ runtime `Move.Weight` carries the ref's per-monster AI weight.
    "Combat calculations → RNG")
 3. ~~TUI combat redesign — 2×2 move grid, status chips, cooldown
    display~~ (shipped)
-4. ~~Bosses — the gate flow, the asset block, the embedded groups~~
-   (shipped; the groups reference existing monsters — a dedicated boss
-   content/balance pass may still retune them) & shrines — move
-   learning (NOT YET IMPLEMENTED)
+4. ~~Bosses & shrines — the gate flow, the asset block, the embedded
+   groups; the fifth encounter kind and move learning~~ (shipped: the
+   groups reference existing monsters — their members fight with
+   authored move sets since the shrine content pass; the shrines ship
+   with the flow documented in "Shrines")
