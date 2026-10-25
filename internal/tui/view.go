@@ -80,6 +80,11 @@ func (m Model) View() string {
 	if m.tooSmall() {
 		return tooSmallView(m.width, m.height)
 	}
+	if m.overlay {
+		// The lore overlay replaces the canvas while open — same window
+		// frame, same fixed size (see overlayPanel).
+		return styleWindow.Render(slot(m.overlayPanel(), contentWidth, contentHeight, lipgloss.Top))
+	}
 
 	left := lipgloss.JoinVertical(lipgloss.Left,
 		slot(m.body(), mainColWidth, bodyHeight, lipgloss.Top),
@@ -346,29 +351,99 @@ func (m Model) merchantCursor() int {
 // truncate inside the row instead of stretching the frame.
 const moveRowNameWidth = 20
 
-// shrinePanel is the shrine screen (StateLearn): the offered move's
-// dossier — reusing the move grid's tag renderer — over the forget
-// selection: the hero's learned moves as selectable rows, the row FORGET
-// acts on. The decision is explicit-only (esc is a no-op), like the
-// chest loot: leaving the shrine is a choice, not a stray keystroke.
+// shrinePanel is the shrine screen (StateLearn). The screen plays TWO
+// steps, DERIVED from the engine's pending state (never stored): offers
+// pending with no recorded choice is the CHOOSING step — both offers as
+// selectable dossiers, [L] Learn dispatching CmdChooseOffer{Index}; a
+// recorded ChosenMove is the FORGETTING step — the chosen move shown as
+// "learning:" over the hero's learned moves (weapon-granted ones are
+// not listed: they leave with the weapon), [F] Forget dispatching
+// CmdForget{Index}. [N] Decline resolves either step. The decision is
+// explicit-only (esc is a no-op), like the chest loot.
+//
+// The deprecated PendingMove mirror is never read: a legacy one-offer
+// construction (PendingMove alone, no PendingMoves/ChosenMove) renders
+// the silent guard, like an empty offer list.
+//
+// Height budget, worst case (16 rows): choosing = title + 2 dossiers ×2
+// lines = 5; forgetting = title + learning dossier 2 + label + 2 rows =
+// 6 — the panel always fits, never leaning on slot() to clip.
 func (m Model) shrinePanel() string {
-	var b strings.Builder
-	b.WriteString(stylePanelTitle.Render("◈ SHRINE") + "\n")
-	move := m.engine.PendingMove
-	if move == nil {
-		return b.String() + styleDim.Render("   (the shrine is silent)")
+	step := "choose a teaching"
+	if m.learnForgetStep() {
+		step = "forget one to make room"
 	}
-	offer := "The shrine offers: " + move.Name
-	b.WriteString("  " + stylePanelTitle.Render(truncateRunes(offer, mainColWidth-2)) + "\n")
-	// The dossier line reuses the grid's tag renderer (modifier, status
-	// id, crit) with the move's tier ahead of it.
-	tags := strings.TrimLeft(m.gridTags(*move, false), " ")
-	b.WriteString(styleDim.Render(fmt.Sprintf("    tier %d · %s", move.Tier, tags)) + "\n")
+	title := stylePanelTitle.Render("◈ SHRINE") + styleDim.Render(" · "+step) + "\n"
+	if m.learnForgetStep() {
+		return title + m.shrineForgetStep()
+	}
+	return title + m.shrineChooseStep()
+}
+
+// learnForgetStep reports whether the shrine screen is in its second
+// step: a recorded ChosenMove marks the forgetting step (the same
+// derivation the engine's allow-matrix uses). Offers without a choice
+// are the choosing step.
+func (m Model) learnForgetStep() bool {
+	return m.engine.ChosenMove != nil
+}
+
+// shrineChooseStep renders the pending offers as stacked dossiers, the
+// cursor's dossier highlighted like every other selection.
+func (m Model) shrineChooseStep() string {
+	offers := m.engine.PendingMoves
+	if len(offers) == 0 {
+		return styleDim.Render("   (the shrine is silent)")
+	}
+	var b strings.Builder
+	selected := min(max(m.bagCursor, 0), len(offers)-1)
+	for i, move := range offers {
+		b.WriteString(m.shrineDossier(move, i == selected))
+	}
+	return b.String()
+}
+
+// shrineDossier renders one offer: the selectable name row over the
+// tier + tag line — the grid renderer's tags (modifier, status, crit),
+// trimmed for the full column. Every line is width-guarded: nothing
+// here may lean on slot() to be clipped.
+func (m Model) shrineDossier(move entities.Move, selected bool) string {
+	prefix, style := "  ", styleAction
+	if selected {
+		prefix, style = "▶ ", styleSelected
+	}
+	name := prefix + style.Render(truncateRunes(move.Name, mainColWidth-3))
+	tags := strings.TrimLeft(m.gridTags(move, false, glyphLearned), " ")
+	tier := truncateRunes(fmt.Sprintf("    tier %d · %s", move.Tier, tags), mainColWidth)
+	line := name + "\n" + styleDim.Render(tier) + "\n"
+	if expl := m.moveStatusExplanation(move.Status); expl != "" {
+		// The status tag's one-line tooltip: effect and duration from
+		// the registry's lore.
+		line += styleDim.Render(truncateRunes("    "+expl, mainColWidth)) + "\n"
+	}
+	return line
+}
+
+// shrineForgetStep renders the forgetting step: the chosen offer's
+// "learning:" dossier over the learned rows — the only moves that can
+// make room — the cursor's row the one [F] Forget acts on.
+func (m Model) shrineForgetStep() string {
+	var b strings.Builder
+	if chosen := m.engine.ChosenMove; chosen != nil {
+		learning := truncateRunes("learning: "+chosen.Name, mainColWidth-2)
+		tags := strings.TrimLeft(m.gridTags(*chosen, false, glyphLearned), " ")
+		tier := truncateRunes(fmt.Sprintf("    tier %d · %s", chosen.Tier, tags), mainColWidth)
+		b.WriteString("  " + stylePanelTitle.Render(learning) + "\n")
+		b.WriteString(styleDim.Render(tier) + "\n")
+		if expl := m.moveStatusExplanation(chosen.Status); expl != "" {
+			b.WriteString(styleDim.Render(truncateRunes("    "+expl, mainColWidth)) + "\n")
+		}
+	}
 	learned := m.engine.Player.LearnedMoves()
 	if len(learned) == 0 {
 		return b.String() + styleDim.Render("   (nothing learned to forget)")
 	}
-	b.WriteString(styleDim.Render("  forget one of your moves to make room:") + "\n")
+	b.WriteString(styleDim.Render("  forget one of your moves:") + "\n")
 	width := 0
 	for _, mv := range learned {
 		width = max(width, len([]rune(mv.Name)))
@@ -376,7 +451,7 @@ func (m Model) shrinePanel() string {
 	width = min(width, moveRowNameWidth)
 	selected := min(max(m.bagCursor, 0), len(learned)-1)
 	for i, mv := range learned {
-		rowTags := strings.TrimLeft(m.gridTags(mv, false), " ")
+		rowTags := strings.TrimLeft(m.gridTags(mv, false, glyphLearned), " ")
 		label := padRight(truncateRunes(mv.Name, moveRowNameWidth), width) + "  " + rowTags
 		label = truncateRunes(label, mainColWidth-3)
 		if i == selected {
@@ -512,6 +587,32 @@ func (m Model) moveGrid() string {
 	return strings.Join(rows, "\n")
 }
 
+// The move source glyphs: where a hero move comes from — the 2+2 split
+// (the 2-learned cap + the weapon's grants) made visible. Both render
+// single-width in the frame's glyph family (◈ ✦ ☠ ⬆ share it); ⚔ is
+// already the enemies' mark.
+const (
+	glyphLearned = "◆" // learned at a shrine
+	glyphWeapon  = "⚔" // granted by the equipped weapon
+)
+
+// moveSourceGlyph resolves a move's source glyph from the hero's
+// effective set — the clean engine seam (Hero.EffectiveMovesWithSource,
+// a Hero method the TUI reads directly): ◆ for the learned set, ⚔ for
+// weapon grants, "" for a move outside the set (the canonical
+// basic-attack fallback is neither).
+func (m Model) moveSourceGlyph(moveID string) string {
+	for _, s := range m.engine.Player.EffectiveMovesWithSource(m.engine.Player.Weapon) {
+		if s.Move.ID == moveID {
+			if s.Source == entities.SourceWeapon {
+				return glyphWeapon
+			}
+			return glyphLearned
+		}
+	}
+	return ""
+}
+
 // gridCell renders one cell's two lines (name, tags), padded to the
 // cell width so the two cells of a row align. The cursor's cell gets
 // the shared selection style — full-width background highlight; a
@@ -537,18 +638,23 @@ func (m Model) gridCell(moves []entities.Move, i int) (name, tags string) {
 		style = styleSelected
 	}
 	name = truncateRunes(name, gridCellWidth)
+	source := m.moveSourceGlyph(move.ID)
 	return style.Render(padRight(name, gridCellWidth)),
-		style.Render(padRight(truncateRunes(m.gridTags(move, cooling), gridCellWidth), gridCellWidth))
+		style.Render(padRight(truncateRunes(m.gridTags(move, cooling, source), gridCellWidth), gridCellWidth))
 }
 
-// gridTags is a cell's tag line: the move's damage modifier, its status
-// tag ("☠poison 60%" — the status ID; the move payload carries ids, not
-// names) and its crit bonus ("✦+20"). Shipped content never carries all
-// three on one move, so the line stays ≤ 2 short tags; a modded asset
-// that packs more truncates at the cell width (the guard, never slot()).
-// A cooling move shows ONLY the turns-left marker: the tags don't matter
-// while the move is unusable.
-func (m Model) gridTags(move entities.Move, cooling bool) string {
+// gridTags is a move's tag line: the damage modifier, the status tag
+// ("☠poison 60%" — the status ID; the move payload carries ids, not
+// names) and the crit bonus ("✦+20"), trailed by the move's SOURCE
+// glyph — the caller's knowledge: the hero-set lookup for grid cells,
+// the forced learned glyph for the shrine's offers and forget rows (a
+// shrine offer is by definition headed for the learned set). Shipped
+// content never carries all three tags on one move, so the line stays
+// ≤ 2 short tags + the glyph; a modded asset that packs more truncates
+// at the cell width (the guard, never slot()). A cooling move shows
+// ONLY the turns-left marker: the tags don't matter while the move is
+// unusable.
+func (m Model) gridTags(move entities.Move, cooling bool, source string) string {
 	if cooling {
 		return fmt.Sprintf("   (%d turns)", m.mirror.cooldownLeft(move.ID))
 	}
@@ -559,13 +665,17 @@ func (m Model) gridTags(move entities.Move, cooling bool) string {
 	if move.CritBonus != 0 {
 		tags = append(tags, fmt.Sprintf("✦%+d", move.CritBonus))
 	}
+	if source != "" {
+		tags = append(tags, source)
+	}
 	return "   " + strings.Join(tags, " ")
 }
 
 // maxStatusRows is the fixed budget for the enemy block's status chips:
-// they wrap into at most two rows, then the display drops what doesn't
-// fit — the frame's height never moves for statuses (the log carries
-// every application/expiry faithfully).
+// they wrap into at most two rows — plus ONE dim explanation line under
+// them (see enemyStatusRows) — then the display drops what doesn't fit;
+// the frame's height never moves for statuses (the log carries every
+// application/expiry faithfully).
 const maxStatusRows = 2
 
 // statusChip renders one active status as "Poison(2)" — the name the
@@ -591,9 +701,11 @@ func statusChips(statuses []combatStatus) []string {
 // wrapChips lays chips into rows of at most maxWidth (lipgloss-aware
 // widths), at most maxRows rows; chips that no longer fit — including a
 // single chip wider than a whole row — are dropped. The cap is the
-// documented display budget, never slot() clipping.
-func wrapChips(chips []string, maxWidth, maxRows int) []string {
-	rows := make([]string, 0, maxRows)
+// documented display budget, never slot() clipping. It also reports HOW
+// MANY chips made it into rows (the explanation lines cover exactly
+// those).
+func wrapChips(chips []string, maxWidth, maxRows int) (rows []string, shown int) {
+	rows = make([]string, 0, maxRows)
 	var row []string
 	width := 0
 	for _, chip := range chips {
@@ -606,7 +718,7 @@ func wrapChips(chips []string, maxWidth, maxRows int) []string {
 			row, width = nil, 0
 			w = lipgloss.Width(chip)
 			if len(rows) == maxRows {
-				return rows // the cap: the rest is dropped
+				return rows, shown // the cap: the rest is dropped
 			}
 		}
 		if w > maxWidth {
@@ -614,20 +726,29 @@ func wrapChips(chips []string, maxWidth, maxRows int) []string {
 		}
 		row = append(row, chip)
 		width += w
+		shown++
 	}
 	if len(row) > 0 && len(rows) < maxRows {
 		rows = append(rows, strings.Join(row, " "))
 	}
-	return rows
+	return rows, shown
 }
 
 // enemyStatusRows is the enemy block's status rows: the engaged enemy's
 // active chips, wrapped to at most maxStatusRows rows inside the column
-// (the two-space indent is part of the budget).
+// (the two-space indent is part of the budget), and ONE dim explanation
+// line under them covering the chips that rendered. The status section
+// spends at most 2 + 1 fixed rows — part of the enemy block's budget:
+// title + name/HP + stats + 3 + the waiting counter = 7 of the 16 body
+// rows, grid included.
 func (m Model) enemyStatusRows() string {
-	rows := wrapChips(statusChips(m.mirror.enemyStatuses), mainColWidth-2, maxStatusRows)
+	chips := statusChips(m.mirror.enemyStatuses)
+	rows, shown := wrapChips(chips, mainColWidth-2, maxStatusRows)
 	for i := range rows {
 		rows[i] = "  " + rows[i]
+	}
+	if expl := m.statusExplanation(m.mirror.enemyStatuses[:shown]); expl != "" {
+		rows = append(rows, "  "+styleDim.Render(truncateRunes(expl, mainColWidth-2)))
 	}
 	return strings.Join(rows, "\n")
 }
@@ -694,17 +815,29 @@ func (m Model) heroPanel() string {
 }
 
 // heroHPRow is the HP line of the hero panel — bar and readout, then as
-// many status chips as fit within the column: the first chips that fit
-// render, the rest is dropped (the documented display cap; the log
-// carries every status faithfully).
+// many status chips as fit within the column, then the chips'
+// explanation riding what row remains. The panel's four-line shape is
+// the layout invariant (heroHeight feeds bodyHeight and the merchant's
+// exact worst case), so the explanation shares the HP row, cut to the
+// room left — the documented display cap; the '?' overlay carries the
+// full lore. The cut is applied to the PLAIN text before styling (never
+// mid-escape).
 func (m Model) heroHPRow() string {
 	p := m.engine.Player
 	row := fmt.Sprintf("  HP %s %d/%d", hpBarPlain(p.CurrentHP, p.MaxHP()), p.CurrentHP, p.MaxHP())
-	for _, chip := range statusChips(m.mirror.heroStatuses) {
+	chips := statusChips(m.mirror.heroStatuses)
+	shown := 0
+	for _, chip := range chips {
 		if lipgloss.Width(row)+1+lipgloss.Width(chip) > mainColWidth {
 			break
 		}
 		row += " " + chip
+		shown++
+	}
+	if expl := m.statusExplanation(m.mirror.heroStatuses[:shown]); expl != "" {
+		if room := mainColWidth - lipgloss.Width(row) - 1; room > 0 {
+			row += " " + styleDim.Render(truncateRunes(expl, room))
+		}
 	}
 	return row
 }
@@ -785,7 +918,11 @@ func (m Model) actionBar() string {
 	case engine.StateLoot:
 		hint = "   decide the loot's fate"
 	case engine.StateLearn:
-		hint = "   ← → pick the move to forget"
+		if m.learnForgetStep() {
+			hint = "   ← → pick the move to forget"
+		} else {
+			hint = "   ← → pick a teaching"
+		}
 	}
 	if hint == "" {
 		return lipgloss.JoinHorizontal(lipgloss.Center, strings.Join(spots, sep))

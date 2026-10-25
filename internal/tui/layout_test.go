@@ -127,18 +127,31 @@ func viewModels() map[string]Model {
 	bossCombat := encounter(engine.StateCombat)
 	bossCombat.engine.CurrentEncounter.Boss = true
 
-	// The shrine's forget prompt (StateLearn): the offer pends over the
-	// hero's two learned moves. Two fixtures — the dossier screen with
-	// the forget selection on the first row, and one with the selection
-	// walked to the second row (the forget prompt fully engaged).
+	// The shrine's choosing step (StateLearn): BOTH offers pend as
+	// dossiers over the hero's two learned moves (at the cap). The
+	// cursor picks the offer [L] Learn acts on.
 	shrineAt := func(cursor int) Model {
 		e := testEngine()
 		learnTestMove(e, "guard_strike", "Guard Strike", 2)
 		learnTestMove(e, "heavy_slash", "Heavy Slash", 2)
-		offered := entities.Move{ID: "power_slash", Name: "Power Slash", Tier: 2, DmgModifier: 175, Weight: 10}
-		e.PendingMove = &offered
+		e.PendingMoves = []entities.Move{
+			{ID: "power_slash", Name: "Power Slash", Tier: 2, DmgModifier: 175, Weight: 10},
+			{ID: "venom_shot", Name: "Venom Shot", Tier: 1, DmgModifier: 75, Weight: 10,
+				Status: entities.MoveStatus{ID: "poison", Chance: 60, Target: entities.TargetEnemy}},
+		}
 		e.State = engine.StateLearn
 		m := New(e)
+		m.bagCursor = cursor
+		return m
+	}
+
+	// The shrine's forgetting step: the choice recorded in ChosenMove,
+	// the two learned moves as selectable rows (the forget cursor walked
+	// to the second row).
+	forgetAt := func(cursor int) Model {
+		m := shrineAt(0)
+		chosen := m.engine.PendingMoves[0]
+		m.engine.ChosenMove = &chosen
 		m.bagCursor = cursor
 		return m
 	}
@@ -159,24 +172,21 @@ func viewModels() map[string]Model {
 		"boss unlocked": bossUnlocked(),
 		"boss combat":   bossCombat,
 		"shrine":        shrineAt(0),
-		"forget prompt": shrineAt(1),
+		"forget prompt": forgetAt(1),
 	}
 }
 
-// learnModel is the shrine screen's under-curve case the frame must
-// survive: the offer pends while the hero's learned set has drifted out
-// of the ordinary (three rows would exceed the cap — the state guards
-// it, the panel guards the rendering).
+// learnModel is the choosing screen's under-cap case the frame must
+// survive: ONE offer with a modded move name wider than any shipped one
+// and every tag flavor — the dossier truncates inside the column.
 func learnModel() Model {
 	e := testEngine()
 	learnTestMove(e, "guard_strike", "Guard Strike", 2)
-	learnTestMove(e, "heavy_slash", "Heavy Slash", 2)
-	offered := entities.Move{
+	e.PendingMoves = []entities.Move{{
 		ID: "super_calibrating_excalibur_strike", Name: "Super Calibrating Excalibur Strike",
 		Tier: 3, DmgModifier: 300, CritBonus: 25, Cooldown: 4, Weight: 10,
 		Status: entities.MoveStatus{ID: "poison", Chance: 60, Target: entities.TargetEnemy},
-	}
-	e.PendingMove = &offered
+	}}
 	e.State = engine.StateLearn
 	return New(e)
 }
@@ -382,6 +392,25 @@ func TestHeroStatsAnchorAboveTheActionBar(t *testing.T) {
 		if got, want := barRow-heroRow, heroHeight; got != want {
 			// heroHeight is the panel's line count: HERO + Lv + HP + stats.
 			t.Errorf("%s: hero panel spans %d rows above the bar, want %d", name, got, want)
+		}
+	}
+}
+
+// The '?' overlay replaces the canvas but keeps the window frame's
+// exact geometry: same fixed size in every dimension — the terminal
+// never reflows for it.
+func TestOverlayKeepsTheConstantFrame(t *testing.T) {
+	m := New(testEngine())
+	m.overlay = true
+
+	lines := viewLines(m.View())
+
+	if len(lines) != contentHeight+2 {
+		t.Errorf("overlay renders %d lines, want the full frame of %d", len(lines), contentHeight+2)
+	}
+	for i, line := range lines {
+		if w := ansiLen(line); w != contentWidth+4 {
+			t.Errorf("overlay line %d is %d wide, want %d", i, w, contentWidth+4)
 		}
 	}
 }

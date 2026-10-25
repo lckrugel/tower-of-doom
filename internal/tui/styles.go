@@ -114,6 +114,10 @@ func toneOf(ev engine.Event) lipgloss.Style {
 		return styleGold
 	case engine.EventMerchantFound:
 		return styleMerchant
+	case engine.EventShrineOffered:
+		// The shrine's teaching offer: the progression gold — a move
+		// learned is a level-up-adjacent moment.
+		return styleXP
 	case engine.EventItemBought, engine.EventItemSold:
 		return styleLoot
 	case engine.EventMoveUsed:

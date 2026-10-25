@@ -8,10 +8,13 @@ import (
 )
 
 // confirmableStates lists every state where quitting asks for
-// confirmation — all but game over, where nothing is left to lose.
+// confirmation — all but game over, where nothing is left to lose. The
+// shrine's explicit decision screens confirm too: walking away from a
+// teaching by quitting must stay a deliberate choice.
 var confirmableStates = []engine.GameState{
 	engine.StateExploring, engine.StateEncounter, engine.StateCombat,
 	engine.StateLoot, engine.StateInventory, engine.StateMerchant,
+	engine.StateLearn,
 }
 
 // Pressing q never dispatches right away: the model arms the quit

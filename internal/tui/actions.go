@@ -60,10 +60,14 @@ var orderedOptions = []struct {
 	{"p", "Buy", engine.CmdBuy},   // buy the offer under the shop cursor
 	{"v", "Sell", engine.CmdSell}, // sell the selected bag item
 	{"l", "Leave", engine.CmdLeave},
-	// The shrine's forget prompt: forget the selected learned move to
-	// make room for the offer, or keep both and walk away. ("f" is
-	// Fight's and "d" is Discard's — the uniqueness invariant keeps them.)
-	{"t", "Forget", engine.CmdForget},   // t for "toss"
+	// The shrine's two steps: [L] Learn picks one of the pending offers
+	// (the choosing step), [F] Forget trades a learned move for the
+	// chosen one (the forgetting step), [N] Decline walks away from
+	// either. ("l" is Leave's and "f" is Fight's — the shrine's
+	// explicit-only decision screens reuse them; the uniqueness test
+	// documents the exception.)
+	{"l", "Learn", engine.CmdChooseOffer},
+	{"f", "Forget", engine.CmdForget},
 	{"n", "Decline", engine.CmdDecline}, // n for "no — keep both"
 	{"q", "Quit", engine.CmdQuit},
 }
@@ -106,7 +110,7 @@ func actionsFor(e *engine.Engine) []action {
 			key: opt.key, label: opt.label, cmd: opt.cmd, enabled: enabled,
 			usesIndex: opt.cmd == engine.CmdWear || opt.cmd == engine.CmdDrop ||
 				opt.cmd == engine.CmdBuy || opt.cmd == engine.CmdSell ||
-				opt.cmd == engine.CmdForget,
+				opt.cmd == engine.CmdForget || opt.cmd == engine.CmdChooseOffer,
 			index: -1,
 		})
 	}
@@ -126,26 +130,38 @@ func combatActions() []action {
 	}
 }
 
-// barActions is the state's action bar with cursor-sensitive enablement
-// applied. In the shop, BUY and SELL act on the row the cursor walks:
-// each is enabled only while the cursor sits on its own section of the
-// combined list (stock rows vs bag rows). Dispatching a disabled action
-// still reaches the engine, which explains the rejection in the log.
+// barActions is the state's action bar with the context-sensitive
+// shaping applied: at the merchant BUY and SELL follow the row cursor;
+// at the shrine the bar filters to the LIVE step's actions (the panel's
+// step label carries the context — the wrong-step chip is not shown,
+// though a raw wrong-step letter still dispatches the union and the
+// engine answers the generic rejection with the state intact).
 func (m Model) barActions() []action {
 	actions := actionsFor(m.engine)
-	if m.engine.State != engine.StateMerchant {
-		return actions
-	}
-	onStock := m.bagCursor < len(m.engine.MerchantStock)
-	for i := range actions {
-		switch actions[i].cmd {
-		case engine.CmdBuy:
-			actions[i].enabled = onStock
-		case engine.CmdSell:
-			// onStock is false only when bag rows exist to select — but
-			// a bought-out shop with an emptied bag must keep SELL off.
-			actions[i].enabled = !onStock && len(m.engine.Player.Bag()) > 0
+	switch m.engine.State {
+	case engine.StateMerchant:
+		onStock := m.bagCursor < len(m.engine.MerchantStock)
+		for i := range actions {
+			switch actions[i].cmd {
+			case engine.CmdBuy:
+				actions[i].enabled = onStock
+			case engine.CmdSell:
+				// onStock is false only when bag rows exist to select — but
+				// a bought-out shop with an emptied bag must keep SELL off.
+				actions[i].enabled = !onStock && len(m.engine.Player.Bag()) > 0
+			}
 		}
+	case engine.StateLearn:
+		shaped := make([]action, 0, len(actions))
+		for _, a := range actions {
+			live := a.cmd == engine.CmdDecline || a.cmd == engine.CmdQuit ||
+				(a.cmd == engine.CmdChooseOffer && !m.learnForgetStep()) ||
+				(a.cmd == engine.CmdForget && m.learnForgetStep())
+			if live {
+				shaped = append(shaped, a)
+			}
+		}
+		actions = shaped
 	}
 	return actions
 }

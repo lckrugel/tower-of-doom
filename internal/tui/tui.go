@@ -54,6 +54,11 @@ type Model struct {
 	// placeholder) and resets to the first cell with the mirror, on
 	// every combat entry.
 	gridCursor int
+	// overlay marks the '?' lore overlay: a TUI-internal pure view mode
+	// (no engine call) that replaces the canvas while open. Any key
+	// closes it before anything else dispatches — ctrl+c's emergency
+	// exit excepted, which quits from anywhere.
+	overlay bool
 }
 
 // New builds the UI for a fresh engine, greeting the player. The
@@ -111,6 +116,12 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.confirmQuit = false
 		return m, nil
 	}
+	if m.overlay {
+		// The lore overlay is a pure view mode: any key closes it
+		// first — nothing dispatches while it is open.
+		m.overlay = false
+		return m, nil
+	}
 	switch msg.String() {
 	case "esc":
 		switch m.engine.State {
@@ -146,10 +157,15 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m.confirmOrDispatch(m.selectedAction())
 	default:
-		// Single-key shortcuts: digits jump-dispatch grid cells in
-		// combat; letters match the current bar (case-insensitive).
+		// Single-key shortcuts: '?' toggles the lore overlay; digits
+		// jump-dispatch grid cells in combat; letters match the current
+		// bar (case-insensitive).
 		key := strings.ToLower(msg.String())
 		if len(key) == 1 {
+			if key == "?" {
+				m.overlay = !m.overlay
+				return m, nil
+			}
 			if m.engine.State == engine.StateCombat {
 				if d, ok := gridDigit(key); ok {
 					return m.jumpDispatchMove(d)
@@ -244,10 +260,12 @@ func (m Model) confirmOrDispatch(a action) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) selectedAction() action {
-	actions := actionsFor(m.engine)
+	// The SHAPED bar — the one the screen renders (the shrine's per
+	// step, the shop's per cursor) — not the raw union.
+	actions := m.barActions()
 	cursor := m.cursor
 	if cursor >= len(actions) {
-		cursor = len(actions) - 1
+		cursor = max(len(actions)-1, 0)
 	}
 	return actions[cursor]
 }
@@ -263,8 +281,13 @@ func (m Model) selectableRows() int {
 	case engine.StateMerchant:
 		return len(m.engine.MerchantStock) + len(m.engine.Player.Bag())
 	case engine.StateLearn:
-		// The forget selection: the learned moves are the rows.
-		return len(m.engine.Player.LearnedMoves())
+		// The shrine's row cursor walks the live step's list: the
+		// pending offers while choosing, the learned moves while
+		// forgetting.
+		if m.learnForgetStep() {
+			return len(m.engine.Player.LearnedMoves())
+		}
+		return len(m.engine.PendingMoves)
 	default:
 		return 0
 	}

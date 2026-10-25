@@ -16,12 +16,18 @@ import (
 // rounds and assert the mirror against the engine's own observable truth
 // (its exported MoveCooldown accessor and its log lines).
 
-// statusAssets mirrors the shipped statuses.json subset the fixtures use.
+// statusAssets mirrors the shipped statuses.json — the fixture engines'
+// registry lore (the '?' overlay and the chip explanations read it;
+// strike-time resolution only ever references poison and guard).
 var statusAssets = map[string]game.StatusAsset{
 	"poison": {ID: "poison", Name: "Poison", Kind: "debuff",
 		Effect: game.StatusEffectAsset{Type: "dot", Amount: 3}, Duration: 3},
 	"guard": {ID: "guard", Name: "Guard", Kind: "buff",
 		Effect: game.StatusEffectAsset{Type: "stat", Stat: "def", Amount: 5}, Duration: 2},
+	"weaken": {ID: "weaken", Name: "Weaken", Kind: "debuff",
+		Effect: game.StatusEffectAsset{Type: "stat", Stat: "dmg", Amount: -3}, Duration: 3},
+	"slow": {ID: "slow", Name: "Slow", Kind: "debuff",
+		Effect: game.StatusEffectAsset{Type: "stat", Stat: "spd", Amount: -3}, Duration: 3},
 }
 
 // combatEngine is a real engine whose registry carries the status assets,
@@ -586,6 +592,27 @@ func TestViewGridShowsPlaceholdersForMissingMoves(t *testing.T) {
 	}
 }
 
+// The 2+2 split made visible: every grid cell trails its move's source
+// glyph — ◆ for the learned set (shrine teaching), ⚔ for weapon
+// grants — resolved from the hero's effective set
+// (Hero.EffectiveMovesWithSource).
+func TestGridCellsTagTheMoveSource(t *testing.T) {
+	m := fourMoveModel(t) // two learned moves + two weapon-granted
+
+	grid := stripControls(stripANSI(m.moveGrid()))
+
+	for _, want := range []string{
+		"☠poison 100% ◆", // Envenom: learned
+		"100% ◆",         // Jab: learned
+		"90% ⚔",          // Stone Edge: weapon-granted
+		"110% ⚔",         // Wild Swing: weapon-granted
+	} {
+		if !strings.Contains(grid, want) {
+			t.Errorf("move grid missing the source tag %q:\n%s", want, grid)
+		}
+	}
+}
+
 // A hero with NO moves at all fights with the canonical basic attack —
 // the grid shows it as the single real cell.
 func TestViewGridShowsTheBasicAttackFallback(t *testing.T) {
@@ -595,6 +622,11 @@ func TestViewGridShowsTheBasicAttackFallback(t *testing.T) {
 
 	if !strings.Contains(view, "Basic Strike") || !strings.Contains(view, "100%") {
 		t.Errorf("the basic-attack fallback is missing from the grid:\n%s", view)
+	}
+	// The canonical fallback is neither learned nor weapon-granted: its
+	// cell carries no source tag.
+	if strings.Contains(view, "◆") || strings.Contains(view, "100% ⚔") {
+		t.Errorf("the basic-attack fallback grew a source tag:\n%s", view)
 	}
 }
 
@@ -895,6 +927,37 @@ func TestHeroChipsVanishOutsideCombat(t *testing.T) {
 	}
 }
 
+// The hero's chips gain the same explanation, riding the HP row after
+// them — the panel's four-line shape is the layout invariant (heroHeight
+// feeds bodyHeight and the merchant's exact worst case), so the
+// explanation shares the row, cut to the room left: the documented
+// display cap; the '?' overlay carries the full lore.
+func TestHeroChipsExplanationRidesTheHPRow(t *testing.T) {
+	e := combatEngine()
+	learnMove(e, jab())
+	e.CurrentEncounter = engine.Encounter{
+		Type:     engine.EncounterCombat,
+		Monsters: []entities.Monster{spitterMonster(200), goblinMonster()},
+	}
+	e.State = engine.StateCombat
+	m := New(e)
+
+	m = useMove(t, m, 0) // the spitter poisons the hero
+
+	lines := viewLines(m.heroPanel())
+	if len(lines) != 4 {
+		t.Fatalf("hero panel has %d lines with the explanation, want 4", len(lines))
+	}
+	if w := ansiLen(lines[2]); w > mainColWidth {
+		t.Errorf("hero HP row is %d wide, overflows the %d-col column", w, mainColWidth)
+	}
+	// The chip stays; the explanation rides after it, cut to the ~13
+	// runes of room the row has left for this fixture.
+	if !strings.Contains(lines[2], "Poison(2)") || !strings.Contains(lines[2], "Poison — 3 d") {
+		t.Errorf("hero HP row lost the chip or the explanation: %q", lines[2])
+	}
+}
+
 // Chip tones follow the status KIND, same rule as the log: debuffs
 // soft-red, buffs green.
 func TestStatusChipsToneByKind(t *testing.T) {
@@ -911,8 +974,9 @@ func TestStatusChipsToneByKind(t *testing.T) {
 	}
 }
 
-// The enemy block's chips wrap to at most two rows and never lean on
-// slot() to clip: every row fits the column, the rest is dropped.
+// The enemy block's chips wrap to at most two rows, plus ONE dim
+// explanation line under them; nothing leans on slot() to clip: every
+// row fits the column, the rest is dropped.
 func TestEnemyStatusRowsCap(t *testing.T) {
 	m := New(combatEngine())
 	for i := range 6 {
@@ -923,13 +987,54 @@ func TestEnemyStatusRowsCap(t *testing.T) {
 
 	rows := strings.Split(m.enemyStatusRows(), "\n")
 
-	if len(rows) > maxStatusRows {
-		t.Errorf("enemy statuses occupy %d rows, want at most %d", len(rows), maxStatusRows)
+	if len(rows) > maxStatusRows+1 {
+		t.Errorf("enemy statuses occupy %d rows, want at most %d chip rows + 1 explanation",
+			len(rows), maxStatusRows)
 	}
 	for i, row := range rows {
 		if w := ansiLen(row); w > mainColWidth {
 			t.Errorf("status row %d is %d wide, overflows the %d-col column: %q", i, w, mainColWidth, row)
 		}
+	}
+}
+
+// Under the chips sits one dim explanation line — "Poison — 3 dmg/turn
+// · 2 turns left": the live turns from the mirror, the effect from the
+// registry's lore.
+func TestEnemyChipsCarryAnExplanationLine(t *testing.T) {
+	e := combatEngine()
+	e.CurrentEncounter = engine.Encounter{
+		Type:     engine.EncounterCombat,
+		Monsters: []entities.Monster{goblinMonster()},
+	}
+	m := New(e)
+	m.mirror.enemyStatuses = []combatStatus{{name: "Poison", kind: "debuff", turns: 2}}
+
+	found := 0
+	for _, line := range viewLines(m.combatPanel()) {
+		if strings.Contains(line, "Poison — 3 dmg/turn · 2 turns left") {
+			found++
+		}
+	}
+	if found != 1 {
+		t.Errorf("the chips' explanation line is missing:\n%s", m.combatPanel())
+	}
+}
+
+// A status the registry doesn't know degrades to its live count — the
+// explanation stays truthful.
+func TestChipExplanationDegradesWithoutLore(t *testing.T) {
+	e := combatEngine()
+	e.CurrentEncounter = engine.Encounter{
+		Type:     engine.EncounterCombat,
+		Monsters: []entities.Monster{goblinMonster()},
+	}
+	m := New(e)
+	m.mirror.enemyStatuses = []combatStatus{{name: "Mystery", kind: "debuff", turns: 4}}
+
+	view := stripControls(stripANSI(m.combatPanel()))
+	if !strings.Contains(view, "Mystery · 4 turns left") {
+		t.Errorf("the unknown status lost its explanation:\n%s", view)
 	}
 }
 
