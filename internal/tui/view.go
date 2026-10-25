@@ -387,10 +387,17 @@ func (m Model) encounterPanel() string {
 	return b.String()
 }
 
+// enemyNameWidth is the front enemy's name budget on the combat line:
+// the marker, the gap and the HP bar with its percentage share the row
+// (marker 2 + gap 2 + bar 10 + " NN%" 5).
+const enemyNameWidth = mainColWidth - 2 - 2 - barWidth - 5
+
 // combatPanel is the combat screen: the enemy currently in front of the
 // hero — the rest of the queue appears only as a counter — with its stat
 // line and status chips, and the 2×2 move grid below it. Just like the
-// encounter panel it shows the engaged enemy's stat line.
+// encounter panel it shows the engaged enemy's stat line. Height budget,
+// worst case: title + name/HP + stats + 2 status rows + waiting = 6,
+// plus the grid's 5 (title + four cell lines) = 11 of the 16 body rows.
 func (m Model) combatPanel() string {
 	var b strings.Builder
 	b.WriteString(stylePanelTitle.Render("⚔ ENEMIES") + "\n")
@@ -399,7 +406,7 @@ func (m Model) combatPanel() string {
 		return b.String() + styleDim.Render("   (no enemies in sight)")
 	}
 	front := monsters[0]
-	b.WriteString("▶ " + stylePanelTitle.Render(front.Name()) +
+	b.WriteString("▶ " + stylePanelTitle.Render(truncateRunes(front.Name(), enemyNameWidth)) +
 		"  " + hpBar(front.CurrentHP, front.MaxHP()) + "\n")
 	b.WriteString("  " + statLine(front) + "\n")
 	if rows := m.enemyStatusRows(); rows != "" {
@@ -453,7 +460,9 @@ func (m Model) moveGrid() string {
 // the shared selection style — full-width background highlight; a
 // cooling cell grays out (unless the cursor rests on it: visibility of
 // where you ARE wins over the gray — dispatching still works and the
-// engine explains the block).
+// engine explains the block). The name truncates at the cell width for
+// modded assets longer than any shipped move ("Assassin's Strike",
+// 17 runes, always fits).
 func (m Model) gridCell(moves []entities.Move, i int) (name, tags string) {
 	if i >= len(moves) {
 		return styleDim.Render(padRight("—", gridCellWidth)),
@@ -470,6 +479,7 @@ func (m Model) gridCell(moves []entities.Move, i int) (name, tags string) {
 		name = "▶ " + move.Name
 		style = styleSelected
 	}
+	name = truncateRunes(name, gridCellWidth)
 	return style.Render(padRight(name, gridCellWidth)),
 		style.Render(padRight(truncateRunes(m.gridTags(move, cooling), gridCellWidth), gridCellWidth))
 }

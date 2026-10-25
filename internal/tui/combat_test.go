@@ -498,8 +498,7 @@ func wildSwing() entities.Move {
 // equipWeapon puts a weapon granting the given runtime moves on the hero
 // — the second half of a 4-move hero set (MaxLearnedMoves caps learning
 // at 2; weapon moves sit on top).
-func equipWeapon(t *testing.T, e *engine.Engine, moves ...entities.Move) {
-	t.Helper()
+func equipWeapon(e *engine.Engine, moves ...entities.Move) {
 	weapon := entities.NewItemFromAsset(game.ItemAsset{
 		ID: "fang_blade", Name: "Fang Blade", Slot: "weapon",
 	}, moves...)
@@ -513,8 +512,27 @@ func fourMoveModel(t *testing.T) Model {
 	e := combatEngine()
 	learnMove(e, envenom(0))
 	learnMove(e, jab())
-	equipWeapon(t, e, stoneEdge(), wildSwing())
+	equipWeapon(e, stoneEdge(), wildSwing())
 	return enterCombat(t, e)
+}
+
+// A modded move whose name is longer than any shipped one truncates
+// inside its cell — the grid's geometry never moves for it.
+func TestGridTruncatesModdedOverlongNames(t *testing.T) {
+	e := combatEngine()
+	learnMove(e, entities.Move{
+		ID: "modded", Name: "Super Calibrating Excalibur Strike", Tier: 1, DmgModifier: 100, Weight: 10,
+	})
+	m := enterCombat(t, e)
+
+	for i, line := range viewLines(m.moveGrid()) {
+		if i == 0 {
+			continue
+		}
+		if w := ansiLen(line); w != mainColWidth {
+			t.Errorf("grid line %d is %d wide, want exactly %d:\n%q", i, w, mainColWidth, line)
+		}
+	}
 }
 
 // The combat bar shrank to the two combat-only actions; the moves live
@@ -643,7 +661,7 @@ func TestGridCursorWrapsOnThreeMoves(t *testing.T) {
 	e := combatEngine()
 	learnMove(e, envenom(0))
 	learnMove(e, jab())
-	equipWeapon(t, e, stoneEdge()) // 3 moves: [0 1 / 2 —]
+	equipWeapon(e, stoneEdge()) // 3 moves: [0 1 / 2 —]
 	m := enterCombat(t, e)
 
 	m, _ = press(m, "down") // the real cell below 0
