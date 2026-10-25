@@ -12,17 +12,22 @@ import (
 	"github.com/lckrugel/tower-of-doom/internal/game"
 )
 
+// version is the validator version. Release builds override it at link
+// time with: -ldflags "-X main.version=<version>".
+var version = "dev"
+
 // validateHorizon validates content coverage up to this floor.
 // Mirrors cmd/cli: the tower is infinite (a tail section with
 // max_floor == -1 covers the rest), so a large horizon is enough to
 // guarantee valid content for everything reachable in a game.
 const validateHorizon = 100_000
 
-const usage = `usage: validate [path]
+const usage = `usage: validate [--version] [path]
 
-  path   optional directory of game assets to validate (mod directory).
-         Without it, the embedded default assets are validated.
-         Files missing from the directory fall back to the embedded ones.
+  path       optional directory of game assets to validate (mod directory).
+             Without it, the embedded default assets are validated.
+             Files missing from the directory fall back to the embedded ones.
+  --version  print the version and exit.
 
 Unreadable or broken asset files are invalid CONTENT (exit 1) — they
 are what the modder must fix. Exit 2 is reserved for command-line
@@ -32,6 +37,10 @@ exit codes: 0 valid · 1 invalid content · 2 usage error`
 
 func main() {
 	args := os.Args[1:]
+	if len(args) == 1 && (args[0] == "--version" || args[0] == "-version") {
+		fmt.Printf("tower-validate %s\n", version)
+		return
+	}
 	// At most one positional path; any flag or extra argument is misuse.
 	if len(args) > 1 || (len(args) == 1 && strings.HasPrefix(args[0], "-")) {
 		fmt.Fprintln(os.Stderr, usage)
