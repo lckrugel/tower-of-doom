@@ -78,6 +78,43 @@ func spitterWithMove(moveID string, dmg int) entities.Monster {
 	)
 }
 
+// StatusLore exposes the registry's statuses for lore/UI consumers (the
+// TUI's "?" overlay): the assets sorted by id, as a fresh copy — and an
+// empty registry is safe.
+func TestStatusLoreReturnsTheRegistryStatuses(t *testing.T) {
+	t.Run("the registry's statuses, sorted and copied", func(t *testing.T) {
+		e := statusesEngine()
+
+		lore := e.StatusLore()
+
+		if len(lore) != len(e.reg.Statuses) {
+			t.Fatalf("StatusLore = %d statuses, want %d", len(lore), len(e.reg.Statuses))
+		}
+		for i := 1; i < len(lore); i++ {
+			if lore[i-1].ID >= lore[i].ID {
+				t.Errorf("StatusLore not sorted by id: %v before %v", lore[i-1].ID, lore[i].ID)
+			}
+		}
+		// A fresh slice: growing or mutating the return never reaches the
+		// registry.
+		lore = append(lore, game.StatusAsset{ID: "injected"})
+		lore[0].Name = "mangled"
+		if _, ok := e.reg.Statuses["injected"]; ok {
+			t.Error("mutating StatusLore's return reached the registry")
+		}
+	})
+
+	t.Run("an empty registry is safe", func(t *testing.T) {
+		e := newTestEngine() // no statuses in the registry
+
+		lore := e.StatusLore()
+
+		if len(lore) != 0 {
+			t.Errorf("StatusLore on an empty registry = %+v, want empty", lore)
+		}
+	})
+}
+
 // A landed hit from a status-carrying move applies the status to the
 // move's target (enemy = the defender) with its full duration.
 func TestStatusApplication(t *testing.T) {

@@ -27,8 +27,9 @@
       WEAR / STASH / DISCARD — see "Items"
     - MERCHANT encounters open StateMerchant: BUY / SELL / LEAVE —
       see "Gold & prices" and "Types of encounters"
-    - SHRINE encounters offer a move: under the learned cap it is
-      learned on the spot; at the cap StateLearn opens — FORGET one of
+    - SHRINE encounters offer ONE or TWO moves and open StateLearn:
+      CHOOSE one of the offers — under the learned cap it is learned on
+      the spot; at the cap the forgetting step follows: FORGET one of
       the two learned moves or DECLINE — see "Shrines"
 - PLayer can FIGHT or SNEAK
 - FIGHT leads to combat (StateCombat)
@@ -345,9 +346,12 @@ an extra roll):
     - Does NOT unlock ASCEND
 - **SHRINE** — a teacher of moves; resolves on EXPLORE (see "Shrines"
     in the Combat 2.0 section for the full flow):
-    - Draws ONE random unlearned move from the section's `move_tiers`
-      and teaches it on the spot while the hero is under the 2-learned
-      cap; at the cap it opens StateLearn's forget prompt
+    - Draws ONE or TWO random unlearned moves from the section's
+      `move_tiers` (ONE `Intn` PER offer over the pool SHRINKING per
+      pick — the offers never duplicate) and opens StateLearn's
+      choosing step: CHOOSE one — under the 2-learned cap it is learned
+      on the spot; at the cap the forgetting step asks which learned
+      move to forget
     - Does NOT unlock ASCEND
 
 Only a combat victory clears the floor path and unlocks ASCEND.
@@ -360,8 +364,9 @@ the game-loop/combat sections above describe the implemented reality).
 **Bosses** are IMPLEMENTED too (the gate flow, the asset block, the
 embedded groups and the TUI) — their section below documents the shipped
 behavior. **Shrines** are IMPLEMENTED (the fifth encounter kind, the
-learning/forget rules, the StateLearn prompt and the TUI screen) — their
-section below documents the shipped behavior.
+TWO-offer flow with its two-step learning — CHOOSE, then FORGET at the
+cap — the learning/forget rules and the TUI screen) — their section
+below documents the shipped behavior.
 
 ### Bosses (IMPLEMENTED)
 
@@ -497,27 +502,51 @@ section below documents the shipped behavior.
 
 ### Shrines (IMPLEMENTED)
 
-- A fifth encounter kind (`shrine`): on EXPLORE it draws a random
-  UNLEARNED move from the section's `move_tiers` (the `item_tiers`
-  pattern: absent = unrestricted) and:
-    - **Under the 2-learned cap** — teaches it on the spot
-      (`event-move-learned{move}`) and exploring continues: no decision,
-      no state change.
-    - **At the cap** — holds the offer in `Engine.PendingMove` (the
-      `PendingLoot` discipline: cleared on every exit path) and opens
-      **StateLearn**: `FORGET <index>` forgets the learned move at the
-      index (into `LearnedMoves()`) and learns the offer in its place
+- A fifth encounter kind (`shrine`): on EXPLORE it draws ONE or TWO
+  random UNLEARNED moves from the section's `move_tiers` (the
+  `item_tiers` pattern: absent = unrestricted) and opens
+  **StateLearn** in its CHOOSING step — even under the learned cap the
+  player picks between the offers:
+    - The offers are held in `Engine.PendingMoves` (length 1–2; the
+      `PendingLoot` discipline: cleared on every exit path) and
+      announced by `event-shrine-offered{count}` (`count` is 1 or 2 —
+      the TUI reads `PendingMoves` for the dossiers).
+    - **CHOOSE `<offer-index>`** (`CmdChooseOffer`; `Index` into
+      `PendingMoves`):
+        - **Under the 2-learned cap** — the chosen move is learned on
+          the spot (`event-move-learned{move}`) and exploring
+          continues: everything cleared.
+        - **At the cap** — the choice is recorded in
+          `Engine.ChosenMove` (cleared on every exit path like the
+          offers) and StateLearn advances to the FORGETTING step (an
+          `event-message` prompts the forget): the learned set is
+          untouched until the player decides.
+    - **FORGET `<learned-index>`** (the forgetting step only;
+      `CmdForget`; `Index` into `LearnedMoves()`) — forgets the learned
+      move at the index and learns the CHOSEN offer in its place
       (`event-move-learned{move, forgotten?}` — the additive optional
       `forgotten` key carries the displaced move, present only when a
-      forget happened); `DECLINE` keeps both moves (`event-message`).
-      An out-of-range index is a generic invalid command, never a
-      panic; QUIT works as everywhere else.
-    - *Flow update pending (engine data layer done):* the bullets above
-      still describe the ONE-offer flow. The state machine's two-offer
-      update (the second offer, `PendingMoves`, the StateLearn rewiring)
-      is the next agent's phase — the data layer it needs ships now
-      (the pool/filter contract below).
-- The offer pool/filter contract (the DATA layer, shipped):
+      forget happened). Exploring continues, everything cleared.
+    - **DECLINE** (`CmdDecline`, EITHER step) — keep everything as it
+      was: both learned moves, no choice (`event-message`); exploring
+      continues, everything cleared.
+    - Out-of-range/negative indexes are a generic invalid command, no
+      state change, never a panic; so is a command from the OTHER step
+      (below); QUIT works as everywhere else.
+- **The step-dependent command surface**: the CHOOSING step allows
+  `[CHOOSE, DECLINE, QUIT]`, the FORGETTING step
+  `[FORGET, DECLINE, QUIT]` — the engine enforces the per-step matrix
+  (`isValidCommand` over `allowedCommands`). The package-level
+  `AllowedCommands` — the TUI's view, which cannot see the internal
+  step — returns the UNION of both steps.
+- **The offer rng contract**: ONE `Intn` PER offer (1–2 total) at
+  shrine resolution, over the filtered pool SHRINKING per pick (each
+  pick removes its move's id — the offers never duplicate; fewer offers
+  only when the pool runs dry). An EMPTY filtered pool resolves as the
+  nothing-new message with NO state change and NO offer roll; choosing,
+  forgetting and declining consume NO rng. Shrines remain covered by
+  the no-triple override (below) and never unlock ASCEND.
+- The offer pool/filter contract (the DATA layer):
   `MovesForTiers(move_tiers)` (sorted by id) filtered through
   `entities.FilterUnknownMoves(pool, known)` — the moves the hero does
   NOT already know, where `known` is the hero's effective set (learned
@@ -525,19 +554,24 @@ section below documents the shipped behavior.
   `basic_attack`, which is NEVER offerable: it is the move-less
   fallback every combatant already fights with, and teaching it would
   waste one of the two learned slots. The filter is pure and
-  order-preserving; an empty filtered pool resolves as the
-  nothing-new message and consumes NO rng; learning and forgetting
-  never consume rng. The two-offer rng (TWO `Intn`s over the shrinking
-  filtered pool — each pick removes its move's id before the next
-  roll, fewer offers only when the pool runs dry) lands with the flow
-  update above.
+  order-preserving.
+- `Engine.StatusLore()` exposes every registry status (sorted by id, a
+  fresh copy of value assets — mutating the return never reaches the
+  registry; empty-registry safe) for lore/UI consumers such as the
+  TUI's `?` overlay.
+- The deprecated bridge: `Engine.PendingMove` (the old one-offer field)
+  survives as a read-only mirror for the CURRENT shrine screen — the
+  first offer while StateLearn is choosing, the chosen offer once the
+  forgetting step opens; cleared on every exit path. New consumers read
+  `PendingMoves` (and `ChosenMove`); `event-shrine-found` is likewise
+  superseded by `event-shrine-offered` (no longer emitted).
+- The TUI (this phase): the ◈ SHRINE screen still renders the OLD
+  one-offer flow from the `PendingMove` mirror — its bar offers only
+  DECLINE/QUIT while choosing (the CHOOSE action and the two-offer
+  dossiers land with the shrine screen rework; the log prints one
+  unhandled-event line for `event-shrine-offered` until then).
 - Shrines are non-combat kinds: the no-triple pacing rule covers them
   (three shrines in a row is impossible) and they never unlock ASCEND.
-- The TUI: the ◈ SHRINE screen shows the offer's dossier (tier +
-  modifier/status/crit tags — the move grid's tag renderer) over the
-  forget selection; the two learned moves are selectable rows and the
-  bar is `[T] Forget` / `[N] Decline` / `[Q] Quit` (esc is a no-op —
-  explicit-only decision, like the chest loot).
 - Embedded content: every section carries a `shrine` weight (11-13% of
   its kind roll) and `move_tiers`; six new tier 2-4 moves keep every
   section's pool supplied mid-run; 19 of the 24 monsters fight with

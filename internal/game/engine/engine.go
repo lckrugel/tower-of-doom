@@ -47,12 +47,26 @@ type Engine struct {
 	// offer; leaving discards them all; it is meaningful only while the
 	// shop is open.
 	MerchantStock []*entities.Item
-	// PendingMove is the move a shrine offered, waiting for the player's
-	// forget-or-decline decision in StateLearn (like PendingLoot for
-	// chests). It is set when the shrine is found and cleared on every
-	// resolution path; it is meaningful only while State == StateLearn.
+	// PendingMoves holds the moves a shrine offered (ONE or TWO), waiting
+	// in StateLearn's choosing step: the player picks one with
+	// CmdChooseOffer. Set when the shrine is found and cleared on every
+	// resolution path; meaningful only while State == StateLearn.
+	PendingMoves []entities.Move
+	// Deprecated: the TUI bridge of the two-offer shrine flow. The
+	// offers live in PendingMoves (and the picked one in ChosenMove);
+	// this field survives as a read-only MIRROR for the current shrine
+	// screen, which renders one offer: the first offer while StateLearn
+	// is in its choosing step, the chosen offer once the forgetting step
+	// opens. Cleared on every exit path, like PendingMoves. New
+	// consumers must read PendingMoves instead.
 	PendingMove *entities.Move
-	reg         *game.Registry
+	// ChosenMove is the offer the player picked in StateLearn's choosing
+	// step while the hero is at the 2-learned cap: the move the
+	// forgetting step will teach (CmdForget). It also marks the step —
+	// nil with offers pending means choosing (see inForgetStep). Cleared
+	// on every exit path.
+	ChosenMove *entities.Move
+	reg        *game.Registry
 	// rng é a fonte de aleatoriedade para decisões do engine
 	// (geração de encontros hoje; combates no futuro).
 	// Testes injetam um rng determinístico.
@@ -339,35 +353,104 @@ func (e *Engine) handleInventory(cmd Command) []Event {
 	}
 }
 
-// handleLearn resolves the shrine's forget-or-decline decision
-// (StateLearn). Every branch consumes the pending offer (clears
-// PendingMove) and returns to exploring; learning and forgetting consume
-// no rng.
+// handleLearn resolves the shrine's two-step decision (StateLearn). The
+// CHOOSING step picks one of the pending offers (CmdChooseOffer): under
+// the 2-learned cap the chosen move is learned on the spot, at the cap
+// the choice is recorded (ChosenMove) and the FORGETTING step asks what
+// to forget (CmdForget). CmdDecline — in either step — keeps everything
+// as it was. Every branch clears the pending state (PendingMoves,
+// ChosenMove and the deprecated PendingMove mirror) and returns to
+// exploring; the decision consumes no rng.
 func (e *Engine) handleLearn(cmd Command) []Event {
 	switch cmd.Type {
-	case CmdForget:
-		// The index was range-checked by isValidCommand against the
-		// learned set, so this indexes safely.
-		forgotten := e.Player.LearnedMoves()[cmd.Index]
-		offered := e.PendingMove
-		e.Player.ForgetMove(forgotten.ID)
-		// Unreachable failure: the offer was filtered to unlearned and a
-		// slot just freed. The safe fallback never strands the state.
-		if _, learned := e.Player.LearnMove(*offered); !learned {
-			e.PendingMove = nil
+	case CmdChooseOffer:
+		// The index was range-checked by isValidCommand against
+		// PendingMoves, so this indexes safely.
+		chosen := e.PendingMoves[cmd.Index]
+		if len(e.Player.LearnedMoves()) < entities.MaxLearnedMoves {
+			// Under the cap: the chosen move is learned on the spot.
+			if _, learned := e.Player.LearnMove(chosen); learned {
+				e.clearShrine()
+				e.State = StateExploring
+				return []Event{NewMoveLearned(chosen, nil)}
+			}
+			// Unreachable with a filtered pool (the offer is unlearned
+			// and there is room); refuse safely, never panic.
+			e.clearShrine()
 			e.State = StateExploring
 			return []Event{NewMessage(shrineNothingNewMessage)}
 		}
-		e.PendingMove = nil
+		// At the cap: record the choice and open the forgetting step —
+		// the learned set is untouched until a move is forgotten (or
+		// the offer declined).
+		e.ChosenMove = &chosen
+		e.PendingMove = &chosen // the deprecated TUI mirror follows the choice
+		return []Event{NewMessage(shrineForgetPromptMessage)}
+	case CmdForget:
+		// The index was range-checked by isValidCommand against the
+		// learned set, so this indexes safely.
+		chosen := e.chosenOffer()
+		if chosen == nil {
+			// Unreachable: the forgetting step only exists over a chosen
+			// offer. Refuse safely, never panic.
+			return []Event{NewMessage("Unhandled command")}
+		}
+		forgotten := e.Player.LearnedMoves()[cmd.Index]
+		e.Player.ForgetMove(forgotten.ID)
+		// Unreachable failure: the offer was filtered to unlearned and a
+		// slot just freed. The safe fallback never strands the state.
+		if _, learned := e.Player.LearnMove(*chosen); !learned {
+			e.clearShrine()
+			e.State = StateExploring
+			return []Event{NewMessage(shrineNothingNewMessage)}
+		}
+		e.clearShrine()
 		e.State = StateExploring
-		return []Event{NewMoveLearned(*offered, &forgotten)}
+		return []Event{NewMoveLearned(*chosen, &forgotten)}
 	case CmdDecline:
-		e.PendingMove = nil
+		e.clearShrine()
 		e.State = StateExploring
 		return []Event{NewMessage("You leave the shrine's teaching behind.")}
 	default:
 		return []Event{NewMessage("Unhandled command")}
 	}
+}
+
+// inForgetStep reports whether StateLearn is in its second step (the
+// forget prompt): a chosen offer waits and the learned set is untouched.
+// The step is DERIVED from the pending state, never stored:
+//   - Engine.ChosenMove set — the normal forgetting step (the choice was
+//     recorded by CmdChooseOffer at the learned cap);
+//   - ONLY the deprecated PendingMove mirror set (no PendingMoves, no
+//     ChosenMove) — a legacy ONE-offer StateLearn construction (the old
+//     flow's shape, still built by the current TUI's fixtures): it
+//     behaves exactly like the forgetting step with the mirror as the
+//     chosen offer.
+func (e *Engine) inForgetStep() bool {
+	return e.ChosenMove != nil || (len(e.PendingMoves) == 0 && e.PendingMove != nil)
+}
+
+// chosenOffer reports the offer the forgetting step will teach:
+// Engine.ChosenMove in the normal flow, the deprecated PendingMove
+// mirror in a legacy one-offer construction (see inForgetStep).
+func (e *Engine) chosenOffer() *entities.Move {
+	if e.ChosenMove != nil {
+		return e.ChosenMove
+	}
+	if len(e.PendingMoves) == 0 {
+		return e.PendingMove
+	}
+	return nil
+}
+
+// clearShrine empties the shrine's pending state — PendingMoves, the
+// deprecated PendingMove mirror and ChosenMove. Every StateLearn exit
+// path goes through it (the PendingLoot discipline: nothing survives a
+// resolution).
+func (e *Engine) clearShrine() {
+	e.PendingMoves = nil
+	e.PendingMove = nil
+	e.ChosenMove = nil
 }
 
 // resolveFlee attempts to escape the combat. The chance reads the
@@ -557,6 +640,17 @@ func (e *Engine) SectionName(floor int) string {
 	return section.Name
 }
 
+// StatusLore reports every status the registry defines (sorted by id)
+// for lore/UI consumers — the TUI's "?" overlay reads it. The result is
+// a fresh slice of value copies: mutating it never reaches the engine or
+// the registry. An empty registry returns an empty slice.
+func (e *Engine) StatusLore() []game.StatusAsset {
+	if e.reg == nil {
+		return nil
+	}
+	return e.reg.AllStatuses()
+}
+
 // currentSection returns the section covering the current floor. The error
 // is unreachable: the floor was just resolved or validated at startup, and
 // Validate guarantees full coverage up to the infinite top floor.
@@ -569,7 +663,7 @@ func (e *Engine) currentSection() game.SectionAsset {
 }
 
 func (e *Engine) isValidCommand(cmd Command) bool {
-	allowed := AllowedCommands(e.State)
+	allowed := e.allowedCommands(e.State)
 	if !slices.Contains(allowed, cmd.Type) {
 		return false
 	}
@@ -592,6 +686,13 @@ func (e *Engine) isValidCommand(cmd Command) bool {
 	}
 	if cmd.Type == CmdBuy {
 		if cmd.Index < 0 || cmd.Index >= len(e.MerchantStock) {
+			return false
+		}
+	}
+	// CmdChooseOffer indexes the shrine's pending offers (the choosing
+	// step).
+	if cmd.Type == CmdChooseOffer {
+		if cmd.Index < 0 || cmd.Index >= len(e.PendingMoves) {
 			return false
 		}
 	}

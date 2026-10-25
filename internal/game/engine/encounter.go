@@ -1,6 +1,8 @@
 package engine
 
 import (
+	"slices"
+
 	"github.com/lckrugel/tower-of-doom/internal/game"
 	"github.com/lckrugel/tower-of-doom/internal/game/engine/entities"
 )
@@ -20,9 +22,10 @@ const (
 	// APPENDED LAST in the kind roll on purpose — a zero/absent merchant
 	// weight keeps every pre-merchant rng sequence identical.
 	EncounterMerchant
-	// A shrine of the Combat 2.0 era: offers a random unlearned move.
-	// Under the learned cap it teaches on the spot; at the cap it opens
-	// StateLearn's forget prompt. APPENDED LAST in the kind roll
+	// A shrine of the Combat 2.0 era: offers ONE OR TWO random unlearned
+	// moves and opens StateLearn's choosing step — under the learned cap
+	// the chosen move is taught on the spot; at the cap the forget
+	// prompt follows the choice. APPENDED LAST in the kind roll
 	// (after the merchant) — a zero/absent shrine weight keeps every
 	// pre-shrine rng sequence identical.
 	EncounterShrine
@@ -184,26 +187,23 @@ func (e *Engine) resolveEncounter(encounter Encounter) []Event {
 		e.State = StateMerchant
 		return []Event{NewMerchantFound(len(stock))}
 	case EncounterShrine:
-		// EXPLORE draws the shrine's teaching (ONE rng roll — see
-		// rollShrineOffer). Under the learned cap the move is learned on
-		// the spot; at the cap the offer pends in PendingMove and
-		// StateLearn asks the player what to forget. Shrines never
-		// unlock ASCEND.
-		move := e.rollShrineOffer(e.currentSection())
-		if move == nil {
+		// EXPLORE draws the shrine's teaching (ONE rng roll PER offer, 1–2
+		// total — see rollShrineOffers) and opens StateLearn's choosing
+		// step over the offers; an empty filtered pool resolves as the
+		// nothing-new message with no state change and no offer roll.
+		// Shrines never unlock ASCEND.
+		offers := e.rollShrineOffers(e.currentSection())
+		if len(offers) == 0 {
 			return []Event{NewMessage(shrineNothingNewMessage)}
 		}
-		if len(e.Player.LearnedMoves()) < entities.MaxLearnedMoves {
-			if _, learned := e.Player.LearnMove(*move); learned {
-				return []Event{NewMoveLearned(*move, nil)}
-			}
-			// Unreachable with a filtered pool (the offer is unlearned
-			// and there is room); refuse safely, never panic.
-			return []Event{NewMessage(shrineNothingNewMessage)}
-		}
-		e.PendingMove = move
+		e.PendingMoves = offers
+		// The deprecated TUI bridge: the current shrine screen renders
+		// ONE offer — mirror the first (the forgetting step re-points it
+		// at the chosen one).
+		first := offers[0]
+		e.PendingMove = &first
 		e.State = StateLearn
-		return []Event{NewShrineFound(*move)}
+		return []Event{NewShrineOffered(len(offers))}
 	default:
 		// Combat encounters are never resolved instantly; the caller must
 		// only send sanctuary/chest encounters through this path.
@@ -223,34 +223,36 @@ func (e *Engine) restAtSanctuary() int {
 // pool is empty (every move it could teach, the hero already knows).
 const shrineNothingNewMessage = "The shrine holds nothing new for you."
 
-// rollShrineOffer draws the shrine's teaching: ONE `Intn` over the
-// section's move-tier pool — `MovesForTiers(MoveTiers)` (sorted by id;
-// absent/empty move_tiers = unrestricted) filtered to the moves the hero
-// does NOT already know, where "known" covers both the learned set and
-// the equipped weapon's granted moves (dedup by id) — and minus the
-// canonical basic_attack, which is never offered: it is the move-less
-// fallback every combatant already fights with, and teaching it would
-// waste one of the two learned slots.
+// shrineForgetPromptMessage is the flavor for StateLearn's forgetting
+// step: a choice was recorded at the learned cap and the player must now
+// pick the learned move to forget.
+const shrineForgetPromptMessage = "The shrine waits — forget one of your moves to make room for it."
+
+// rollShrineOffers draws the shrine's teaching: ONE OR TWO offers, ONE
+// `Intn` PER offer over the section's move-tier pool —
+// `MovesForTiers(MoveTiers)` (sorted by id; absent/empty move_tiers =
+// unrestricted) filtered through `entities.FilterUnknownMoves` to the
+// moves the hero does NOT already know (learned and weapon-granted
+// alike, dedup by id) — and minus the canonical basic_attack, which is
+// never offered: it is the move-less fallback every combatant already
+// fights with, and teaching it would waste one of the two learned slots.
+// The pool SHRINKS after each pick (the picked id is removed), so the
+// offers never duplicate; fewer offers only when the pool runs dry.
 //
-// Rng contract: the offer roll is the shrine's ONLY rng — an empty
-// filtered pool returns nil and consumes none; learning and forgetting
-// never consume rng.
-func (e *Engine) rollShrineOffer(section game.SectionAsset) *entities.Move {
-	known := make(map[string]bool, entities.MaxMoves)
-	for _, move := range e.Player.EffectiveMoves(e.Player.Weapon) {
-		known[move.ID] = true
-	}
-	pool := e.reg.MovesForTiers(section.MoveTiers)
-	candidates := make([]game.MoveAsset, 0, len(pool))
-	for _, move := range pool {
-		if move.ID == entities.BasicAttack().ID || known[move.ID] {
-			continue
+// Rng contract: ONE Intn per offer (1–2 total) is the shrine's ONLY
+// rng — an empty filtered pool returns no offers and consumes none;
+// choosing, forgetting and declining never consume rng.
+func (e *Engine) rollShrineOffers(section game.SectionAsset) []entities.Move {
+	known := e.Player.EffectiveMoves(e.Player.Weapon)
+	pool := entities.FilterUnknownMoves(e.reg.MovesForTiers(section.MoveTiers), known)
+	offers := make([]entities.Move, 0, 2)
+	for range 2 {
+		if len(pool) == 0 {
+			break // the pool ran dry: fewer offers, no extra rng
 		}
-		candidates = append(candidates, move)
+		pick := e.rng.Intn(len(pool))
+		offers = append(offers, entities.NewMoveFromAsset(pool[pick]))
+		pool = slices.Delete(pool, pick, pick+1)
 	}
-	if len(candidates) == 0 {
-		return nil
-	}
-	move := entities.NewMoveFromAsset(candidates[e.rng.Intn(len(candidates))])
-	return &move
+	return offers
 }

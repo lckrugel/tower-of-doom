@@ -68,15 +68,26 @@ const (
 	// sneak step, no encounter-kind roll. While locked it is a blocked
 	// action: a message, state intact (like a locked ASCEND).
 	CmdChallengeBoss
-	// Forgets the learned move at `Index` to make room for the shrine's
-	// pending offer (StateLearn): the offer is learned in the forgotten
-	// move's place (EventMoveLearned with the additive `forgotten` key)
-	// and exploring continues. The index points into `LearnedMoves()`;
-	// an out-of-range index is a generic invalid command with no state
+	// Chooses one of the shrine's pending offers (StateLearn's choosing
+	// step): `Index` points into Engine.PendingMoves (1–2 offers). Under
+	// the 2-learned cap the chosen move is learned on the spot
+	// (EventMoveLearned) and exploring continues; at the cap the choice
+	// is recorded (Engine.ChosenMove) and StateLearn advances to the
+	// forgetting step. An out-of-range index is a generic invalid
+	// command with no state change — never a panic.
+	CmdChooseOffer
+	// Forgets the learned move at `Index` to make room for the CHOSEN
+	// shrine offer (StateLearn's forgetting step — the choice was
+	// recorded in Engine.ChosenMove by CmdChooseOffer at the learned
+	// cap): the chosen offer is learned in the forgotten move's place
+	// (EventMoveLearned with the additive `forgotten` key) and exploring
+	// continues. The index points into `LearnedMoves()`; an
+	// out-of-range index is a generic invalid command with no state
 	// change — never a panic.
 	CmdForget
-	// Declines the shrine's pending offer (StateLearn): both learned
-	// moves are kept and exploring continues.
+	// Declines the shrine's teaching (StateLearn, EITHER step): keep
+	// everything as it was — both learned moves and no choice — and
+	// exploring continues with nothing pending.
 	CmdDecline
 )
 
@@ -88,7 +99,9 @@ type Command struct {
 	// the bag index for the bag commands (CmdWear and CmdDrop in
 	// StateInventory) and for selling (CmdSell in StateMerchant takes a
 	// bag index); the stock index into Engine.MerchantStock for CmdBuy;
-	// the learned-move index for the shrine's CmdForget (StateLearn).
+	// the pending-offer index into Engine.PendingMoves for the shrine's
+	// CmdChooseOffer (StateLearn's choosing step); the learned-move
+	// index for the shrine's CmdForget (StateLearn's forgetting step).
 	// Every other command ignores it. An out-of-range/negative index is
 	// rejected as a generic invalid command (EventMessage) with no state
 	// change — never a panic.

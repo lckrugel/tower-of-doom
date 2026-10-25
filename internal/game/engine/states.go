@@ -20,9 +20,11 @@ const (
 	// A merchant is shopped at: Engine.MerchantStock holds the offers;
 	// the player buys, sells or leaves.
 	StateMerchant
-	// A shrine offered a move at the learned cap: Engine.PendingMove
-	// holds the offer and the player forgets one learned move or
-	// declines it.
+	// A shrine presented its offers (ONE or TWO moves, held in
+	// Engine.PendingMoves): the player first CHOOSES one (the choosing
+	// step, CmdChooseOffer); at the 2-learned cap the flow then advances
+	// to the forgetting step (CmdForget) — Engine.ChosenMove marks which
+	// step is live. DECLINE (in either step) keeps everything as it was.
 	StateLearn
 )
 
@@ -50,6 +52,14 @@ func (s GameState) String() string {
 }
 
 // Returns which `CommandType`s are allowed for a given `GameState`.
+//
+// StateLearn is STEP-dependent — the CHOOSING step allows
+// [CmdChooseOffer, CmdDecline, CmdQuit], the FORGETTING step
+// [CmdForget, CmdDecline, CmdQuit] — but this package-level view cannot
+// see the engine's internal step, so it returns the UNION of both steps
+// (the TUI builds its action bar from it). The ENGINE enforces the
+// per-step matrix in isValidCommand (allowedCommands): a command from
+// the other step is a generic invalid command with no state change.
 func AllowedCommands(s GameState) []CommandType {
 	switch s {
 	case StateExploring:
@@ -65,10 +75,30 @@ func AllowedCommands(s GameState) []CommandType {
 	case StateMerchant:
 		return []CommandType{CmdBuy, CmdSell, CmdLeave, CmdQuit}
 	case StateLearn:
-		return []CommandType{CmdForget, CmdDecline, CmdQuit}
+		return []CommandType{CmdChooseOffer, CmdForget, CmdDecline, CmdQuit}
 	case StateGameOver:
 		return []CommandType{CmdQuit}
 	default:
 		return []CommandType{}
 	}
+}
+
+// allowedCommands is the ENGINE's view of AllowedCommands, resolving the
+// StateLearn step matrix (see AllowedCommands — the package-level
+// function documents the split):
+//   - the CHOOSING step (no choice recorded yet): pick one of
+//     Engine.PendingMoves or decline;
+//   - the FORGETTING step (Engine.ChosenMove set — or a legacy
+//     one-offer StateLearn holding only the deprecated PendingMove
+//     mirror, see inForgetStep): forget a learned move or decline.
+//
+// Every state keeps CmdQuit.
+func (e *Engine) allowedCommands(s GameState) []CommandType {
+	if s != StateLearn {
+		return AllowedCommands(s)
+	}
+	if e.inForgetStep() {
+		return []CommandType{CmdForget, CmdDecline, CmdQuit}
+	}
+	return []CommandType{CmdChooseOffer, CmdDecline, CmdQuit}
 }
