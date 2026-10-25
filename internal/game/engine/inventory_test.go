@@ -16,7 +16,7 @@ func TestAllowedCommandsMatrix(t *testing.T) {
 		state GameState
 		want  []CommandType
 	}{
-		{"exploring", StateExploring, []CommandType{CmdExplore, CmdAscend, CmdInventory, CmdQuit}},
+		{"exploring", StateExploring, []CommandType{CmdExplore, CmdAscend, CmdChallengeBoss, CmdInventory, CmdQuit}},
 		{"encounter", StateEncounter, []CommandType{CmdFight, CmdSneak, CmdQuit}},
 		{"combat", StateCombat, []CommandType{CmdMove, CmdFlee, CmdQuit}},
 		{"loot decision", StateLoot, []CommandType{CmdWear, CmdStashLoot, CmdDiscardLoot, CmdQuit}},
