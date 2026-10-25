@@ -42,6 +42,11 @@ type Model struct {
 	// cancels back. Arming is TUI-internal (no engine call); the flag
 	// never survives a dispatch, so any state change restores the bar.
 	confirmQuit bool
+	// mirror is the combat mirror — the model-side picture of the
+	// engine's unexported combat-scoped state (move cooldowns, active
+	// statuses), rebuilt from the event stream. See combat.go for the
+	// round-tracking and reset rules.
+	mirror combatMirror
 }
 
 // New builds the UI for a fresh engine, greeting the player. The
@@ -52,6 +57,7 @@ func New(e *engine.Engine) Model {
 		log: []string{
 			styleDim.Render("Welcome to the Tower of Doom! Climb as you dare."),
 		},
+		mirror: newCombatMirror(),
 	}
 }
 
@@ -192,22 +198,32 @@ func (m Model) dispatch(a action) (tea.Model, tea.Cmd) {
 	quit := false
 	cmd := engine.Command{Type: a.cmd}
 	if a.usesIndex {
-		// Indexed commands act on their subject: the move chips carry
-		// their own position; the row-indexed commands act on the
-		// selected row. An out-of-range index is rejected by the engine
-		// as a generic message, no state change.
+		// Indexed commands act on their subject: the move grid (and the
+		// legacy chips) carry their own position; the row-indexed
+		// commands act on the selected row. An out-of-range index is
+		// rejected by the engine as a generic message, no state change.
 		if a.cmd == engine.CmdMove {
 			cmd.Index = a.index
 		} else {
 			cmd.Index = m.indexFor(a.cmd)
 		}
 	}
-	for _, ev := range m.engine.Process(cmd) {
+	prevState := m.engine.State
+	events := m.engine.Process(cmd)
+	// A combat boundary crossed by this dispatch resets the mirror: on
+	// entry BEFORE the batch is absorbed (a failed sneak's free turn
+	// tracks on a clean slate), on exit after it — the reset is
+	// idempotent, and nothing outside a live fight renders the mirror.
+	if (prevState == engine.StateCombat) != (m.engine.State == engine.StateCombat) {
+		m.mirror.reset()
+	}
+	for _, ev := range events {
 		m.absorb(ev)
 		if ev.Type == engine.EventQuit {
 			quit = true
 		}
 	}
+	m.mirror.endBatch()
 	m.log = trimLog(m.log)
 	m.cursor = 0    // the action bar is rebuilt for the (possibly new) state
 	m.bagCursor = 0 // re-entering the bag (or the shop) selects the first row again
@@ -219,10 +235,11 @@ func (m Model) dispatch(a action) (tea.Model, tea.Cmd) {
 }
 
 // absorb records one engine event's consequences on the model: the
-// rendered log line, plus anything a later view needs (the defeat event's
-// run stats feed the game-over recap).
+// rendered log line, the combat mirror's update, plus anything a later
+// view needs (the defeat event's run stats feed the game-over recap).
 func (m *Model) absorb(ev engine.Event) {
 	m.log = append(m.log, renderEvent(ev))
+	m.mirror.absorb(ev, m.engine)
 	if ev.Type == engine.EventHeroDefeated {
 		m.recap = recapFromEvent(ev)
 	}
