@@ -1,0 +1,119 @@
+# yaml-language-server: $schema=https://goreleaser.com/static/schema.json
+#
+# GoReleaser v2 configuration for Tower of Doom.
+# Check it locally with `goreleaser check`; CI runs the same check on every
+# pull request (see .github/workflows/ci.yml).
+version: 2
+
+project_name: tower-of-doom
+
+# No `before` hooks on purpose: `go mod tidy` rewrites go.mod/go.sum, which
+# would dirty the tree that `goreleaser release --clean` requires to be clean
+# and would make the tagged revision differ from the built one. `go build`
+# downloads whatever it needs on its own.
+
+builds:
+  # The game TUI. Bubbletea and lipgloss are pure Go, so CGO is not needed
+  # and every target cross-compiles from any host.
+  - id: game
+    main: ./cmd/cli
+    binary: tower-of-doom
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+    # Stamp the binary with the commit time instead of "now" so two builds of
+    # the same tag produce identical files (reproducible builds).
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+  # The asset validator shipped alongside the game so modders can check their
+  # content without launching the TUI.
+  - id: validate
+    main: ./cmd/validate
+    binary: tower-validate
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  # Both binaries are a couple of megabytes each, so every archive carries
+  # both and the installer simply extracts the one it needs. No `ids`/`builds`
+  # filter is set: by default every build is archived.
+  #
+  # Name: tower-of-doom_0.1.0_linux_amd64.tar.gz
+  # GoReleaser's {{ .Version }} is the tag with the leading "v" already
+  # stripped (documented: "the version being released — the v prefix is
+  # stripped"), while {{ .Tag }} keeps it. install.sh relies on that.
+  - id: default
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    # v2 spelling: `formats` is the plural, list-valued key; the old
+    # singular `format` is deprecated.
+    formats:
+      - tar.gz
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+
+checksum:
+  name_template: checksums.txt
+  algorithm: sha256
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  # Release notes come from the GitHub compare API, so commits are linked and
+  # contributors are credited.
+  use: github
+  sort: asc
+  groups:
+    - title: Features
+      regexp: '^.*?feat(\([[:word:]]+\))??!?:.+$'
+      order: 0
+    - title: Bug fixes
+      regexp: '^.*?fix(\([[:word:]]+\))??!?:.+$'
+      order: 1
+    # Catch-all: anything that matched no group above.
+    - title: Others
+      order: 999
+  filters:
+    exclude:
+      - '^docs:'
+      - '^chore:'
+      - '^test:'
+      - '^Merge pull request'
+      - '^Merge branch'
+
+release:
+  # The repository slug uses underscores, unlike the Go module path (dashes).
+  github:
+    owner: lckrugel
+    name: tower_of_doom
+  # Publish immediately: the release workflow only runs on tags known to be
+  # green in CI.
+  draft: false
+  # Tags carrying a pre-release suffix (-rc1, -beta, ...) become GitHub
+  # pre-releases automatically.
+  prerelease: auto
+  name_template: "{{ .Tag }}"

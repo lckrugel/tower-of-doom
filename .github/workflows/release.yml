@@ -1,0 +1,55 @@
+# Tag-driven release: pushing a v* tag builds every platform and publishes a
+# GitHub release with the archives and checksums.txt.
+#
+# Requirements on the tag:
+#   - it must point at a commit that is green in CI. The `test` job below
+#     reuses .github/workflows/ci.yml on the tagged commit and `build` only
+#     runs after it passes, so a red commit cannot be released.
+#   - GoReleaser publishes immediately (draft: false in .goreleaser.yaml):
+#     there is no review step, so tag deliberately.
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+# One release at a time: a fixed group (not keyed by ref) serialises tag
+# pushes, so two tags landing together can never race over the release.
+# Never cancel mid-flight, or a release could be left half uploaded.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  test:
+    uses: ./.github/workflows/ci.yml
+
+  build:
+    name: goreleaser
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Full history: the changelog is built from the commit range since
+          # the previous tag.
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          version: '~> v2'
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
