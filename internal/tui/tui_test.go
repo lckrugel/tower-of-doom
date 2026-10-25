@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -1039,13 +1040,14 @@ func TestViewShrineChoosingStepShowsBothOffers(t *testing.T) {
 
 	for _, want := range []string{
 		"◈ SHRINE",
-		"choose a teaching", // the step label
-		"Power Slash",       // offer 1's dossier
-		"Venom Shot",        // offer 2's dossier
-		"tier 2",            // the dossier's tier line
-		"175% ◆",            // Power Slash's tags: modifier + learned glyph
-		"☠poison 60% ◆",     // Venom Shot's tags: status + learned glyph
-		"LEARN",             // the badge
+		"choose a teaching",              // the step label
+		"Power Slash",                    // offer 1's dossier
+		"Venom Shot",                     // offer 2's dossier
+		"tier 2",                         // the dossier's tier line
+		"175% ◆",                         // Power Slash's tags: modifier + learned glyph
+		"☠poison 60% ◆",                  // Venom Shot's tags: status + learned glyph
+		"☠poison — 3 dmg/turn · 3 turns", // the status tag's explanation
+		"LEARN",                          // the badge
 		"[L] Learn", "[N] Decline", "[Q] Quit",
 	} {
 		if !strings.Contains(view, want) {
@@ -1093,5 +1095,142 @@ func TestViewShrineForgettingStepShowsTheLearning(t *testing.T) {
 	// The cursor highlights the second learned row, and only it.
 	if !strings.Contains(view, "▶ Heavy Slash") || strings.Contains(view, "▶ Guard Strike") {
 		t.Errorf("the forget cursor highlights the wrong row:\n%s", view)
+	}
+}
+
+// A modded registry with more statuses than the overlay's display
+// budget caps the list and says so — the canvas never reflows for lore.
+func TestOverlayCapsTheStatusList(t *testing.T) {
+	statuses := map[string]game.StatusAsset{}
+	for i := range maxOverlayStatuses + 3 {
+		id := fmt.Sprintf("s%02d", i)
+		statuses[id] = game.StatusAsset{ID: id, Name: "S" + fmt.Sprintf("%02d", i),
+			Kind: "debuff", Effect: game.StatusEffectAsset{Type: "dot", Amount: 1}, Duration: 2}
+	}
+	e := engine.NewEngine(&game.Registry{
+		Monsters: map[string]game.MonsterAsset{},
+		Items:    map[string]game.ItemAsset{},
+		Statuses: statuses,
+		Sections: []game.SectionAsset{{
+			ID: "pits", Name: "Goblin Pits", MinFloor: 1, MaxFloor: -1,
+			Spawns: []game.SpawnEntry{{MonsterID: "goblin", Weight: 1}},
+		}},
+	})
+	m := New(e)
+	m.overlay = true
+
+	view := stripControls(stripANSI(m.View()))
+
+	if !strings.Contains(view, "S09 — 1 dmg/turn — 2 turns") {
+		t.Errorf("the overlay's capped list lost an in-budget status:\n%s", view)
+	}
+	if strings.Contains(view, "S10 — ") {
+		t.Errorf("the overlay's status list overflowed its budget:\n%s", view)
+	}
+	if !strings.Contains(view, "… 3 more") {
+		t.Errorf("the capped list must say what it dropped:\n%s", view)
+	}
+}
+
+// ——— The '?' lore overlay ———
+
+// '?' toggles the lore overlay: the registry's statuses with their
+// effects and durations (kind-colored), the move-tag legend and the
+// live state's key map — a pure view mode that replaces the canvas
+// while open. '?' again closes it and the frame is restored byte-exact.
+func TestOverlayTogglesOnQuestionMark(t *testing.T) {
+	m := New(testEngine())
+	before := m.View()
+
+	m, _ = press(m, "?")
+	if !m.overlay {
+		t.Fatal("'?' did not open the overlay")
+	}
+	view := stripControls(stripANSI(m.View()))
+	for _, want := range []string{
+		"TOWER LORE",
+		"STATUS EFFECTS",
+		"Poison — 3 dmg/turn — 3 turns", // the lore: effect — duration
+		"MOVE TAGS",
+		"175% damage modifier", "✦+N crit bonus", "☠<status> N% status chance",
+		"(N turns) move locked", "◆ learned", "⚔ weapon",
+		"KEYS — EXPLORING",
+		"[E] Explore", "[Q] Quit",
+	} {
+		if !strings.Contains(view, want) {
+			t.Errorf("overlay missing %q:\n%s", want, view)
+		}
+	}
+	// The overlay replaces the game frame entirely — nothing leaks.
+	for _, hidden := range []string{"Tower of Doom", "HERO", "The tower awaits"} {
+		if strings.Contains(view, hidden) {
+			t.Errorf("overlay leaked the game frame element %q:\n%s", hidden, view)
+		}
+	}
+	// Lore lines tone by kind: buffs green.
+	if !strings.Contains(m.View(), styleHeal.Render("Guard — +5 DEF — 2 turns")) {
+		t.Error("the buff lore line must take the green tone")
+	}
+
+	m, _ = press(m, "?")
+	if m.overlay {
+		t.Fatal("'?' did not close the overlay")
+	}
+	if got := m.View(); got != before {
+		t.Error("the frame was not restored byte-exact after the overlay")
+	}
+}
+
+// Any key closes the overlay FIRST — nothing dispatches while it is
+// open: no engine command, no log line, no state change.
+func TestAnyKeyClosesTheOverlayWithoutDispatching(t *testing.T) {
+	for _, key := range []string{"?", "e", "esc", "q", "enter", "left"} {
+		m := New(testEngine())
+		m, _ = press(m, "?")
+		logLen := len(m.log)
+
+		m, cmd := press(m, key)
+
+		if m.overlay {
+			t.Errorf("%q did not close the overlay", key)
+		}
+		if cmd != nil {
+			t.Errorf("%q dispatched through the overlay", key)
+		}
+		if m.engine.State != engine.StateExploring {
+			t.Errorf("%q changed the state through the overlay (%v)", key, m.engine.State)
+		}
+		if len(m.log) != logLen {
+			t.Errorf("%q wrote to the log through the overlay", key)
+		}
+	}
+}
+
+// The key map follows the live state — combat's overlay adds the grid
+// legend to the bar's two chips.
+func TestOverlayKeysFollowTheState(t *testing.T) {
+	m := fourMoveModel(t)
+	m.overlay = true
+
+	view := stripControls(stripANSI(m.View()))
+	for _, want := range []string{"KEYS — COMBAT", "[R] Flee", "[Q] Quit", "1-4 or arrows pick a move"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("combat overlay missing %q:\n%s", want, view)
+		}
+	}
+}
+
+// The shrine's overlay key map is the live step's bar: the choosing
+// step lists Learn, not Forget.
+func TestOverlayKeysFollowTheShrineStep(t *testing.T) {
+	m := shrineModel()
+	m.overlay = true
+
+	view := stripControls(stripANSI(m.View()))
+	if !strings.Contains(view, "KEYS — LEARN") || !strings.Contains(view, "[L] Learn") {
+		t.Errorf("shrine overlay missing the choosing keys:\n%s", view)
+	}
+	if strings.Contains(view, "[F] Forget") {
+		t.Errorf("the choosing step's overlay lists the forgetting key:\n%s", view)
 	}
 }

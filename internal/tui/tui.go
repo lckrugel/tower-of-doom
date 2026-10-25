@@ -54,6 +54,11 @@ type Model struct {
 	// placeholder) and resets to the first cell with the mirror, on
 	// every combat entry.
 	gridCursor int
+	// overlay marks the '?' lore overlay: a TUI-internal pure view mode
+	// (no engine call) that replaces the canvas while open. Any key
+	// closes it before anything else dispatches — ctrl+c's emergency
+	// exit excepted, which quits from anywhere.
+	overlay bool
 }
 
 // New builds the UI for a fresh engine, greeting the player. The
@@ -111,6 +116,12 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.confirmQuit = false
 		return m, nil
 	}
+	if m.overlay {
+		// The lore overlay is a pure view mode: any key closes it
+		// first — nothing dispatches while it is open.
+		m.overlay = false
+		return m, nil
+	}
 	switch msg.String() {
 	case "esc":
 		switch m.engine.State {
@@ -146,10 +157,15 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m.confirmOrDispatch(m.selectedAction())
 	default:
-		// Single-key shortcuts: digits jump-dispatch grid cells in
-		// combat; letters match the current bar (case-insensitive).
+		// Single-key shortcuts: '?' toggles the lore overlay; digits
+		// jump-dispatch grid cells in combat; letters match the current
+		// bar (case-insensitive).
 		key := strings.ToLower(msg.String())
 		if len(key) == 1 {
+			if key == "?" {
+				m.overlay = !m.overlay
+				return m, nil
+			}
 			if m.engine.State == engine.StateCombat {
 				if d, ok := gridDigit(key); ok {
 					return m.jumpDispatchMove(d)

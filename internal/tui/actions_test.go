@@ -15,6 +15,9 @@ func testEngine() *engine.Engine {
 			"goblin": {ID: "goblin", Name: "Goblin", Difficulty: 3, HP: 30, Damage: 2, Speed: 10, Crit: 5},
 		},
 		Items: map[string]game.ItemAsset{},
+		// The shipped statuses (poison, guard — see statusAssets): the
+		// lore the '?' overlay and the chip explanations read.
+		Statuses: statusAssets,
 		Sections: []game.SectionAsset{{
 			ID: "pits", Name: "Goblin Pits", MinFloor: 1, MaxFloor: -1,
 			// A real budget: the flow tests resolve actual rounds, which

@@ -80,6 +80,11 @@ func (m Model) View() string {
 	if m.tooSmall() {
 		return tooSmallView(m.width, m.height)
 	}
+	if m.overlay {
+		// The lore overlay replaces the canvas while open — same window
+		// frame, same fixed size (see overlayPanel).
+		return styleWindow.Render(slot(m.overlayPanel(), contentWidth, contentHeight, lipgloss.Top))
+	}
 
 	left := lipgloss.JoinVertical(lipgloss.Left,
 		slot(m.body(), mainColWidth, bodyHeight, lipgloss.Top),
@@ -410,7 +415,13 @@ func (m Model) shrineDossier(move entities.Move, selected bool) string {
 	name := prefix + style.Render(truncateRunes(move.Name, mainColWidth-3))
 	tags := strings.TrimLeft(m.gridTags(move, false, glyphLearned), " ")
 	tier := truncateRunes(fmt.Sprintf("    tier %d · %s", move.Tier, tags), mainColWidth)
-	return name + "\n" + styleDim.Render(tier) + "\n"
+	line := name + "\n" + styleDim.Render(tier) + "\n"
+	if expl := m.moveStatusExplanation(move.Status); expl != "" {
+		// The status tag's one-line tooltip: effect and duration from
+		// the registry's lore.
+		line += styleDim.Render(truncateRunes("    "+expl, mainColWidth)) + "\n"
+	}
+	return line
 }
 
 // shrineForgetStep renders the forgetting step: the chosen offer's
@@ -424,6 +435,9 @@ func (m Model) shrineForgetStep() string {
 		tier := truncateRunes(fmt.Sprintf("    tier %d · %s", chosen.Tier, tags), mainColWidth)
 		b.WriteString("  " + stylePanelTitle.Render(learning) + "\n")
 		b.WriteString(styleDim.Render(tier) + "\n")
+		if expl := m.moveStatusExplanation(chosen.Status); expl != "" {
+			b.WriteString(styleDim.Render(truncateRunes("    "+expl, mainColWidth)) + "\n")
+		}
 	}
 	learned := m.engine.Player.LearnedMoves()
 	if len(learned) == 0 {
@@ -658,9 +672,10 @@ func (m Model) gridTags(move entities.Move, cooling bool, source string) string 
 }
 
 // maxStatusRows is the fixed budget for the enemy block's status chips:
-// they wrap into at most two rows, then the display drops what doesn't
-// fit — the frame's height never moves for statuses (the log carries
-// every application/expiry faithfully).
+// they wrap into at most two rows — plus ONE dim explanation line under
+// them (see enemyStatusRows) — then the display drops what doesn't fit;
+// the frame's height never moves for statuses (the log carries every
+// application/expiry faithfully).
 const maxStatusRows = 2
 
 // statusChip renders one active status as "Poison(2)" — the name the
@@ -686,9 +701,11 @@ func statusChips(statuses []combatStatus) []string {
 // wrapChips lays chips into rows of at most maxWidth (lipgloss-aware
 // widths), at most maxRows rows; chips that no longer fit — including a
 // single chip wider than a whole row — are dropped. The cap is the
-// documented display budget, never slot() clipping.
-func wrapChips(chips []string, maxWidth, maxRows int) []string {
-	rows := make([]string, 0, maxRows)
+// documented display budget, never slot() clipping. It also reports HOW
+// MANY chips made it into rows (the explanation lines cover exactly
+// those).
+func wrapChips(chips []string, maxWidth, maxRows int) (rows []string, shown int) {
+	rows = make([]string, 0, maxRows)
 	var row []string
 	width := 0
 	for _, chip := range chips {
@@ -701,7 +718,7 @@ func wrapChips(chips []string, maxWidth, maxRows int) []string {
 			row, width = nil, 0
 			w = lipgloss.Width(chip)
 			if len(rows) == maxRows {
-				return rows // the cap: the rest is dropped
+				return rows, shown // the cap: the rest is dropped
 			}
 		}
 		if w > maxWidth {
@@ -709,20 +726,29 @@ func wrapChips(chips []string, maxWidth, maxRows int) []string {
 		}
 		row = append(row, chip)
 		width += w
+		shown++
 	}
 	if len(row) > 0 && len(rows) < maxRows {
 		rows = append(rows, strings.Join(row, " "))
 	}
-	return rows
+	return rows, shown
 }
 
 // enemyStatusRows is the enemy block's status rows: the engaged enemy's
 // active chips, wrapped to at most maxStatusRows rows inside the column
-// (the two-space indent is part of the budget).
+// (the two-space indent is part of the budget), and ONE dim explanation
+// line under them covering the chips that rendered. The status section
+// spends at most 2 + 1 fixed rows — part of the enemy block's budget:
+// title + name/HP + stats + 3 + the waiting counter = 7 of the 16 body
+// rows, grid included.
 func (m Model) enemyStatusRows() string {
-	rows := wrapChips(statusChips(m.mirror.enemyStatuses), mainColWidth-2, maxStatusRows)
+	chips := statusChips(m.mirror.enemyStatuses)
+	rows, shown := wrapChips(chips, mainColWidth-2, maxStatusRows)
 	for i := range rows {
 		rows[i] = "  " + rows[i]
+	}
+	if expl := m.statusExplanation(m.mirror.enemyStatuses[:shown]); expl != "" {
+		rows = append(rows, "  "+styleDim.Render(truncateRunes(expl, mainColWidth-2)))
 	}
 	return strings.Join(rows, "\n")
 }
@@ -789,17 +815,29 @@ func (m Model) heroPanel() string {
 }
 
 // heroHPRow is the HP line of the hero panel — bar and readout, then as
-// many status chips as fit within the column: the first chips that fit
-// render, the rest is dropped (the documented display cap; the log
-// carries every status faithfully).
+// many status chips as fit within the column, then the chips'
+// explanation riding what row remains. The panel's four-line shape is
+// the layout invariant (heroHeight feeds bodyHeight and the merchant's
+// exact worst case), so the explanation shares the HP row, cut to the
+// room left — the documented display cap; the '?' overlay carries the
+// full lore. The cut is applied to the PLAIN text before styling (never
+// mid-escape).
 func (m Model) heroHPRow() string {
 	p := m.engine.Player
 	row := fmt.Sprintf("  HP %s %d/%d", hpBarPlain(p.CurrentHP, p.MaxHP()), p.CurrentHP, p.MaxHP())
-	for _, chip := range statusChips(m.mirror.heroStatuses) {
+	chips := statusChips(m.mirror.heroStatuses)
+	shown := 0
+	for _, chip := range chips {
 		if lipgloss.Width(row)+1+lipgloss.Width(chip) > mainColWidth {
 			break
 		}
 		row += " " + chip
+		shown++
+	}
+	if expl := m.statusExplanation(m.mirror.heroStatuses[:shown]); expl != "" {
+		if room := mainColWidth - lipgloss.Width(row) - 1; room > 0 {
+			row += " " + styleDim.Render(truncateRunes(expl, room))
+		}
 	}
 	return row
 }

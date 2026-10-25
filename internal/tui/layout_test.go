@@ -396,6 +396,25 @@ func TestHeroStatsAnchorAboveTheActionBar(t *testing.T) {
 	}
 }
 
+// The '?' overlay replaces the canvas but keeps the window frame's
+// exact geometry: same fixed size in every dimension — the terminal
+// never reflows for it.
+func TestOverlayKeepsTheConstantFrame(t *testing.T) {
+	m := New(testEngine())
+	m.overlay = true
+
+	lines := viewLines(m.View())
+
+	if len(lines) != contentHeight+2 {
+		t.Errorf("overlay renders %d lines, want the full frame of %d", len(lines), contentHeight+2)
+	}
+	for i, line := range lines {
+		if w := ansiLen(line); w != contentWidth+4 {
+			t.Errorf("overlay line %d is %d wide, want %d", i, w, contentWidth+4)
+		}
+	}
+}
+
 // The event log lives in the right half: its lines must start beyond the
 // middle of the frame, clear of the game area on the left.
 func TestLogPanelOccupiesTheRightHalf(t *testing.T) {
