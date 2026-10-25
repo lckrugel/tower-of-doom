@@ -146,6 +146,57 @@ func NewStatusFromAsset(asset game.StatusAsset) Status {
 	return s
 }
 
+// MoveSource says where a hero's effective move comes from — the
+// learned set (shrine teaching) or the equipped weapon's grants. The
+// learned-vs-weapon split is the UI's "2+2" view of the move set.
+type MoveSource int
+
+const (
+	// SourceLearned marks a move learned via LearnMove (a shrine's
+	// teaching). A move known through BOTH channels reports as learned —
+	// the learned copy wins the dedup.
+	SourceLearned MoveSource = iota
+	// SourceWeapon marks a move granted by the equipped weapon (it
+	// leaves the set when the weapon is unworn).
+	SourceWeapon
+)
+
+// SourcedMove pairs an effective move with its origin, for consumers
+// that must distinguish learned from weapon-granted (the TUI's move
+// grid tagging). Plain value type — copies are safe and intended.
+type SourcedMove struct {
+	Move   Move
+	Source MoveSource
+}
+
+// FilterUnknownMoves narrows a registry move pool to the moves the hero
+// does NOT already know — the shrine offer's filter step. `pool` is a
+// tier-filtered pool (Registry.MovesForTiers; the filter preserves its
+// order, sorted by id). `known` is any move list representing what the
+// hero knows — the hero's effective set (EffectiveMoves) covers learned
+// AND weapon-granted in one dedup-by-id pass; the filter dedups `known`
+// by id itself, so raw sources work too. The canonical basic_attack is
+// ALWAYS dropped: it is the move-less fallback every combatant already
+// fights with, and teaching it would waste one of the two learned
+// slots — it is never offerable. The result is a fresh slice, empty
+// (never an error) when every move filters out: an empty pool is the
+// shrine's "nothing new" case, for the caller to degrade as it sees
+// fit. Pure: neither input is mutated.
+func FilterUnknownMoves(pool []game.MoveAsset, known []Move) []game.MoveAsset {
+	knownIDs := make(map[string]bool, len(known))
+	for _, m := range known {
+		knownIDs[m.ID] = true
+	}
+	filtered := make([]game.MoveAsset, 0, len(pool))
+	for _, asset := range pool {
+		if asset.ID == BasicAttack().ID || knownIDs[asset.ID] {
+			continue
+		}
+		filtered = append(filtered, asset)
+	}
+	return filtered
+}
+
 // BasicAttack returns the canonical fallback move (asset id
 // "basic_attack"): a neutral strike — 100% damage, no crit bonus, no
 // cooldown, no status. Monsters whose asset lists no moves fight with
@@ -154,7 +205,7 @@ func NewStatusFromAsset(asset game.StatusAsset) Status {
 func BasicAttack() Move {
 	return Move{
 		ID:          "basic_attack",
-		Name:        "Basic Attack",
+		Name:        "Basic Strike",
 		Tier:        1,
 		DmgModifier: 100,
 		CritBonus:   0,

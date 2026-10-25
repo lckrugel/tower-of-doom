@@ -443,6 +443,17 @@ section below documents the shipped behavior.
 - Hero moves: up to 2 LEARNED (shrine teaching — see "Shrines") plus up
   to 2 granted by the equipped weapon (a `moves` field on weapon assets,
   resolved by the engine when the item is built).
+- **The spammable rule** (content validation, startup-fatal): a weapon
+  that grants moves REPLACES the `basic_attack` fallback, so its grant
+  list must carry at least one `cooldown == 0` move — a weapon whose
+  every move is locked could otherwise never act. A weapon with NO
+  `moves` list keeps the fallback (spammable by definition), and
+  non-weapon slots still may not carry moves. The canonical fallback
+  move's NAME is **Basic Strike** (its id stays `basic_attack`). With
+  the rule in place every reachable hero turn has a ready move, so the
+  automatic RECOVER round below is content-unreachable — kept as
+  defense in depth (a mod could still ship it; validation would catch
+  it at startup).
 - `CmdMove(index)` replaces ATTACK: every combat turn is a move choice,
   indexing the hero's combat move set (CombatMoves: the effective set,
   or the canonical `basic_attack` when that set is empty — a move-less
@@ -453,7 +464,10 @@ section below documents the shipped behavior.
   end and never survive the encounter. Picking one locked move while
   another is ready is a blocked action (a message, no state change); a
   FULLY-cooled hero turn resolves as an automatic RECOVER round (a
-  message, the enemy acts, the ticks run) — never a soft-lock.
+  message, the enemy acts, the ticks run) — never a soft-lock. With the
+  spammable rule validated, every shipped weapon set is content-able to
+  always have a ready move, so the RECOVER path is now
+  content-unreachable — it stays as depth for hand-built states.
 - Damage: `base = round(effective DMG × dmg_modifier / 100)`, then the
   usual spread and crit math; the crit check gains the move's
   `crit_bonus`.
@@ -498,15 +512,25 @@ section below documents the shipped behavior.
       forget happened); `DECLINE` keeps both moves (`event-message`).
       An out-of-range index is a generic invalid command, never a
       panic; QUIT works as everywhere else.
-- The offer pool (the shrine's ONLY rng — ONE `Intn`):
-  `MovesForTiers(move_tiers)` (sorted by id), filtered to the moves the
-  hero does NOT already know — learned AND weapon-granted alike (dedup
-  by id) — and minus the canonical `basic_attack`: it is the move-less
+    - *Flow update pending (engine data layer done):* the bullets above
+      still describe the ONE-offer flow. The state machine's two-offer
+      update (the second offer, `PendingMoves`, the StateLearn rewiring)
+      is the next agent's phase — the data layer it needs ships now
+      (the pool/filter contract below).
+- The offer pool/filter contract (the DATA layer, shipped):
+  `MovesForTiers(move_tiers)` (sorted by id) filtered through
+  `entities.FilterUnknownMoves(pool, known)` — the moves the hero does
+  NOT already know, where `known` is the hero's effective set (learned
+  AND weapon-granted alike, dedup by id), and minus the canonical
+  `basic_attack`, which is NEVER offerable: it is the move-less
   fallback every combatant already fights with, and teaching it would
-  waste one of the two learned slots (a deliberate refinement of the
-  "unlearned move" rule). An empty filtered pool resolves as a flavor
-  message and consumes NO rng; learning and forgetting never consume
-  rng.
+  waste one of the two learned slots. The filter is pure and
+  order-preserving; an empty filtered pool resolves as the
+  nothing-new message and consumes NO rng; learning and forgetting
+  never consume rng. The two-offer rng (TWO `Intn`s over the shrinking
+  filtered pool — each pick removes its move's id before the next
+  roll, fewer offers only when the pool runs dry) lands with the flow
+  update above.
 - Shrines are non-combat kinds: the no-triple pacing rule covers them
   (three shrines in a row is impossible) and they never unlock ASCEND.
 - The TUI: the ◈ SHRINE screen shows the offer's dossier (tier +
@@ -568,10 +592,12 @@ have no absent-field defaults:
   monster fights with the canonical `basic_attack`, so older assets and
   mods keep working unchanged.
 - `ItemAsset.moves` — a list of move ids. ONLY weapons may grant moves;
-  at most 2 per weapon (`MaxWeaponMoves`); every id must exist. The
-  engine resolves the ids into runtime moves when the item is built, so
-  the hero's set is always computed from the EQUIPPED weapon (unwearing
-  it removes the grants).
+  at most 2 per weapon (`MaxWeaponMoves`); every id must exist; and the
+  list must carry at least one `cooldown == 0` move (the spammable rule:
+  grants replace the `basic_attack` fallback, so the weapon must always
+  have a ready move). The engine resolves the ids into runtime moves
+  when the item is built, so the hero's set is always computed from the
+  EQUIPPED weapon (unwearing it removes the grants).
 - `SectionAsset.move_tiers` — the exact `item_tiers` pattern: it gates
   which move tiers the section can offer (the shrine draws). Absent or
   empty = unrestricted; every listed tier must have at least one
@@ -579,7 +605,10 @@ have no absent-field defaults:
 
 **Registry queries** (mirroring the item ones): `MovesForTiers(tiers)`
 (move assets sorted by id; unrestricted when no tiers are listed; an
-empty pool is never an error), `MoveByID`, `StatusByID`, `MaxMoveTier`.
+empty pool is never an error), `MoveByID`, `StatusByID`, `MaxMoveTier`,
+and `AllStatuses` (every status asset, sorted by id, as a fresh slice —
+the read-only surface for lore/UI consumers the engine exposes without
+sharing the unexported map).
 
 **Hero move set** — `Hero.EffectiveMoves(weapon)`: the LEARNED moves
 first (learning order, capped at 2 — `MaxLearnedMoves`), then the
@@ -588,17 +617,39 @@ wins), capped at 4 (`MaxMoves`) — weapon moves beyond the cap are
 dropped, so the set never exceeds 4. The canonical `basic_attack` is
 NOT implicitly added to the hero SET — the integration decided what an
 empty set means instead: `Engine.CombatMoves` resolves an empty
-effective set to the canonical `basic_attack` (a move-less hero must
-still be able to act, mirroring the monster-side fallback, so move-less
-mods and starter gear keep working). Learning: `LearnMove` refuses at
-the cap (learning never displaces a move on its own — the caller drives
-`ForgetMove(moveID)` and retries); learning an already-known id is a
-refused no-op.
+effective set to the canonical `basic_attack` — the **Basic Strike**
+(a move-less hero must still be able to act, mirroring the
+monster-side fallback, so move-less mods and starter gear keep
+working). Learning: `LearnMove` refuses at the cap (learning never
+displaces a move on its own — the caller drives `ForgetMove(moveID)`
+and retries); learning an already-known id is a refused no-op. For
+UI source tagging, `Hero.EffectiveMovesWithSource(weapon)` returns the
+same set as `[]entities.SourcedMove` (`Move` + `Source`:
+`SourceLearned` / `SourceWeapon`) — the learned-vs-weapon "2+2" split
+the move grid renders; a move known via both channels reports as
+learned (the learned copy wins the dedup). The shrine offer pool is
+the same set viewed from the other side:
+`entities.FilterUnknownMoves(pool, hero.EffectiveMoves(weapon))` —
+see "Shrines".
 
 **Monster move set** — built by the engine from the asset's refs at
 spawn time (`NewMonsterFromAsset(asset, moves...)`; no moves passed =
 the canonical basic attack, matching the asset-level fallback). The
 runtime `Move.Weight` carries the ref's per-monster AI weight.
+
+**Embedded weapons** (the spammable rule applied — each weapon with
+moves carries its spammable first):
+
+| Weapon (tier) | Grants | Spammable |
+| --- | --- | --- |
+| Espada de Madeira (1) | — | Basic Strike (the fallback) |
+| Espada de Ferro (2) | Quick Stab | Quick Stab (60%, +20 crit) |
+| Espada de Aço (3) | Steel Flurry, Heavy Slash | Steel Flurry (110%) |
+| Espada Dracônica (4) | Assassin's Strike, Dragon's Might | Assassin's Strike (110%, +35 crit) |
+
+The drake blade's spammable is the retuned Assassin's Strike (tier 3→4,
+cooldown 3→0); the two monster kits referencing it keep a weighted
+second move, so the spam stays a weighted choice on both sides.
 
 **Load-time validation** (content bugs fail at startup, house style):
 
@@ -608,8 +659,9 @@ runtime `Move.Weight` carries the ref's per-monster AI weight.
 - status: kind not buff/debuff; effect type not dot/stat; dot amount
   < 1; stat amount = 0 or an unknown stat word; duration < 1.
 - monster: more than 4 moves, an unknown move id, a ref weight < 1.
-- weapon: more than 2 moves or an unknown move id; any non-weapon slot
-  carrying moves.
+- weapon: more than 2 moves, an unknown move id, or no `cooldown == 0`
+  move in the grant list (the spammable rule — grants replace the
+  fallback); any non-weapon slot carrying moves.
 - section: `move_tiers` values < 1, or a listed tier with zero registry
   moves of that tier.
 - duplicate ids in moves.json / statuses.json fail at Load (indexBy).

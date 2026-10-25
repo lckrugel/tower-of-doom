@@ -319,8 +319,8 @@ func TestMoveUsedEventPayload(t *testing.T) {
 	}
 	// The enemy's strike reports its move too (until the monster AI
 	// lands, always the canonical basic attack).
-	if move := events[2].Data["move"]; move != "Basic Attack" {
-		t.Errorf("enemy move = %v, want Basic Attack", move)
+	if move := events[2].Data["move"]; move != "Basic Strike" {
+		t.Errorf("enemy move = %v, want Basic Strike", move)
 	}
 	if user := events[2].Data["user"]; user != "Goblin" {
 		t.Errorf("enemy user = %v, want Goblin", user)
@@ -448,7 +448,7 @@ func TestMonsterAllMovesLockedUsesBasicAttackWithoutRng(t *testing.T) {
 	if got := eventTypes(events); !typesEqual(got, EventMoveUsed, EventCombatDamageDealt, EventMoveUsed, EventCombatDamageTaken) {
 		t.Fatalf("events = %v, want [move-used dealt move-used taken]", got)
 	}
-	if move := events[2].Data["move"]; move != "Basic Attack" {
+	if move := events[2].Data["move"]; move != "Basic Strike" {
 		t.Errorf("monster move = %v, want the basic_attack fallback", move)
 	}
 	// The fallback saves the PICK roll: two strikes' worth of rolls

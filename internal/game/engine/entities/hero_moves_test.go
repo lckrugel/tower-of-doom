@@ -237,3 +237,111 @@ func TestItemGrantedMoves(t *testing.T) {
 		}
 	})
 }
+
+// EffectiveMovesWithSource tags every effective move with where it came
+// from — the learned set first, then the weapon's grants, the SAME order
+// and dedup as EffectiveMoves.
+func TestHeroEffectiveMovesWithSource(t *testing.T) {
+	a := Move{ID: "a", Name: "A"}
+	b := Move{ID: "b", Name: "B"}
+	w1 := Move{ID: "w1", Name: "W1"}
+	w2 := Move{ID: "w2", Name: "W2"}
+
+	t.Run("learned moves first, weapon moves after", func(t *testing.T) {
+		h := NewPlayer()
+		h.LearnMove(a)
+		h.LearnMove(b)
+
+		got := h.EffectiveMovesWithSource(newTestWeapon(w1, w2))
+
+		if len(got) != 4 {
+			t.Fatalf("EffectiveMovesWithSource = %+v, want 4 entries", got)
+		}
+		wantSources := []MoveSource{SourceLearned, SourceLearned, SourceWeapon, SourceWeapon}
+		for i, want := range []string{"a", "b", "w1", "w2"} {
+			if got[i].Move.ID != want || got[i].Source != wantSources[i] {
+				t.Errorf("entry %d = {%q %v}, want {%q %v}", i,
+					got[i].Move.ID, got[i].Source, want, wantSources[i])
+			}
+		}
+	})
+
+	t.Run("a move known via both reports as LEARNED", func(t *testing.T) {
+		h := NewPlayer()
+		h.LearnMove(a)
+
+		got := h.EffectiveMovesWithSource(newTestWeapon(Move{ID: "a", Name: "Weapon A"}, w1))
+
+		if len(got) != 2 {
+			t.Fatalf("EffectiveMovesWithSource = %+v, want 2 entries (dedup by id)", got)
+		}
+		if got[0].Move.ID != "a" || got[0].Source != SourceLearned {
+			t.Errorf("entry 0 = {%q %v}, want {a LEARNED} — the learned copy wins the dedup",
+				got[0].Move.ID, got[0].Source)
+		}
+		if got[0].Move.Name != "A" {
+			t.Errorf("dedup kept the weapon copy's name %q, want the learned %q", got[0].Move.Name, "A")
+		}
+	})
+
+	t.Run("nil weapon leaves only learned sources", func(t *testing.T) {
+		h := NewPlayer()
+		h.LearnMove(a)
+
+		got := h.EffectiveMovesWithSource(nil)
+
+		if len(got) != 1 || got[0].Move.ID != "a" || got[0].Source != SourceLearned {
+			t.Errorf("EffectiveMovesWithSource(nil) = %+v, want [{a LEARNED}]", got)
+		}
+	})
+
+	t.Run("the cap drops weapon moves, sources stay consistent", func(t *testing.T) {
+		h := NewPlayer()
+		learnBoth(h) // 2 learned
+
+		got := h.EffectiveMovesWithSource(newTestWeapon(w1, w2, Move{ID: "w3"}))
+
+		if len(got) != MaxMoves {
+			t.Fatalf("EffectiveMovesWithSource length = %d, want %d", len(got), MaxMoves)
+		}
+		for i, want := range []struct {
+			id  string
+			src MoveSource
+		}{{"a", SourceLearned}, {"b", SourceLearned}, {"w1", SourceWeapon}, {"w2", SourceWeapon}} {
+			if got[i].Move.ID != want.id || got[i].Source != want.src {
+				t.Errorf("entry %d = {%q %v}, want {%q %v} (w3 dropped beyond the cap)",
+					i, got[i].Move.ID, got[i].Source, want.id, want.src)
+			}
+		}
+	})
+
+	t.Run("EffectiveMoves mirrors the sourced set", func(t *testing.T) {
+		h := NewPlayer()
+		h.LearnMove(a)
+		weapon := newTestWeapon(Move{ID: "a", Name: "Weapon A"}, w1, w2)
+
+		sourced := h.EffectiveMovesWithSource(weapon)
+		plain := h.EffectiveMoves(weapon)
+
+		if len(plain) != len(sourced) {
+			t.Fatalf("EffectiveMoves length = %d, sourced = %d", len(plain), len(sourced))
+		}
+		for i := range sourced {
+			if plain[i] != sourced[i].Move {
+				t.Errorf("EffectiveMoves[%d] = %+v, want the sourced %+v", i, plain[i], sourced[i].Move)
+			}
+		}
+	})
+
+	t.Run("returned slice is a copy", func(t *testing.T) {
+		h := NewPlayer()
+		h.LearnMove(a)
+
+		got := h.EffectiveMovesWithSource(nil)
+		got[0] = SourcedMove{Move: Move{ID: "tampered"}}
+
+		if again := h.EffectiveMovesWithSource(nil); again[0].Move.ID != "a" {
+			t.Errorf("mutating the returned slice changed the set: %q", again[0].Move.ID)
+		}
+	})
+}

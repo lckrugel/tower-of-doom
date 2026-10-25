@@ -112,6 +112,7 @@
     "bonus_spd": 0,
     "durability": 100,
     "moves": [
+      "steel_flurry",
       "heavy_slash"
     ]
   },

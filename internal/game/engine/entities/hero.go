@@ -406,27 +406,42 @@ func (h *Hero) knowsMove(moveID string) bool {
 // empty set means in combat is the combat integration's decision. The
 // returned slice is a copy.
 func (h *Hero) EffectiveMoves(weapon *Item) []Move {
-	moves := make([]Move, 0, MaxMoves)
+	sourced := h.EffectiveMovesWithSource(weapon)
+	moves := make([]Move, len(sourced))
+	for i, s := range sourced {
+		moves[i] = s.Move
+	}
+	return moves
+}
+
+// EffectiveMovesWithSource is EffectiveMoves with an origin tag per
+// move — same order (learned first, weapon after), same dedup (the
+// learned copy wins, reported as SourceLearned) and same MaxMoves cap
+// (weapon moves beyond it drop). SourceWeapon entries leave the set
+// when the weapon is unworn; SourceLearned ones persist until
+// forgotten. The returned slice is a copy.
+func (h *Hero) EffectiveMovesWithSource(weapon *Item) []SourcedMove {
+	sourced := make([]SourcedMove, 0, MaxMoves)
 	seen := make(map[string]bool, MaxMoves)
 	for _, m := range h.learnedMoves {
-		if len(moves) >= MaxMoves {
+		if len(sourced) >= MaxMoves {
 			break
 		}
 		if !seen[m.ID] {
 			seen[m.ID] = true
-			moves = append(moves, m)
+			sourced = append(sourced, SourcedMove{Move: m, Source: SourceLearned})
 		}
 	}
 	if weapon != nil {
 		for _, m := range weapon.GrantedMoves() {
-			if len(moves) >= MaxMoves {
+			if len(sourced) >= MaxMoves {
 				break
 			}
 			if !seen[m.ID] {
 				seen[m.ID] = true
-				moves = append(moves, m)
+				sourced = append(sourced, SourcedMove{Move: m, Source: SourceWeapon})
 			}
 		}
 	}
-	return moves
+	return sourced
 }
