@@ -18,7 +18,7 @@ func TestAllowedCommandsMatrix(t *testing.T) {
 	}{
 		{"exploring", StateExploring, []CommandType{CmdExplore, CmdAscend, CmdInventory, CmdQuit}},
 		{"encounter", StateEncounter, []CommandType{CmdFight, CmdSneak, CmdQuit}},
-		{"combat", StateCombat, []CommandType{CmdAttack, CmdFlee, CmdQuit}},
+		{"combat", StateCombat, []CommandType{CmdMove, CmdFlee, CmdQuit}},
 		{"loot decision", StateLoot, []CommandType{CmdWear, CmdStashLoot, CmdDiscardLoot, CmdQuit}},
 		{"inventory", StateInventory, []CommandType{CmdWear, CmdDrop, CmdClose, CmdQuit}},
 		{"merchant", StateMerchant, []CommandType{CmdBuy, CmdSell, CmdLeave, CmdQuit}},
@@ -86,7 +86,7 @@ func TestInventoryWear(t *testing.T) {
 		e.Player.StashItem(newSword)
 		e.State = StateInventory
 
-		events := e.Process(Command{Type: CmdWear, ItemIndex: 0})
+		events := e.Process(Command{Type: CmdWear, Index: 0})
 
 		if got := eventTypes(events); !typesEqual(got, EventItemEquipped) {
 			t.Fatalf("events = %v, want [item-equipped]", got)
@@ -115,7 +115,7 @@ func TestInventoryWear(t *testing.T) {
 		e.Player.StashItem(helm)
 		e.State = StateInventory
 
-		events := e.Process(Command{Type: CmdWear, ItemIndex: 0})
+		events := e.Process(Command{Type: CmdWear, Index: 0})
 
 		if got := eventTypes(events); !typesEqual(got, EventItemEquipped) {
 			t.Fatalf("events = %v, want [item-equipped]", got)
@@ -139,7 +139,7 @@ func TestInventoryDrop(t *testing.T) {
 	e.Player.StashItem(helm)
 	e.State = StateInventory
 
-	events := e.Process(Command{Type: CmdDrop, ItemIndex: 0})
+	events := e.Process(Command{Type: CmdDrop, Index: 0})
 
 	if got := eventTypes(events); !typesEqual(got, EventItemDiscarded) {
 		t.Fatalf("events = %v, want [item-discarded]", got)
@@ -176,9 +176,9 @@ func TestInventoryClose(t *testing.T) {
 // with NO state change and NO bag change — they are player-reachable.
 func TestInventoryInvalidIndex(t *testing.T) {
 	tests := []struct {
-		name      string
-		bagItems  int
-		itemIndex int
+		name     string
+		bagItems int
+		index    int
 	}{
 		{"negative index on a filled bag", 2, -1},
 		{"index past the end", 2, 2},
@@ -193,7 +193,7 @@ func TestInventoryInvalidIndex(t *testing.T) {
 				}
 				e.State = StateInventory
 
-				events := e.Process(Command{Type: cmdType, ItemIndex: tt.itemIndex})
+				events := e.Process(Command{Type: cmdType, Index: tt.index})
 
 				if got := eventTypes(events); len(got) != 1 || got[0] != EventMessage {
 					t.Errorf("events = %v, want a single [invalid command] message", got)
@@ -225,7 +225,7 @@ func TestBagCommandsRejectedOutsideInventory(t *testing.T) {
 				e.Player.StashItem(testBagItem("filler", "amulet"))
 				e.State = state
 
-				events := e.Process(Command{Type: cmdType, ItemIndex: 0})
+				events := e.Process(Command{Type: cmdType, Index: 0})
 
 				if got := eventTypes(events); len(got) != 1 || got[0] != EventMessage {
 					t.Errorf("events = %v, want a single [invalid command] message", got)
@@ -248,7 +248,7 @@ func TestWearRejectedOutsideLootAndInventory(t *testing.T) {
 			e.Player.StashItem(testBagItem("filler", "amulet"))
 			e.State = state
 
-			events := e.Process(Command{Type: CmdWear, ItemIndex: 0})
+			events := e.Process(Command{Type: CmdWear, Index: 0})
 
 			if got := eventTypes(events); len(got) != 1 || got[0] != EventMessage {
 				t.Errorf("events = %v, want a single [invalid command] message", got)

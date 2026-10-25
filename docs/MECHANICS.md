@@ -27,6 +27,8 @@
       see "Gold & prices" and "Types of encounters"
 - PLayer can FIGHT or SNEAK
 - FIGHT leads to combat (StateCombat)
+    - Entering combat resolves NO round: rounds advance from the hero's
+      move choices, so engaging consumes no rng
 - SKEAK leads to a roll to determined success
     - 50/50 for now, no stats involved
     - On success combat is avoided
@@ -35,12 +37,14 @@
     - An encounter with multiple enemies is tranformed into a queue
 - Each turn, whoever has the highest SPD attacks first
     - Total SPD, including items
-- During StateCombat, player can ATTACK or FLEE
+- During StateCombat, player can MOVE (a move choice) or FLEE
 - FLEE leads to a roll weighted by the difference in SPD between the player and the current enemy
     - FLEE chance is never higher than 95% and never lower than 5%
     - On success exits combat with no reward
     - On fail current enemy gets a free turn
-- ATTACK trigger a normal attack
+- MOVE uses the hero move at the chosen index of the hero's combat move
+    set (learned moves, then weapon-granted; a move-less hero fights
+    with the canonical basic_attack) — see "Combat 2.0 — decided design"
 - When an enemy die mid combat the player gets the XP reward instantly
     - mid combat level ups are possible
     - each level-up also heals 25% of the base max HP (no rng — see

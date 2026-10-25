@@ -32,19 +32,37 @@ func (e *Engine) currentEnemy() *entities.Monster {
 	return &e.CurrentEncounter.Monsters[0]
 }
 
+// CombatMoves returns the move set the Hero fights with in StateCombat:
+// the hero's effective set (learned moves first, then weapon-granted —
+// see Hero.EffectiveMoves), or the canonical basic attack when that set
+// is empty. The fallback is a deliberate combat-integration decision
+// (the entity layer leaves the empty set meaning open): a hero without
+// moves must still be able to act, mirroring the monster-side rule that
+// a monster without a move set fights with basic_attack — move-less
+// mods and starter gear keep working. The set is rebuilt per call; the
+// CmdMove index points into exactly this list.
+func (e *Engine) CombatMoves() []entities.Move {
+	moves := e.Player.EffectiveMoves(e.Player.Weapon)
+	if len(moves) == 0 {
+		return []entities.Move{entities.BasicAttack()}
+	}
+	return moves
+}
+
 // resolveRound plays one full round of combat: whoever has the higher total
 // Speed (items included) acts first — the Hero wins ties — and both
 // combatants act unless someone dies mid-round.
 //
-// `heroAttack` tells whether the Hero acts this round. When false (failed
-// sneak or failed flee) the round is a free turn for the enemy: a single
-// enemy attack with no Hero action.
-func (e *Engine) resolveRound(heroAttack bool) []Event {
+// `move` is the Hero's chosen move (the CmdMove index into CombatMoves);
+// nil means the Hero does not act this round — a free turn for the enemy
+// (failed sneak or failed flee). The monster's side is still a plain
+// strike: monster move picks land with the monster AI.
+func (e *Engine) resolveRound(move *entities.Move) []Event {
 	var events []Event
 	heroFirst := e.Player.Speed() >= e.currentEnemy().Speed()
 
-	if heroAttack && heroFirst {
-		events = append(events, e.heroStrike()...)
+	if move != nil && heroFirst {
+		events = append(events, e.heroStrike(move)...)
 		if !e.currentEnemy().IsAlive() {
 			return e.appendEnemyDefeat(events)
 		}
@@ -56,8 +74,8 @@ func (e *Engine) resolveRound(heroAttack bool) []Event {
 		return e.appendHeroDefeat(events)
 	}
 
-	if heroAttack && !heroFirst {
-		events = append(events, e.heroStrike()...)
+	if move != nil && !heroFirst {
+		events = append(events, e.heroStrike(move)...)
 		if !e.currentEnemy().IsAlive() {
 			return e.appendEnemyDefeat(events)
 		}
@@ -79,8 +97,11 @@ func (e *Engine) rollDamage(attacker Combatant) (dmg int, crit bool) {
 	return dmg, crit
 }
 
-// heroStrike performs the Hero's attack against the current enemy.
-func (e *Engine) heroStrike() []Event {
+// heroStrike performs the Hero's strike with the chosen move against the
+// current enemy. The port keeps the legacy damage math (plain attack
+// stat): the move's dmg_modifier/crit_bonus/cooldown land with the move
+// math, so rng sequences shift only once per feature.
+func (e *Engine) heroStrike(move *entities.Move) []Event {
 	enemy := e.currentEnemy()
 	swing, crit := e.rollDamage(e.Player)
 	return []Event{NewDamageDealt(enemy, enemy.TakeDmg(effectiveDamage(swing, enemy.Defense())), crit)}
@@ -94,13 +115,9 @@ func (e *Engine) enemyStrike() []Event {
 }
 
 // enemyFreeTurn is the single enemy attack granted by a failed sneak or a
-// failed flee attempt: the Hero does not act this round.
+// failed flee attempt: the Hero does not act this round (no move chosen).
 func (e *Engine) enemyFreeTurn() []Event {
-	events := e.enemyStrike()
-	if !e.Player.IsAlive() {
-		return e.appendHeroDefeat(events)
-	}
-	return events
+	return e.resolveRound(nil)
 }
 
 // appendEnemyDefeat grants the kill XP and the kill gold instantly

@@ -13,7 +13,7 @@ func TestKillGrantsGold(t *testing.T) {
 		startEncounter(e, monsterFromFixture("orc")) // difficulty 5 → 25 gold
 		e.State = StateCombat
 
-		events := e.Process(Command{Type: CmdAttack})
+		events := e.Process(Command{Type: CmdMove, Index: 0})
 
 		if got := eventTypes(events); !typesEqual(got,
 			EventCombatDamageDealt, EventEnemyDefeated, EventGoldGained, EventVictory) {
@@ -37,7 +37,7 @@ func TestKillGrantsGold(t *testing.T) {
 		startEncounter(e, monsterFromFixture("goblin"), monsterFromFixture("orc"))
 		e.State = StateCombat
 
-		e.Process(Command{Type: CmdAttack}) // goblin (difficulty 3) falls
+		e.Process(Command{Type: CmdMove, Index: 0}) // goblin (difficulty 3) falls
 
 		if got := e.Player.Gold; got != 15 {
 			t.Errorf("gold after the goblin = %d, want 15 (still mid-combat)", got)
@@ -47,7 +47,7 @@ func TestKillGrantsGold(t *testing.T) {
 		}
 
 		heroWithDamage(e, 60) // swing 60 — one-shots the orc
-		e.Process(Command{Type: CmdAttack})
+		e.Process(Command{Type: CmdMove, Index: 0})
 		if got := e.Player.Gold; got != 40 {
 			t.Errorf("gold after the orc = %d, want 40 (15 + 25)", got)
 		}
@@ -61,7 +61,7 @@ func TestKillGrantsGold(t *testing.T) {
 		stub := &stubRng{values: []int{1, 50}}
 		e.rng = stub
 
-		e.Process(Command{Type: CmdAttack}) // one strike, one kill
+		e.Process(Command{Type: CmdMove, Index: 0}) // one strike, one kill
 
 		// One strike consumes exactly spread + crit roll.
 		if stub.calls != 2 {

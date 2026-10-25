@@ -73,11 +73,7 @@ func (mathRandRng) Intn(n int) int { return rand.Intn(n) }
 
 func NewEngine(reg *game.Registry) *Engine {
 	player := entities.NewPlayer()
-	if asset, ok := reg.Items[starterItemID]; ok {
-		starter := entities.NewItemFromAsset(asset)
-		player.EquipItem(&starter)
-	}
-	return &Engine{
+	e := &Engine{
 		Player:       player,
 		CurrentFloor: 1,
 		State:        StateExploring,
@@ -85,6 +81,13 @@ func NewEngine(reg *game.Registry) *Engine {
 		reg:          reg,
 		rng:          mathRandRng{},
 	}
+	if asset, ok := reg.Items[starterItemID]; ok {
+		// The starter item is built through the engine's resolver so its
+		// granted moves (if any) are resolved from the registry.
+		starter := e.itemFromAsset(asset)
+		player.EquipItem(&starter)
+	}
+	return e
 }
 
 func (e *Engine) Process(cmd Command) []Event {
@@ -176,10 +179,11 @@ func (e *Engine) handleExploring(cmd Command) []Event {
 func (e *Engine) handleEncounter(cmd Command) []Event {
 	switch cmd.Type {
 	case CmdFight:
-		// Entering combat resolves the first round immediately: the Hero
-		// engages the enemy with standard initiative.
+		// Entering combat resolves NO round: rounds advance from the
+		// hero's move choices (CmdMove in StateCombat). FIGHT only opens
+		// the state — no rng consumed, no strike forced.
 		e.State = StateCombat
-		return e.resolveRound(true)
+		return nil
 	case CmdSneak:
 		return e.resolveSneak()
 	default:
@@ -203,8 +207,11 @@ func (e *Engine) resolveSneak() []Event {
 
 func (e *Engine) handleCombat(cmd Command) []Event {
 	switch cmd.Type {
-	case CmdAttack:
-		return e.resolveRound(true)
+	case CmdMove:
+		// The index was range-checked by isValidCommand against the
+		// hero's combat move set, so this indexes safely.
+		move := e.CombatMoves()[cmd.Index]
+		return e.resolveRound(&move)
 	case CmdFlee:
 		return e.resolveFlee()
 	default:
@@ -219,7 +226,7 @@ func (e *Engine) handleCombat(cmd Command) []Event {
 func (e *Engine) handleLoot(cmd Command) []Event {
 	switch cmd.Type {
 	case CmdWear:
-		// The pending item is the only subject here: ItemIndex is ignored.
+		// The pending item is the only subject here: Index is ignored.
 		item := e.PendingLoot
 		displaced := e.Player.EquipItem(item)
 		events := []Event{NewItemEquipped(item, displaced)}
@@ -257,13 +264,13 @@ func (e *Engine) handleLoot(cmd Command) []Event {
 func (e *Engine) handleInventory(cmd Command) []Event {
 	switch cmd.Type {
 	case CmdWear:
-		item := e.Player.Bag()[cmd.ItemIndex]
-		displaced := e.Player.EquipFromBag(cmd.ItemIndex)
+		item := e.Player.Bag()[cmd.Index]
+		displaced := e.Player.EquipFromBag(cmd.Index)
 		return []Event{NewItemEquipped(item, displaced)}
 	case CmdDrop:
 		// Destroyed on the spot: there is no floor layer to drop things
 		// on, so the item is gone for good.
-		item := e.Player.DropFromBag(cmd.ItemIndex)
+		item := e.Player.DropFromBag(cmd.Index)
 		return []Event{NewItemDiscarded(item)}
 	case CmdClose:
 		e.State = StateExploring
@@ -372,7 +379,7 @@ func (e *Engine) pickItem(accept func(entities.ItemSlot) bool, tiers []int) *ent
 	if len(pool) == 0 {
 		return nil
 	}
-	item := entities.NewItemFromAsset(e.reg.Items[pool[e.rng.Intn(len(pool))]])
+	item := e.itemFromAsset(e.reg.Items[pool[e.rng.Intn(len(pool))]])
 	return &item
 }
 
@@ -445,21 +452,27 @@ func (e *Engine) isValidCommand(cmd Command) bool {
 	// Index-carrying commands must point at a real slot, otherwise it is
 	// a generic invalid command with no state change (never a panic —
 	// the index is player-reachable): bag commands and selling at a bag
-	// item, buying at a stock offer.
+	// item, buying at a stock offer, and CmdMove at the hero's combat
+	// move set.
 	if cmd.Type == CmdDrop || cmd.Type == CmdSell {
-		if cmd.ItemIndex < 0 || cmd.ItemIndex >= len(e.Player.Bag()) {
+		if cmd.Index < 0 || cmd.Index >= len(e.Player.Bag()) {
 			return false
 		}
 	}
 	// CmdWear indexes the bag only from StateInventory: the StateLoot
 	// wear takes the pending item and ignores the index.
 	if cmd.Type == CmdWear && e.State == StateInventory {
-		if cmd.ItemIndex < 0 || cmd.ItemIndex >= len(e.Player.Bag()) {
+		if cmd.Index < 0 || cmd.Index >= len(e.Player.Bag()) {
 			return false
 		}
 	}
 	if cmd.Type == CmdBuy {
-		if cmd.ItemIndex < 0 || cmd.ItemIndex >= len(e.MerchantStock) {
+		if cmd.Index < 0 || cmd.Index >= len(e.MerchantStock) {
+			return false
+		}
+	}
+	if cmd.Type == CmdMove {
+		if cmd.Index < 0 || cmd.Index >= len(e.CombatMoves()) {
 			return false
 		}
 	}

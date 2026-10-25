@@ -16,8 +16,13 @@ const (
 	//
 	// Failling leads to a lost turn in combat to the enemies.
 	CmdSneak
-	// Attacks the current enemy during combat.
-	CmdAttack
+	// Uses the hero move at `Index` during combat (StateCombat): the
+	// index points into the hero's combat move set — the same set the UI
+	// offers as the combat options. An out-of-range index is rejected as
+	// a generic invalid command (EventMessage) with no state change; a
+	// move on cooldown is answered with a blocking message (and, when
+	// every move is locked, the turn resolves as a RECOVER round).
+	CmdMove
 	// Attempts to flee during combat.
 	//
 	// Success exits combat.
@@ -28,11 +33,11 @@ const (
 	CmdQuit
 	// Wears an item into its equipment slot, in either state that hosts
 	// the decision:
-	//   - StateLoot: wears the pending loot (ItemIndex ignored); the
+	//   - StateLoot: wears the pending loot (Index ignored); the
 	//     displaced item goes to the bag when there is room, else it is
 	//     destroyed (EventItemLost). Either way back to StateExploring
 	//     with nothing pending.
-	//   - StateInventory: wears the bag item at `ItemIndex`; the
+	//   - StateInventory: wears the bag item at `Index`; the
 	//     displaced item takes the worn item's old bag position (the bag
 	//     length is unchanged). The bag stays open.
 	CmdWear
@@ -43,15 +48,15 @@ const (
 	CmdDiscardLoot
 	// Opens the hero bag while exploring (StateInventory).
 	CmdInventory
-	// Destroys the bag item at `ItemIndex` (StateInventory).
+	// Destroys the bag item at `Index` (StateInventory).
 	CmdDrop
 	// Closes the bag, returning to exploring (StateInventory).
 	CmdClose
-	// Buys the merchant offer at `ItemIndex` into the hero bag
+	// Buys the merchant offer at `Index` into the hero bag
 	// (StateMerchant). Rejected with no state change when the hero
 	// cannot afford it or the bag is full.
 	CmdBuy
-	// Sells the bag item at `ItemIndex` to the merchant (StateMerchant):
+	// Sells the bag item at `Index` to the merchant (StateMerchant):
 	// the item is destroyed and its SellValue added to the purse.
 	CmdSell
 	// Leaves the merchant, discarding the remaining stock
@@ -62,11 +67,13 @@ const (
 // `Command` is an action taken.
 type Command struct {
 	Type CommandType
-	// ItemIndex points into the hero bag for the bag commands (CmdWear
-	// and CmdDrop in StateInventory) and for selling (CmdSell in
-	// StateMerchant); it points into Engine.MerchantStock for CmdBuy.
+	// Index is the subject of the index-carrying commands: the move
+	// index into the hero's combat move set for CmdMove (StateCombat);
+	// the bag index for the bag commands (CmdWear and CmdDrop in
+	// StateInventory) and for selling (CmdSell in StateMerchant takes a
+	// bag index); the stock index into Engine.MerchantStock for CmdBuy.
 	// Every other command ignores it. An out-of-range/negative index is
 	// rejected as a generic invalid command (EventMessage) with no state
 	// change — never a panic.
-	ItemIndex int
+	Index int
 }

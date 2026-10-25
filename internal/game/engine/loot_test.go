@@ -140,14 +140,14 @@ func TestLootWearIntoEmptySlot(t *testing.T) {
 }
 
 // In StateLoot the pending item is the only wearer candidate: CmdWear
-// ignores ItemIndex entirely (garbage indexes included) — the index only
+// ignores Index entirely (garbage indexes included) — the index only
 // means something in StateInventory.
-func TestLootWearIgnoresItemIndex(t *testing.T) {
+func TestLootWearIgnoresIndex(t *testing.T) {
 	e := chestEngine(0) // rusty_ring, hero has an empty ring slot
 	e.Process(Command{Type: CmdExplore})
 	pending := e.PendingLoot
 
-	events := e.Process(Command{Type: CmdWear, ItemIndex: 7})
+	events := e.Process(Command{Type: CmdWear, Index: 7})
 
 	if got := eventTypes(events); !typesEqual(got, EventItemEquipped) {
 		t.Fatalf("events = %v, want [item-equipped]", got)

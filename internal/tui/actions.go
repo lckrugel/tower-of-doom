@@ -19,7 +19,7 @@ type action struct {
 	// the engine, which explains the block as a log message.
 	enabled bool
 	// usesIndex marks the row-indexed commands (WEAR/DROP/BUY/SELL):
-	// dispatch must carry the selected row as the command's ItemIndex.
+	// dispatch must carry the selected row as the command's Index.
 	usesIndex bool
 }
 
@@ -40,7 +40,9 @@ var orderedOptions = []struct {
 	{"i", "Inventory", engine.CmdInventory},
 	{"f", "Fight", engine.CmdFight},
 	{"s", "Sneak", engine.CmdSneak},
-	{"a", "Attack", engine.CmdAttack},
+	// {"a"} dispatches the hero's first combat move (the combat-integration
+	// stopgap: the move-chip bar replaces this label in the TUI phase).
+	{"a", "Attack", engine.CmdMove},
 	{"r", "Flee", engine.CmdFlee},     // r for "run"
 	{"w", "Wear", engine.CmdWear},     // wears the chest loot or the selected bag item
 	{"b", "Bag", engine.CmdStashLoot}, // stash the chest loot in the bag
