@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"fmt"
 	"math"
 
 	"github.com/lckrugel/tower-of-doom/internal/game/engine/entities"
@@ -73,7 +74,8 @@ func (e *Engine) resolveRound(move *entities.Move) []Event {
 // is the hero's chosen move (nil = the hero does not act this round) and
 // `events` any event prefix already collected.
 func (e *Engine) resolveCombatRound(move *entities.Move, events []Event) []Event {
-	heroFirst := e.Player.Speed() >= e.currentEnemy().Speed()
+	// Initiative reads the EFFECTIVE speeds (stat-mod statuses included).
+	heroFirst := e.heroStat(entities.StatSPD) >= e.enemyStat(entities.StatSPD)
 
 	if move != nil && heroFirst {
 		events = append(events, e.heroStrike(move)...)
@@ -100,6 +102,47 @@ func (e *Engine) resolveCombatRound(move *entities.Move, events []Event) []Event
 	return e.endRound(events, move, enemyMove)
 }
 
+// effectiveStat is a combatant's EFFECTIVE stat: base+gear (the
+// Combatant accessor) plus the sum of its active stat-mod statuses,
+// clamped — DMG at 1 (a weakened fighter still chips), DEF and SPD at 0.
+// Used for damage, mitigation, initiative and the flee formula alike.
+// Pure math — no rng.
+func (e *Engine) effectiveStat(c Combatant, st *combatantState, stat entities.StatKind) int {
+	var total int
+	switch stat {
+	case entities.StatDMG:
+		total = c.Damage()
+	case entities.StatDEF:
+		total = c.Defense()
+	case entities.StatSPD:
+		total = c.Speed()
+	}
+	total += st.statMods(stat)
+	if stat == entities.StatDMG {
+		return max(1, total)
+	}
+	return max(0, total)
+}
+
+// heroStat is the hero's effective stat in the current combat.
+func (e *Engine) heroStat(stat entities.StatKind) int {
+	return e.effectiveStat(e.Player, &e.heroCombat, stat)
+}
+
+// enemyStat is the current enemy's effective stat in the current combat.
+func (e *Engine) enemyStat(stat entities.StatKind) int {
+	return e.effectiveStat(e.currentEnemy(), &e.enemyCombat, stat)
+}
+
+// stateOf returns the combat-scoped state of a combatant: a fight has
+// exactly two sides — the hero and the current front monster.
+func (e *Engine) stateOf(c Combatant) *combatantState {
+	if _, isHero := c.(*entities.Hero); isHero {
+		return &e.heroCombat
+	}
+	return &e.enemyCombat
+}
+
 // rollMoveDamage resolves a strike made with a Combat 2.0 move, in this
 // rng order (a determinism contract):
 //
@@ -122,16 +165,47 @@ func (e *Engine) rollMoveDamage(effDmg int, move *entities.Move, critThreshold i
 }
 
 // heroStrike performs the Hero's strike with the chosen move against the
-// current enemy: the move's damage math, then mitigation, then the plain
-// TakeDmg clamp. rng order: spread → crit (→ status chance, once the
-// move carries a status).
+// current enemy: the move's damage math over the hero's EFFECTIVE DMG,
+// mitigated by the enemy's EFFECTIVE DEF, then the plain TakeDmg clamp.
+// rng order: spread → crit (→ status chance when the move carries one).
 func (e *Engine) heroStrike(move *entities.Move) []Event {
 	enemy := e.currentEnemy()
-	swing, crit := e.rollMoveDamage(e.Player.Damage(), move, e.Player.CritThreshold())
+	swing, crit := e.rollMoveDamage(e.heroStat(entities.StatDMG), move, e.Player.CritThreshold())
 	events := []Event{NewMoveUsed(e.Player.Name(), move.Name)}
 	events = append(events, NewDamageDealtWithMove(enemy,
-		enemy.TakeDmg(effectiveDamage(swing, enemy.Defense())), crit, move.Name))
+		enemy.TakeDmg(effectiveDamage(swing, e.enemyStat(entities.StatDEF))), crit, move.Name))
+	events = append(events, e.applyStrikeStatus(move, e.Player, enemy)...)
 	return events
+}
+
+// applyStrikeStatus rolls a move's status application. The rng contract
+// is ONE Intn(100) per status-carrying move use — the roll happens even
+// when the chance is 0 or fails, keeping every rng sequence
+// position-stable. On fire the status is applied to the move's target
+// (enemy = the defender of the hit, self = the striker), refreshed to
+// the longest duration; a strike that KILLED its recipient afflicts
+// nothing (dead combatants can't take statuses) — the roll still
+// happened.
+func (e *Engine) applyStrikeStatus(move *entities.Move, attacker, defender Combatant) []Event {
+	if !move.HasStatus() {
+		return nil
+	}
+	fired := e.rng.Intn(100) < move.Status.Chance
+	recipient := defender
+	if move.TargetSelf() {
+		recipient = attacker
+	}
+	if !fired || !recipient.IsAlive() {
+		return nil
+	}
+	asset, ok := e.reg.StatusByID(move.Status.ID)
+	if !ok {
+		panic(fmt.Sprintf("unreachable: move %v references unknown status %v despite passing content validation",
+			move.ID, move.Status.ID))
+	}
+	status := entities.NewStatusFromAsset(asset)
+	turns := e.stateOf(recipient).applyStatus(status)
+	return []Event{NewStatusApplied(recipient, status, turns)}
 }
 
 // enemyTurnMove resolves the monster's move for this turn (AI v1): ONE
@@ -160,13 +234,15 @@ func (e *Engine) enemyTurnMove() *entities.Move {
 }
 
 // enemyStrike performs the current enemy's attack against the Hero with
-// the given move.
+// the given move — the same move math as the hero's side, over the
+// monster's EFFECTIVE stats (its own crit asset plus the move's bonus).
 func (e *Engine) enemyStrike(move *entities.Move) []Event {
 	enemy := e.currentEnemy()
-	swing, crit := e.rollMoveDamage(enemy.Damage(), move, enemy.CritThreshold())
+	swing, crit := e.rollMoveDamage(e.enemyStat(entities.StatDMG), move, enemy.CritThreshold())
 	events := []Event{NewMoveUsed(enemy.Name(), move.Name)}
 	events = append(events, NewDamageTakenWithMove(e.Player,
-		e.Player.TakeDmg(effectiveDamage(swing, e.Player.Defense())), crit, move.Name))
+		e.Player.TakeDmg(effectiveDamage(swing, e.heroStat(entities.StatDEF))), crit, move.Name))
+	events = append(events, e.applyStrikeStatus(move, enemy, e.Player)...)
 	return events
 }
 
@@ -178,15 +254,32 @@ func (e *Engine) enemyFreeTurn() []Event {
 }
 
 // endRound runs the round-end ticks of a COMPLETED round (both sides
-// acted — a round aborted by a death skips them):
+// acted — a round aborted by a death skips them), in this order:
 //
-//  1. cooldowns tick one round down (both sides; statuses will tick
-//     here too, once they exist);
-//  2. the moves used this round lock for their full cooldown — set
+//  1. status ticks, the HERO's afflictions first (deterministic order):
+//     every DoT damages its afflicted — a plain clamp, CAN kill (a dead
+//     monster goes through the normal defeat path, a dead hero ends the
+//     game) — then every status counts a round down, expiring at 0 with
+//     an event;
+//  2. cooldowns tick one round down (both sides);
+//  3. the moves used this round lock for their full cooldown — set
 //     AFTER the tick so the round of use doesn't eat one turn of the
 //     lock: with cooldown C the move stays locked for exactly C full
 //     rounds after this one.
 func (e *Engine) endRound(events []Event, heroMove, enemyMove *entities.Move) []Event {
+	tickEvents, heroDead := tickStatuses(&e.heroCombat, e.Player)
+	events = append(events, tickEvents...)
+	if heroDead {
+		return e.appendHeroDefeat(events)
+	}
+	tickEvents, enemyDead := tickStatuses(&e.enemyCombat, e.currentEnemy())
+	events = append(events, tickEvents...)
+	if enemyDead {
+		// The poison kill is still a kill: XP, gold, queue advance —
+		// and the hero's used move locks for its full cooldown.
+		return e.appendEnemyDefeat(events, heroMove)
+	}
+
 	e.heroCombat.tickCooldowns()
 	e.enemyCombat.tickCooldowns()
 	if heroMove != nil {

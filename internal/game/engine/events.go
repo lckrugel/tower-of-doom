@@ -62,6 +62,13 @@ const (
 	EventItemSold
 	// A combatant used a Combat 2.0 move (every strike is a move use).
 	EventMoveUsed
+	// A status effect was applied to a combatant (refreshes never stack).
+	EventStatusApplied
+	// A status effect expired (its last round ticked away).
+	EventStatusExpired
+	// A DoT status damaged its afflicted at the round-end tick (it can
+	// kill — the defeat events follow when it does).
+	EventStatusDamage
 )
 
 // `Event` é o que o jogo envia após processar um `Command`.
@@ -214,6 +221,69 @@ func NewMoveUsed(user, move string) Event {
 		Data: map[string]any{
 			"user": user,
 			"move": move,
+		},
+	}
+}
+
+// NewStatusApplied reports a status effect landing on a combatant —
+// freshly applied or refreshed (never stacked: refreshed to the longest
+// duration).
+//
+// Payload:
+//   - "target": the afflicted combatant's name.
+//   - "status": the status's name.
+//   - "turns": rounds the status now has left.
+//   - "kind": "buff" or "debuff" (additive; lets UIs tone the line).
+func NewStatusApplied(target Combatant, status entities.Status, turns int) Event {
+	return Event{
+		Type: EventStatusApplied,
+		Data: map[string]any{
+			"target": target.Name(),
+			"status": status.Name,
+			"turns":  turns,
+			"kind":   string(status.Kind),
+		},
+	}
+}
+
+// NewStatusExpired reports a status effect whose last round ticked away.
+//
+// Payload:
+//   - "target": the (formerly) afflicted combatant's name.
+//   - "status": the status's name.
+//   - "kind": "buff" or "debuff" (additive).
+func NewStatusExpired(target Combatant, status entities.Status) Event {
+	return Event{
+		Type: EventStatusExpired,
+		Data: map[string]any{
+			"target": target.Name(),
+			"status": status.Name,
+			"kind":   string(status.Kind),
+		},
+	}
+}
+
+// NewStatusDamage reports a DoT status hurting its afflicted at the
+// round-end tick. The damage is a plain clamp (no mitigation) and CAN
+// kill — the defeat events follow when it does.
+//
+// Payload:
+//   - "target": the afflicted combatant's name.
+//   - "status": the status's name.
+//   - "amount": the HP actually subtracted (clamped to the current HP).
+//   - "target_hp_exact"/"target_max_hp": the afflicted's exact HP AFTER
+//     the tick.
+//   - "kind": "buff" or "debuff" (additive).
+func NewStatusDamage(target Combatant, status entities.Status, amount int) Event {
+	return Event{
+		Type: EventStatusDamage,
+		Data: map[string]any{
+			"target":          target.Name(),
+			"status":          status.Name,
+			"amount":          amount,
+			"target_hp_exact": target.HP(),
+			"target_max_hp":   target.MaxHP(),
+			"kind":            string(status.Kind),
 		},
 	}
 }

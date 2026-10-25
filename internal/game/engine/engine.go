@@ -320,11 +320,11 @@ func (e *Engine) handleInventory(cmd Command) []Event {
 	}
 }
 
-// resolveFlee attempts to escape the combat. Success exits combat with no
-// reward; failure gives the current enemy a free turn.
+// resolveFlee attempts to escape the combat. The chance reads the
+// EFFECTIVE speeds (stat-mod statuses included). Success exits combat
+// with no reward; failure gives the current enemy a free turn.
 func (e *Engine) resolveFlee() []Event {
-	enemy := e.currentEnemy()
-	chance := fleeChance(e.Player.Speed(), enemy.Speed())
+	chance := fleeChance(e.heroStat(entities.StatSPD), e.enemyStat(entities.StatSPD))
 	if e.rng.Intn(100) < chance {
 		e.CurrentEncounter = Encounter{}
 		e.State = StateExploring

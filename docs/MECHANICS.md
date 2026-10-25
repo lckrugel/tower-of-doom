@@ -89,6 +89,23 @@ helpers are for non-engine use only (e.g. item durability).
   at spawn). Filtering consumes no rng; when every move is locked the
   monster falls back to the canonical basic attack WITHOUT a pick roll —
   there is nothing left to pick.
+- **Status application (per status-carrying strike):** ONE
+  `Intn(100)` — fires when the roll is < the move's status chance. The
+  roll happens even when it fails (and even at chance 0), keeping every
+  rng sequence position-stable. The full per-strike rng order is
+  [monster move pick] → [spread] → [crit] → [status chance]; a strike
+  that killed its recipient still rolls, but afflicts nothing.
+- **Round-end tick (completed rounds only):** the hero's statuses tick
+  first, then the enemy's — each in application order: DoT damage (a
+  plain clamp, no mitigation, CAN kill: a dead monster goes through the
+  normal defeat path, a dead hero ends the game), then every status
+  counts a round down, expiring at 0 with an event. Then cooldowns tick
+  and the round's used moves lock. A round aborted by a death skips the
+  remaining ticks (the used move still locks).
+- **Effective stats:** every stat read in combat (strike damage,
+  mitigation, initiative, the flee formula) is base+gear plus the sum of
+  the combatant's active stat-mod statuses, clamped — DMG at 1, DEF/SPD
+  at 0. Pure math — no rng.
 - **Move cooldowns:** using a move locks it for exactly its `cooldown`
   full rounds after the round of use (0 = spammable). Locks tick at
   round end and never survive the encounter. A fully-cooled hero turn
