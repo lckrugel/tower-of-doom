@@ -387,9 +387,10 @@ func (m Model) encounterPanel() string {
 	return b.String()
 }
 
-// combatPanel narrows the screen to the enemy currently in front of the
-// hero; the rest of the queue appears only as a counter. Just like the
-// encounter panel it shows the engaged enemy's stat line.
+// combatPanel is the combat screen: the enemy currently in front of the
+// hero — the rest of the queue appears only as a counter — with its stat
+// line, and the 2×2 move grid below it. Just like the encounter panel it
+// shows the engaged enemy's stat line.
 func (m Model) combatPanel() string {
 	var b strings.Builder
 	b.WriteString(stylePanelTitle.Render("⚔ ENEMIES") + "\n")
@@ -404,7 +405,91 @@ func (m Model) combatPanel() string {
 	if waiting := len(monsters) - 1; waiting > 0 {
 		b.WriteString(styleDim.Render(fmt.Sprintf("  · %d more waiting", waiting)) + "\n")
 	}
+	b.WriteString(m.moveGrid())
 	return b.String()
+}
+
+// The move grid: a 2×2 block of cells, two per row, each cell TWO lines
+// tall (the move name over its tags) so the widest shipped move
+// ("Assassin's Strike", 17 runes) and its tags always fit the
+// half-column. gridCellWidth is exactly half the game column; the rows
+// join two padded cells and never exceed mainColWidth.
+const (
+	gridCols      = 2
+	gridCellWidth = mainColWidth / gridCols // 23
+)
+
+// moveGrid renders the combat move grid: four fixed cells in the hero's
+// effective move order — the exact order CmdMove's index points into.
+// Each cell shows the move name over a dim tag line (see gridTags); a
+// cooling move's cell grays out and its tags yield to the turns-left
+// marker; cells beyond the move set render a dim — placeholder. The
+// cell cursor (gridCursor) only ever rests on real moves, highlighted
+// like every other selection.
+func (m Model) moveGrid() string {
+	moves := m.engine.CombatMoves()
+	rows := []string{stylePanelTitle.Render("◈ MOVES")}
+	for row := range gridCols {
+		names := make([]string, 0, gridCols)
+		tags := make([]string, 0, gridCols)
+		for col := range gridCols {
+			name, tag := m.gridCell(moves, row*gridCols+col)
+			names = append(names, name)
+			tags = append(tags, tag)
+		}
+		rows = append(rows,
+			lipgloss.JoinHorizontal(lipgloss.Top, names...),
+			lipgloss.JoinHorizontal(lipgloss.Top, tags...),
+		)
+	}
+	return strings.Join(rows, "\n")
+}
+
+// gridCell renders one cell's two lines (name, tags), padded to the
+// cell width so the two cells of a row align. The cursor's cell gets
+// the shared selection style — full-width background highlight; a
+// cooling cell grays out (unless the cursor rests on it: visibility of
+// where you ARE wins over the gray — dispatching still works and the
+// engine explains the block).
+func (m Model) gridCell(moves []entities.Move, i int) (name, tags string) {
+	if i >= len(moves) {
+		return styleDim.Render(padRight("—", gridCellWidth)),
+			strings.Repeat(" ", gridCellWidth)
+	}
+	move := moves[i]
+	cooling := m.mirror.cooldownLeft(move.ID) > 0
+	style := styleAction
+	name = "  " + move.Name
+	if cooling {
+		style = styleDisabled
+	}
+	if i == min(max(m.gridCursor, 0), len(moves)-1) {
+		name = "▶ " + move.Name
+		style = styleSelected
+	}
+	return style.Render(padRight(name, gridCellWidth)),
+		style.Render(padRight(truncateRunes(m.gridTags(move, cooling), gridCellWidth), gridCellWidth))
+}
+
+// gridTags is a cell's tag line: the move's damage modifier, its status
+// tag ("☠poison 60%" — the status ID; the move payload carries ids, not
+// names) and its crit bonus ("✦+20"). Shipped content never carries all
+// three on one move, so the line stays ≤ 2 short tags; a modded asset
+// that packs more truncates at the cell width (the guard, never slot()).
+// A cooling move shows ONLY the turns-left marker: the tags don't matter
+// while the move is unusable.
+func (m Model) gridTags(move entities.Move, cooling bool) string {
+	if cooling {
+		return fmt.Sprintf("   (%d turns)", m.mirror.cooldownLeft(move.ID))
+	}
+	tags := []string{fmt.Sprintf("%d%%", move.DmgModifier)}
+	if move.HasStatus() {
+		tags = append(tags, fmt.Sprintf("☠%s %d%%", move.Status.ID, move.Status.Chance))
+	}
+	if move.CritBonus != 0 {
+		tags = append(tags, fmt.Sprintf("✦%+d", move.CritBonus))
+	}
+	return "   " + strings.Join(tags, " ")
 }
 
 // statLine is a monster's combat profile on one compact, dim line:
@@ -508,28 +593,23 @@ func (m Model) actionBar() string {
 		return styleSelected.Render("Really quit? [Y] Yes / [N] No")
 	}
 	actions := m.barActions()
-	// The combat bar is compact on purpose: no hint, single-space
-	// separators — four move chips plus Flee/Quit must always fit (the
-	// 2×2 move grid is the next phase's redesign).
+	// The combat bar is a key legend, not a selectable list: the arrows
+	// and Enter belong to the move grid there, so its two spots render
+	// plainly (single-space separators — compact on purpose).
 	hint := "   ← → select · ⏎ confirm"
 	sep := "   "
-	if m.engine.State == engine.StateCombat {
+	inCombat := m.engine.State == engine.StateCombat
+	if inCombat {
 		hint, sep = "", " "
 	}
 	spots := make([]string, 0, len(actions))
 	for i, a := range actions {
 		label := fmt.Sprintf("[%s] %s", strings.ToUpper(a.key), a.label)
 		if !a.enabled {
-			if a.cmd == engine.CmdMove {
-				// Cooled move chips: the "(N)" marker already explains
-				// the block — no extra glyph.
-				spots = append(spots, styleDisabled.Render(label))
-				continue
-			}
 			spots = append(spots, styleDisabled.Render(label+" ✗"))
 			continue
 		}
-		if i == m.cursor {
+		if i == m.cursor && !inCombat {
 			spots = append(spots, styleSelected.Render(" "+label+" "))
 			continue
 		}

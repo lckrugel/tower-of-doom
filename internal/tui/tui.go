@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"strconv"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -47,6 +48,12 @@ type Model struct {
 	// statuses), rebuilt from the event stream. See combat.go for the
 	// round-tracking and reset rules.
 	mirror combatMirror
+	// gridCursor is the selected cell of the combat move grid (0-3,
+	// row-major: [0 1 / 2 3]). The four arrows walk it with wraparound
+	// while in combat; it only ever rests on a real move (never on a
+	// placeholder) and resets to the first cell with the mirror, on
+	// every combat entry.
+	gridCursor int
 }
 
 // New builds the UI for a fresh engine, greeting the player. The
@@ -79,14 +86,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // even out of the quit confirmation. While the confirmation is armed
 // every key but y cancels back to the normal bar. Otherwise esc quits —
 // except where it means something closer (it closes the bag; while a
-// chest loot is pending or the merchant is open it does nothing, since
-// both are explicit-only decisions: quitting there would silently
-// destroy the pending item, and the shop is left through [L]). Arrows
-// move the action-bar cursor — or the state's row cursor while the bag
-// or the shop list is open —, Enter dispatches the selection, and
-// single-letter shortcuts dispatch their action directly
-// (case-insensitive). The Quit action goes through the confirmation
-// everywhere but game over.
+// chest loot is pending, the merchant is open or a fight is on it does
+// nothing: the first two are explicit-only decisions, and in combat the
+// arrows are the move grid's navigation — esc there would be one stray
+// finger from ending the run). Arrows move the action-bar cursor — or
+// the state's row cursor while the bag or the shop list is open, or the
+// move grid's cell cursor in combat —, Enter dispatches the selection
+// (the highlighted grid cell during combat), and single-letter
+// shortcuts dispatch their action directly (case-insensitive); the
+// digits 1-4 jump-dispatch grid cells in combat. The Quit action goes
+// through the confirmation everywhere but game over.
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "ctrl+c":
@@ -106,32 +115,45 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		switch m.engine.State {
 		case engine.StateInventory:
 			return m.dispatch(closeAction())
-		case engine.StateLoot, engine.StateMerchant:
+		case engine.StateLoot, engine.StateMerchant, engine.StateCombat:
 			return m, nil
 		}
 		return m.dispatch(quitAction())
-	case "left":
+	case "left", "right", "up", "down":
+		if m.engine.State == engine.StateCombat {
+			// The move grid owns all four arrows in combat.
+			m.gridCursor = gridCursorMove(m.gridCursor, len(m.engine.CombatMoves()), msg.String())
+			return m, nil
+		}
+		if msg.String() == "up" || msg.String() == "down" {
+			return m, nil // nothing vertical outside the grid
+		}
+		step := 1
+		if msg.String() == "left" {
+			step = -1
+		}
 		if n := m.selectableRows(); n > 0 {
-			m.bagCursor = (m.bagCursor - 1 + n) % n
+			m.bagCursor = (m.bagCursor + step + n) % n
 			return m, nil
 		}
 		actions := actionsFor(m.engine)
-		m.cursor = (m.cursor - 1 + len(actions)) % len(actions)
-		return m, nil
-	case "right":
-		if n := m.selectableRows(); n > 0 {
-			m.bagCursor = (m.bagCursor + 1) % n
-			return m, nil
-		}
-		actions := actionsFor(m.engine)
-		m.cursor = (m.cursor + 1) % len(actions)
+		m.cursor = (m.cursor + step + len(actions)) % len(actions)
 		return m, nil
 	case "enter":
+		if m.engine.State == engine.StateCombat {
+			return m.dispatchMove()
+		}
 		return m.confirmOrDispatch(m.selectedAction())
 	default:
-		// Single-letter shortcuts: match the key against the current bar.
+		// Single-key shortcuts: digits jump-dispatch grid cells in
+		// combat; letters match the current bar (case-insensitive).
 		key := strings.ToLower(msg.String())
 		if len(key) == 1 {
+			if m.engine.State == engine.StateCombat {
+				if d, ok := gridDigit(key); ok {
+					return m.jumpDispatchMove(d)
+				}
+			}
 			for _, a := range actionsFor(m.engine) {
 				if a.key == key {
 					return m.confirmOrDispatch(a)
@@ -140,6 +162,73 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
+}
+
+// gridDigit resolves a digit key to a zero-based grid cell index.
+func gridDigit(key string) (int, bool) {
+	if key[0] < '1' || key[0] > '4' {
+		return 0, false
+	}
+	return int(key[0] - '1'), true
+}
+
+// gridCursorMove walks the 2×2 cell cursor with wraparound over the REAL
+// moves (the grid's placeholders are never selected): left/right step
+// one cell, up/down steps one ROW (two cells). A step landing on or
+// beyond the move count wraps within the cursor's column — with a ragged
+// grid (2 or 3 moves) a vertical step may have nothing to reach and the
+// cursor stays put.
+func gridCursorMove(cursor, moves int, dir string) int {
+	if moves <= 0 {
+		return 0
+	}
+	c := min(max(cursor, 0), moves-1)
+	switch dir {
+	case "left":
+		return (c - 1 + moves) % moves
+	case "right":
+		return (c + 1) % moves
+	case "up", "down":
+		step := 2
+		if dir == "up" {
+			step = -2
+		}
+		if cand := c + step; cand >= 0 && cand < moves {
+			return cand
+		}
+		col := c % 2
+		bottom := col + 2
+		if step < 0 && bottom < moves {
+			return bottom // wrap to the column's bottom row
+		}
+		return col // wrap to the column's top row (or stay put)
+	default:
+		return c
+	}
+}
+
+// dispatchMove dispatches the highlighted grid cell: Command{CmdMove,
+// Index}. A cooling cell dispatches too — the engine answers "Move on
+// cooldown." in the log, state intact.
+func (m Model) dispatchMove() (tea.Model, tea.Cmd) {
+	index := min(max(m.gridCursor, 0), len(m.engine.CombatMoves())-1)
+	return m.dispatch(action{
+		key: strconv.Itoa(index + 1), label: "move",
+		cmd: engine.CmdMove, enabled: true, usesIndex: true, index: index,
+	})
+}
+
+// jumpDispatchMove dispatches a digit's cell immediately: the cursor
+// jumps along (only onto real moves — a digit beyond the move set
+// dispatches anyway and the engine explains the rejection in the log).
+func (m Model) jumpDispatchMove(digit int) (tea.Model, tea.Cmd) {
+	if digit < len(m.engine.CombatMoves()) {
+		m.gridCursor = digit
+	}
+	return m.dispatch(action{
+		key: strconv.Itoa(digit + 1), label: "move",
+		cmd: engine.CmdMove, enabled: true, usesIndex: true, index: digit,
+	})
 }
 
 // confirmOrDispatch routes the Quit action through the TUI-internal
@@ -182,7 +271,7 @@ func (m Model) selectableRows() int {
 // merchant the same cursor walks the combined stock-then-bag list, so
 // BUY takes it as-is (stock rows come first) and SELL subtracts the
 // stock size to reach the bag row. (CmdMove does not come through
-// here — its chips carry their own move position.) A cursor on the
+// here — the move grid carries its own cell index.) A cursor on the
 // wrong section sends an out-of-range index, which the engine rejects
 // as a generic message — never a panic, no state change.
 func (m Model) indexFor(cmd engine.CommandType) int {
@@ -210,12 +299,14 @@ func (m Model) dispatch(a action) (tea.Model, tea.Cmd) {
 	}
 	prevState := m.engine.State
 	events := m.engine.Process(cmd)
-	// A combat boundary crossed by this dispatch resets the mirror: on
-	// entry BEFORE the batch is absorbed (a failed sneak's free turn
-	// tracks on a clean slate), on exit after it — the reset is
-	// idempotent, and nothing outside a live fight renders the mirror.
+	// A combat boundary crossed by this dispatch resets the mirror (and
+	// the grid cursor with it): on entry BEFORE the batch is absorbed (a
+	// failed sneak's free turn tracks on a clean slate), on exit after it
+	// — the reset is idempotent, and nothing outside a live fight renders
+	// the mirror.
 	if (prevState == engine.StateCombat) != (m.engine.State == engine.StateCombat) {
 		m.mirror.reset()
+		m.gridCursor = 0
 	}
 	for _, ev := range events {
 		m.absorb(ev)

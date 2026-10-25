@@ -65,7 +65,7 @@ func TestActionsPerState(t *testing.T) {
 	}{
 		{"exploring", engine.StateExploring, false, false, []string{"e", "u", "i", "q"}},
 		{"encounter", engine.StateEncounter, false, false, []string{"f", "s", "q"}},
-		{"combat", engine.StateCombat, false, false, []string{"1", "r", "q"}},
+		{"combat", engine.StateCombat, false, false, []string{"r", "q"}}, // moves live in the grid
 		{"loot", engine.StateLoot, false, false, []string{"w", "b", "d", "q"}},
 		{"inventory", engine.StateInventory, true, false, []string{"w", "x", "c", "q"}},
 		{"merchant", engine.StateMerchant, true, true, []string{"p", "v", "l", "q"}},
@@ -184,49 +184,12 @@ func TestIndexedCommandsUseTheRowCursor(t *testing.T) {
 	}
 }
 
-// The combat bar lists the hero's combat moves as chips keyed 1-4
-// (effective set order), then Flee and Quit.
-func TestCombatBarShowsMoveChips(t *testing.T) {
-	e := testEngine()
-	learnTestMove(e, "power_slash", "Power Slash", 0)
-	learnTestMove(e, "guard_blow", "Guard Blow", 2)
-	e.State = engine.StateCombat
+// The combat bar lists only Flee and Quit — the hero's moves moved into
+// the 2×2 move grid in the body (see the grid tests in combat_test.go).
+// The two bar-chip tests died with that redesign.
 
-	actions := actionsFor(e)
-
-	if !keysEqual(keysOf(actions), "1", "2", "r", "q") {
-		t.Fatalf("combat keys = %v, want [1 2 r q]", keysOf(actions))
-	}
-	if actions[0].label != "Power Slash" || actions[1].label != "Guard Blow" {
-		t.Errorf("chip labels = %q/%q, want the effective-set order", actions[0].label, actions[1].label)
-	}
-	for i, a := range actions[:2] {
-		if !a.enabled || a.cmd != engine.CmdMove || a.index != i {
-			t.Errorf("chip %d = %+v, want an enabled CmdMove with index %d", i, a, i)
-		}
-	}
-}
-
-// A move on cooldown renders as a disabled chip with a turns-left
-// marker, e.g. "[1] Heavy Slash (2)".
-func TestCombatBarMarksCoolingMoves(t *testing.T) {
-	m := combatWithMoveOnCooldown()
-
-	actions := actionsFor(m.engine)
-
-	if actions[0].enabled {
-		t.Error("the cooling move's chip is enabled")
-	}
-	if actions[0].label != "Heavy Slash (2)" {
-		t.Errorf("cooling chip label = %q, want %q", actions[0].label, "Heavy Slash (2)")
-	}
-	// The rest of the bar is unaffected.
-	if !actions[1].enabled || !actions[2].enabled {
-		t.Error("flee/quit rendered disabled")
-	}
-}
-
-// Single keys 1-4 dispatch the matching chip: Command{CmdMove, Index}.
+// Single keys 1-4 jump-dispatch the matching grid cell:
+// Command{CmdMove, Index} — the cursor jumps along.
 func TestNumberKeysDispatchMoves(t *testing.T) {
 	e := testEngine()
 	learnTestMove(e, "power_slash", "Power Slash", 0)
@@ -240,8 +203,11 @@ func TestNumberKeysDispatchMoves(t *testing.T) {
 	if m.engine.State != engine.StateCombat {
 		t.Fatalf("state after '2' = %v, want StateCombat", m.engine.State)
 	}
+	if m.gridCursor != 1 {
+		t.Errorf("grid cursor after '2' = %d, want 1 (jump-select)", m.gridCursor)
+	}
 	// The dispatch locked the move (cooldown 2): a second press is a
-	// blocked action, proving the chip really dispatched CmdMove.
+	// blocked action, proving the cell really dispatched CmdMove.
 	m, _ = press(m, "2")
 	last := stripANSI(m.log[len(m.log)-1])
 	if last != "Move on cooldown." {
@@ -259,17 +225,4 @@ func learnTestMove(e *engine.Engine, id, name string, cooldown int) {
 	e.Player.LearnMove(entities.Move{
 		ID: id, Name: name, Tier: 1, DmgModifier: 100, Cooldown: cooldown, Weight: 10,
 	})
-}
-
-// combatWithMoveOnCooldown runs a real fight until the hero's move
-// (cooldown 2) is locked, then hands the engine over with the chip
-// cooling and the enemy's answer logged.
-func combatWithMoveOnCooldown() Model {
-	e := testEngine()
-	learnTestMove(e, "heavy_slash", "Heavy Slash", 2)
-	e.Process(engine.Command{Type: engine.CmdExplore})
-	e.Process(engine.Command{Type: engine.CmdFight})
-	e.Process(engine.Command{Type: engine.CmdMove, Index: 0})
-	e.State = engine.StateCombat
-	return New(e)
 }

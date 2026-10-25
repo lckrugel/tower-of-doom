@@ -477,3 +477,310 @@ func TestMirrorPlainKillSkipsTheStatusTick(t *testing.T) {
 		t.Errorf("lock after the plain kill = %d, want 2", got)
 	}
 }
+
+// ---- the 2×2 move grid ----
+
+// heavy is the canonical cooldown move fixture (175%, locks 2 rounds).
+func heavy() entities.Move {
+	return entities.Move{ID: "heavy_slash", Name: "Heavy Slash", Tier: 2, DmgModifier: 175, Cooldown: 2, Weight: 10}
+}
+
+// stoneEdge / wildSwing are plain damage moves for the weapon fixture.
+func stoneEdge() entities.Move {
+	return entities.Move{ID: "stone_edge", Name: "Stone Edge", Tier: 1, DmgModifier: 90, Weight: 10}
+}
+
+func wildSwing() entities.Move {
+	return entities.Move{ID: "wild_swing", Name: "Wild Swing", Tier: 1, DmgModifier: 110, Weight: 10}
+}
+
+// equipWeapon puts a weapon granting the given runtime moves on the hero
+// — the second half of a 4-move hero set (MaxLearnedMoves caps learning
+// at 2; weapon moves sit on top).
+func equipWeapon(t *testing.T, e *engine.Engine, moves ...entities.Move) {
+	t.Helper()
+	weapon := entities.NewItemFromAsset(game.ItemAsset{
+		ID: "fang_blade", Name: "Fang Blade", Slot: "weapon",
+	}, moves...)
+	e.Player.EquipItem(&weapon)
+}
+
+// fourMoveModel is a real combat model with a full grid: two learned
+// moves plus two weapon-granted ones.
+func fourMoveModel(t *testing.T) Model {
+	t.Helper()
+	e := combatEngine()
+	learnMove(e, envenom(0))
+	learnMove(e, jab())
+	equipWeapon(t, e, stoneEdge(), wildSwing())
+	return enterCombat(t, e)
+}
+
+// The combat bar shrank to the two combat-only actions; the moves live
+// in the grid.
+func TestCombatBarIsFleeAndQuit(t *testing.T) {
+	m := fourMoveModel(t)
+
+	actions := actionsFor(m.engine)
+
+	if !keysEqual(keysOf(actions), "r", "q") {
+		t.Fatalf("combat bar = %v, want [r q] (moves moved into the grid)", keysOf(actions))
+	}
+}
+
+// The body renders the grid: a cell per effective move, in the exact
+// order CmdMove's index points into, each with its tags.
+func TestViewCombatShowsTheMoveGrid(t *testing.T) {
+	m := fourMoveModel(t)
+
+	view := stripControls(stripANSI(m.View()))
+
+	for _, want := range []string{
+		"◈ MOVES",
+		"Envenom", "Jab", "Stone Edge", "Wild Swing", // effective-set order
+		"100%", "☠poison 100%", // envenom's tags
+		"90%", "110%", // the weapon moves' modifiers
+		"▶ Envenom", // the cursor opens on the first cell
+	} {
+		if !strings.Contains(view, want) {
+			t.Errorf("combat grid missing %q:\n%s", want, view)
+		}
+	}
+}
+
+// Fewer than 4 moves leaves the remaining cells as dim — placeholders.
+func TestViewGridShowsPlaceholdersForMissingMoves(t *testing.T) {
+	e := combatEngine()
+	learnMove(e, envenom(0))
+	m := enterCombat(t, e)
+
+	view := stripControls(stripANSI(m.View()))
+
+	if !strings.Contains(view, "Envenom") {
+		t.Errorf("the single move is missing from the grid:\n%s", view)
+	}
+	if !strings.Contains(view, "—") {
+		t.Errorf("the empty cells render no placeholder:\n%s", view)
+	}
+	if strings.Contains(view, "Basic Attack") {
+		t.Errorf("the grid invented a move:\n%s", view)
+	}
+}
+
+// A hero with NO moves at all fights with the canonical basic attack —
+// the grid shows it as the single real cell.
+func TestViewGridShowsTheBasicAttackFallback(t *testing.T) {
+	m := enterCombat(t, combatEngine())
+
+	view := stripControls(stripANSI(m.View()))
+
+	if !strings.Contains(view, "Basic Attack") || !strings.Contains(view, "100%") {
+		t.Errorf("the basic-attack fallback is missing from the grid:\n%s", view)
+	}
+}
+
+// A cooling move's cell grays out and shows the turns-left marker —
+// the modifier tags yield to it while the move is unusable.
+func TestViewGridMarksCoolingMoves(t *testing.T) {
+	e := combatEngine()
+	learnMove(e, heavy())
+	learnMove(e, jab())
+	m := enterCombat(t, e)
+	m = useMove(t, m, 0) // Heavy Slash locks for 2
+
+	view := stripControls(stripANSI(m.View()))
+
+	if !strings.Contains(view, "(2 turns)") {
+		t.Errorf("the cooling cell shows no turns-left marker:\n%s", view)
+	}
+	if strings.Contains(view, "175%") {
+		t.Errorf("the cooling cell kept its modifier tag:\n%s", view)
+	}
+	if !strings.Contains(view, "Heavy Slash") {
+		t.Errorf("the cooling cell lost its name:\n%s", view)
+	}
+}
+
+// The arrows walk the 2×2 grid with wraparound — the action-bar cursor
+// stays untouched (the combat bar is a key legend now, not selectable).
+func TestArrowKeysMoveTheGridCursor(t *testing.T) {
+	m := fourMoveModel(t) // a perfect 2×2: [0 1 / 2 3]
+	if m.gridCursor != 0 {
+		t.Fatalf("the grid opens on cell %d, want 0", m.gridCursor)
+	}
+	logLen := len(m.log)
+
+	steps := []struct {
+		key  string
+		want int
+	}{
+		{"right", 1}, {"down", 3}, {"left", 2}, {"up", 0}, // the square
+		{"up", 2}, {"up", 0}, // vertical wraparound
+		{"down", 2}, {"down", 0},
+		{"left", 3}, {"left", 2}, // horizontal wraparound
+		{"right", 3}, {"right", 0},
+	}
+	for _, s := range steps {
+		m, _ = press(m, s.key)
+		if m.gridCursor != s.want {
+			t.Fatalf("%s from the previous cell = %d, want %d", s.key, m.gridCursor, s.want)
+		}
+		if m.cursor != 0 {
+			t.Fatalf("%s moved the action-bar cursor (%d)", s.key, m.cursor)
+		}
+	}
+
+	// Navigation dispatches nothing: no log, no engine round.
+	if len(m.log) != logLen {
+		t.Errorf("cursor movement wrote %d log lines, want 0", len(m.log)-logLen)
+	}
+}
+
+// Three moves leave the bottom-right cell empty: wraparound walks the
+// real cells and never rests on a placeholder.
+func TestGridCursorWrapsOnThreeMoves(t *testing.T) {
+	e := combatEngine()
+	learnMove(e, envenom(0))
+	learnMove(e, jab())
+	equipWeapon(t, e, stoneEdge()) // 3 moves: [0 1 / 2 —]
+	m := enterCombat(t, e)
+
+	m, _ = press(m, "down") // the real cell below 0
+	if m.gridCursor != 2 {
+		t.Fatalf("down from 0 = %d, want 2", m.gridCursor)
+	}
+	m, _ = press(m, "down") // wraparound up the column: 2 → 0
+	if m.gridCursor != 0 {
+		t.Fatalf("down from 2 = %d, want 0", m.gridCursor)
+	}
+	m, _ = press(m, "right") // 0 → 1
+	m, _ = press(m, "down")  // below 1 is the placeholder: stay put
+	if m.gridCursor != 1 {
+		t.Fatalf("down from 1 with a ragged grid = %d, want 1 (stay put)", m.gridCursor)
+	}
+}
+
+// Enter dispatches the highlighted cell — the observable engine effect
+// is the move's round resolving — and the cursor stays where it was.
+func TestEnterDispatchesTheHighlightedMove(t *testing.T) {
+	e := combatEngine()
+	learnMove(e, heavy())
+	learnMove(e, jab())
+	m := enterCombat(t, e)
+
+	m, _ = press(m, "right") // highlight Jab (index 1)
+	m, _ = press(m, "enter")
+
+	if !strings.Contains(joinedLog(m), "You use Jab!") {
+		t.Errorf("enter dispatched the wrong cell:\n%s", joinedLog(m))
+	}
+	if m.gridCursor != 1 {
+		t.Errorf("grid cursor after dispatch = %d, want 1 (stays put)", m.gridCursor)
+	}
+}
+
+// Enter on a cooling cell dispatches too: the engine answers "Move on
+// cooldown." in the log, state intact.
+func TestEnterOnACoolingCellStillDispatches(t *testing.T) {
+	e := combatEngine()
+	learnMove(e, heavy())
+	learnMove(e, jab())
+	m := enterCombat(t, e)
+	m = useMove(t, m, 0) // Heavy Slash locks for 2; the cursor stays on 0
+
+	m, _ = press(m, "enter")
+
+	last := stripANSI(m.log[len(m.log)-1])
+	if last != "Move on cooldown." {
+		t.Errorf("enter on the cooling cell logged %q, want the cooldown block", last)
+	}
+	if m.engine.State != engine.StateCombat {
+		t.Errorf("state after the blocked dispatch = %v, want StateCombat", m.engine.State)
+	}
+}
+
+// Digits beyond the move set dispatch anyway — the engine explains the
+// rejection as a generic invalid command, and the cursor never rests on
+// a placeholder.
+func TestDigitsBeyondTheMoveSetStillDispatch(t *testing.T) {
+	e := combatEngine()
+	learnMove(e, jab())
+	m := enterCombat(t, e)
+
+	m, _ = press(m, "3") // a placeholder cell
+
+	last := stripANSI(m.log[len(m.log)-1])
+	if last != "Invalid command" {
+		t.Errorf("digit on a placeholder logged %q, want the engine's rejection", last)
+	}
+	if m.engine.State != engine.StateCombat {
+		t.Errorf("state after the rejected digit = %v, want StateCombat", m.engine.State)
+	}
+	if m.gridCursor != 0 {
+		t.Errorf("grid cursor after the rejected digit = %d, want 0 (untouched)", m.gridCursor)
+	}
+}
+
+// esc during combat is a no-op — the arrows are navigation there, so esc
+// must neither quit nor arm the confirmation.
+func TestEscapeIsANoOpInCombat(t *testing.T) {
+	m := fourMoveModel(t)
+	logLen := len(m.log)
+
+	m, cmd := press(m, "esc")
+
+	if cmd != nil {
+		t.Error("esc in combat must not request a quit")
+	}
+	if m.engine.State != engine.StateCombat {
+		t.Errorf("state after esc = %v, want to stay in StateCombat", m.engine.State)
+	}
+	if m.confirmQuit {
+		t.Error("esc in combat armed the quit confirmation")
+	}
+	if len(m.log) != logLen {
+		t.Error("esc in combat wrote to the log")
+	}
+}
+
+// A new combat re-opens the grid on the first cell (the cursor resets
+// with the mirror).
+func TestGridCursorResetsWithTheMirror(t *testing.T) {
+	e := combatEngine()
+	learnMove(e, jab())
+	e.Player.BaseDMG = 40 // one-shots the queue
+	e.CurrentEncounter = engine.Encounter{
+		Type:     engine.EncounterCombat,
+		Monsters: []entities.Monster{spitterMonster(200), goblinMonster()},
+	}
+	e.State = engine.StateCombat
+	m := New(e)
+
+	m = useMove(t, m, 0)
+	m.engine.CurrentEncounter.Monsters[0].CurrentHP = 1
+	m = useMove(t, m, 0) // the spitter falls → the goblin steps up
+	m = useMove(t, m, 0) // the goblin falls → victory
+	if m.engine.State != engine.StateExploring {
+		t.Fatalf("setup: state = %v, want StateExploring (victory)", m.engine.State)
+	}
+
+	m, _ = press(m, "e")
+	m, _ = press(m, "f")
+
+	if m.gridCursor != 0 {
+		t.Errorf("a new combat opened the grid on cell %d, want 0", m.gridCursor)
+	}
+}
+
+// Outside combat the vertical arrows mean nothing — the action-bar
+// cursor must not move.
+func TestVerticalArrowsAreNoOpsOutsideCombat(t *testing.T) {
+	m := New(testEngine())
+
+	m, _ = press(m, "up")
+	m, _ = press(m, "down")
+
+	if m.cursor != 0 {
+		t.Errorf("vertical arrows moved the bar cursor to %d outside combat", m.cursor)
+	}
+}
