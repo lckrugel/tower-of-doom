@@ -76,6 +76,10 @@ func eventText(ev engine.Event) string {
 		return statusExpiredText(ev.Data)
 	case engine.EventStatusDamage:
 		return statusDamageText(ev.Data)
+	case engine.EventBossUnlocked:
+		return "The air trembles — the section's boss awaits!"
+	case engine.EventBossChallenge:
+		return "You face the section's boss: " + monsterList(ev) + "!"
 	case engine.EventQuit:
 		return "You persistently close your eyes. Goodbye."
 	case engine.EventMessage:
@@ -204,9 +208,9 @@ func lostText(data map[string]any) string {
 
 // goldGainedText renders a purse reward. The source picks the flavor:
 // a kill drops its coin (the kill line right above already names the
-// enemy), a chest pays out coins instead of holding an item; anything
-// else keeps a generic line — an unknown source must still say
-// something truthful.
+// enemy), a chest pays out coins instead of holding an item, a defeated
+// boss pays its bonus; anything else keeps a generic line — an unknown
+// source must still say something truthful.
 func goldGainedText(data map[string]any) string {
 	amount, _ := data["amount"].(int)
 	switch source, _ := data["source"].(string); source {
@@ -214,6 +218,8 @@ func goldGainedText(data map[string]any) string {
 		return fmt.Sprintf("The fallen enemy drops %d gold.", amount)
 	case engine.GoldSourceChest:
 		return fmt.Sprintf("The chest holds %d gold coins!", amount)
+	case engine.GoldSourceBoss:
+		return fmt.Sprintf("The fallen boss drops %d gold!", amount)
 	default:
 		return fmt.Sprintf("You gain %v gold.", data["amount"])
 	}

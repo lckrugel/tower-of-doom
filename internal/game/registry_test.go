@@ -442,6 +442,108 @@ func TestLoadJSONBrokenExternalFileIsError(t *testing.T) {
 	}
 }
 
+// ---- Section bosses: asset schema, validation and the section-end query ----
+
+// bossSections is a section ladder with boss blocks: cellar 1-5, mid 5-10
+// (overlapping on purpose — SectionForFloor resolves first-match, so
+// floor 5 belongs to the cellar), tail 10-∞ (no boss — infinite tails
+// have no final floor).
+func bossSections() []SectionAsset {
+	return []SectionAsset{
+		{
+			ID: "cellar", Name: "Cellar", BaseDifficulty: 5, DifficultyPerFloor: 2,
+			MinFloor: 1, MaxFloor: 5,
+			Spawns: []SpawnEntry{{MonsterID: "rat", Weight: 10}},
+			Boss:   &BossAsset{Monsters: []string{"orc"}, Gold: 50},
+		},
+		{
+			ID: "mid", Name: "The Mid", BaseDifficulty: 20, DifficultyPerFloor: 3,
+			MinFloor: 5, MaxFloor: 10,
+			Spawns: []SpawnEntry{{MonsterID: "orc", Weight: 10}},
+			Boss:   &BossAsset{Monsters: []string{"orc", "rat"}},
+		},
+		{
+			ID: "tail", Name: "The Tail", BaseDifficulty: 60, DifficultyPerFloor: 5,
+			MinFloor: 10, MaxFloor: -1,
+			Spawns: []SpawnEntry{{MonsterID: "orc", Weight: 10}},
+		},
+	}
+}
+
+// Boss-block content validation: a listed monster must exist (typo
+// protection), the group cannot be empty, and the gold bonus cannot be
+// negative. A nil boss block (absent field) is the mods' status quo.
+func TestValidateSectionBoss(t *testing.T) {
+	tests := []struct {
+		name    string
+		mutate  func(r *Registry)
+		wantErr string // "" means the content is legal
+	}{
+		{"valid boss blocks", func(r *Registry) {}, ""},
+		{"boss referencing unknown monster", func(r *Registry) {
+			r.Sections[0].Boss.Monsters = []string{"dragon"}
+		}, "unknown monster"},
+		{"boss block with an empty monster list", func(r *Registry) {
+			r.Sections[0].Boss.Monsters = nil
+		}, "empty monster list"},
+		{"negative boss gold", func(r *Registry) {
+			r.Sections[0].Boss.Gold = -1
+		}, "gold"},
+		{"zero boss gold is legal (no bonus)", func(r *Registry) {
+			r.Sections[0].Boss.Gold = 0
+		}, ""},
+		{"nil boss block is legal (no gate)", func(r *Registry) {
+			r.Sections[0].Boss = nil
+		}, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := makeReg(validMonsters(), bossSections())
+			tt.mutate(r)
+			err := r.Validate(10)
+
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Errorf("Validate = %v, want nil (legal content)", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("Validate = nil, want error containing %q", tt.wantErr)
+			}
+			if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Errorf("error = %v, want it to contain %q", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+// IsSectionEnd marks the floor where a section's boss gates the
+// ascension: the section's max_floor, when it has one.
+func TestIsSectionEnd(t *testing.T) {
+	r := makeReg(validMonsters(), bossSections())
+
+	tests := []struct {
+		name  string
+		floor int
+		want  bool
+	}{
+		{"early floor", 1, false},
+		{"floor 5 resolves first-match: the cellar's end, not the mid's start", 5, true},
+		{"floor 10 is the mid section's end", 10, true},
+		{"an infinite tail has no final floor", 11, false},
+		{"deep into the infinite tail", 100_000, false},
+		{"no section covers floor 0", 0, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := r.IsSectionEnd(tt.floor); got != tt.want {
+				t.Errorf("IsSectionEnd(%d) = %v, want %v", tt.floor, got, tt.want)
+			}
+		})
+	}
+}
+
 // ---- Combat 2.0 data layer: moves & statuses ----
 
 // validMoves is a small move registry spanning tiers 1–3, the canonical
@@ -555,6 +657,49 @@ func TestMoveByIDAndStatusByID(t *testing.T) {
 	}
 	if _, ok := r.StatusByID("nope"); ok {
 		t.Error("StatusByID(unknown) reported success")
+	}
+}
+
+// The embedded boss groups are table-locked: one boss per finite
+// section, none on the infinite tail. Every group references existing
+// monsters and is tuned as a considerable challenge for its section's
+// LATE floors — see the assets commit for the tuning rationale.
+func TestLoadEmbeddedSectionBosses(t *testing.T) {
+	r, err := Load("")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	want := map[string][]string{
+		"goblin_pits":           {"goblin_chief", "hobgoblin"},
+		"goblin_camp_outskirts": {"orc_warlord", "orc_berserker", "orc"},
+		"underdark_reaches":     {"lich", "vampire_spawn", "wraith"},
+		"wraithfall_bastion":    {"beholder", "wraith", "wraith"},
+		"dragon_hoard":          nil, // the infinite tail: no boss gate, ever
+	}
+	wantGold := map[string]int{
+		"goblin_pits":           250,
+		"goblin_camp_outskirts": 1000,
+		"underdark_reaches":     2500,
+		"wraithfall_bastion":    5000,
+		"dragon_hoard":          0,
+	}
+
+	for _, s := range r.Sections {
+		var got []string
+		if s.Boss != nil {
+			got = s.Boss.Monsters
+		}
+		if !slices.Equal(got, want[s.ID]) {
+			t.Errorf("section %q boss = %v, want %v", s.ID, got, want[s.ID])
+		}
+		gold := 0
+		if s.Boss != nil {
+			gold = s.Boss.Gold
+		}
+		if gold != wantGold[s.ID] {
+			t.Errorf("section %q boss gold = %d, want %d", s.ID, gold, wantGold[s.ID])
+		}
 	}
 }
 

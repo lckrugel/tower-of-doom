@@ -14,6 +14,13 @@
     "item_tiers": [
       1
     ],
+    "boss": {
+      "monsters": [
+        "goblin_chief",
+        "hobgoblin"
+      ],
+      "gold": 250
+    },
     "spawns": [
       {
         "weight": 100,
@@ -79,7 +86,15 @@
     "item_tiers": [
       1,
       2
-    ]
+    ],
+    "boss": {
+      "monsters": [
+        "orc_warlord",
+        "orc_berserker",
+        "orc"
+      ],
+      "gold": 1000
+    }
   },
   {
     "id": "underdark_reaches",
@@ -130,7 +145,15 @@
     },
     "item_tiers": [
       2
-    ]
+    ],
+    "boss": {
+      "monsters": [
+        "lich",
+        "vampire_spawn",
+        "wraith"
+      ],
+      "gold": 2500
+    }
   },
   {
     "id": "wraithfall_bastion",
@@ -182,7 +205,15 @@
     "item_tiers": [
       2,
       3
-    ]
+    ],
+    "boss": {
+      "monsters": [
+        "beholder",
+        "wraith",
+        "wraith"
+      ],
+      "gold": 5000
+    }
   },
   {
     "id": "dragon_hoard",

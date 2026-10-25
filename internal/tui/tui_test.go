@@ -157,9 +157,9 @@ func TestUnknownKeyIsANoOp(t *testing.T) {
 }
 
 func TestArrowKeysMoveTheCursorWithWraparound(t *testing.T) {
-	m := New(testEngine()) // exploring: 4 actions
-	if got := len(actionsFor(m.engine)); got != 4 {
-		t.Fatalf("setup: exploring actions = %d, want 4", got)
+	m := New(testEngine()) // exploring: 5 actions
+	if got := len(actionsFor(m.engine)); got != 5 {
+		t.Fatalf("setup: exploring actions = %d, want 5", got)
 	}
 
 	m, _ = press(m, "right")
@@ -173,8 +173,8 @@ func TestArrowKeysMoveTheCursorWithWraparound(t *testing.T) {
 	}
 
 	m, _ = press(m, "left")
-	if m.cursor != 3 {
-		t.Fatalf("left from cursor 0 = %d, want wraparound to 3", m.cursor)
+	if m.cursor != 4 {
+		t.Fatalf("left from cursor 0 = %d, want wraparound to 4", m.cursor)
 	}
 }
 
@@ -652,4 +652,80 @@ func TestViewGameOverRecapHandlesMissingAndZeroKills(t *testing.T) {
 			t.Errorf("recap trusted a malformed event:\n%s", view)
 		}
 	})
+}
+
+// ——— The boss challenge ———
+
+// bossEngine is an engine over a section whose final floor carries a
+// boss block (the challenge's subject).
+func bossEngine() *engine.Engine {
+	return engine.NewEngine(&game.Registry{
+		Monsters: map[string]game.MonsterAsset{
+			"goblin": {ID: "goblin", Name: "Goblin", Difficulty: 3, HP: 30, Damage: 2, Speed: 10, Crit: 5},
+		},
+		Items: map[string]game.ItemAsset{},
+		Sections: []game.SectionAsset{{
+			ID: "pits", Name: "Goblin Pits", MinFloor: 1, MaxFloor: 5,
+			BaseDifficulty: 9, DifficultyPerFloor: 3,
+			Spawns: []game.SpawnEntry{{MonsterID: "goblin", Weight: 1}},
+			Boss:   &game.BossAsset{Monsters: []string{"goblin"}, Gold: 50},
+		}},
+	})
+}
+
+// The [G] shortcut dispatches the boss challenge while it is unlocked:
+// straight into combat, the encounter boss-flagged, the challenge line
+// in the log.
+func TestBossShortcutDispatchesTheChallenge(t *testing.T) {
+	e := bossEngine()
+	e.BossUnlocked = true
+	m := New(e)
+
+	m, cmd := press(m, "g")
+
+	if cmd != nil {
+		t.Error("'g' returned a command, want none")
+	}
+	if m.engine.State != engine.StateCombat {
+		t.Fatalf("state after 'g' = %v, want StateCombat", m.engine.State)
+	}
+	if !m.engine.CurrentEncounter.Boss {
+		t.Error("the challenge encounter is not boss-flagged")
+	}
+	last := stripANSI(m.log[len(m.log)-1])
+	if !strings.Contains(last, "You face the section's boss") {
+		t.Errorf("last log line = %q, want the challenge start", last)
+	}
+}
+
+// While locked the [G] chip dispatches too — the engine explains the
+// block in the log, state intact (the disabled-chip precedent).
+func TestBossShortcutWhileLockedIsBlocked(t *testing.T) {
+	m := New(testEngine()) // no unlock
+
+	m, _ = press(m, "g")
+
+	if m.engine.State != engine.StateExploring {
+		t.Errorf("state after 'g' = %v, want StateExploring (blocked)", m.engine.State)
+	}
+	last := stripANSI(m.log[len(m.log)-1])
+	if last != "No boss awaits your challenge." {
+		t.Errorf("last log line = %q, want the block message", last)
+	}
+}
+
+// The boss combat screen wears the ☠ BOSS badge on the title row.
+func TestViewBossCombatShowsTheBossBadge(t *testing.T) {
+	m := viewModels()["boss combat"]
+
+	view := stripControls(stripANSI(m.View()))
+
+	if !strings.Contains(view, "☠ BOSS") {
+		t.Errorf("boss combat view missing the ☠ BOSS badge:\n%s", view)
+	}
+	// The badge rides the title row: the frame's geometry is unchanged
+	// (the byte-exact invariants over viewModels() cover the rest).
+	if !strings.Contains(view, "⚔ ENEMIES") {
+		t.Errorf("boss combat view lost the enemy title:\n%s", view)
+	}
 }

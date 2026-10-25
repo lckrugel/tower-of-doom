@@ -300,11 +300,14 @@ func (e *Engine) endRound(events []Event, heroMove, enemyMove *entities.Move) []
 
 // appendEnemyDefeat grants the kill XP and the kill gold instantly
 // (mid-combat level ups are possible), advances the encounter queue and
-// transitions back to exploring when the last enemy of the encounter
-// falls. The gold grant consumes no rng. `heroMove` is the move the Hero
-// used this round (locked for its full cooldown — the round ended early,
-// so no tick ran); the next monster in the queue steps in with fresh
-// combat-scoped state.
+// resolves the encounter's end when the last enemy falls — one of three
+// endings: a BOSS victory (the boss rewards and the gate, see
+// appendBossVictory), the boss CHALLENGE unlocking (a normal victory on
+// the final floor of a section with a boss gate — ASCEND stays locked),
+// or the plain victory (ASCEND unlocks, as always). The gold grants
+// consume no rng. `heroMove` is the move the Hero used this round (locked
+// for its full cooldown — the round ended early, so no tick ran); the
+// next monster in the queue steps in with fresh combat-scoped state.
 func (e *Engine) appendEnemyDefeat(events []Event, heroMove *entities.Move) []Event {
 	enemy := e.currentEnemy()
 	xp := enemy.GetKillXp()
@@ -328,6 +331,18 @@ func (e *Engine) appendEnemyDefeat(events []Event, heroMove *entities.Move) []Ev
 	e.enemyCombat = newCombatantState()
 	e.CurrentEncounter.Monsters = e.CurrentEncounter.Monsters[1:]
 	if len(e.CurrentEncounter.Monsters) == 0 {
+		if e.CurrentEncounter.Boss {
+			return e.appendBossVictory(events)
+		}
+		// A normal encounter's ending. On the final floor of a section
+		// with a boss gate the victory summons the CHALLENGE instead of
+		// opening the gate; sections without a boss block keep the old
+		// regime on their final floor (mod compatibility).
+		if section := e.currentSection(); section.Boss != nil && e.reg.IsSectionEnd(e.CurrentFloor) {
+			e.BossUnlocked = true
+			e.State = StateExploring
+			return append(events, NewBossUnlocked())
+		}
 		e.CanAscend = true
 		e.State = StateExploring
 		events = append(events, NewVictory())

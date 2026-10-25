@@ -400,7 +400,13 @@ const enemyNameWidth = mainColWidth - 2 - 2 - barWidth - 5
 // plus the grid's 5 (title + four cell lines) = 11 of the 16 body rows.
 func (m Model) combatPanel() string {
 	var b strings.Builder
-	b.WriteString(stylePanelTitle.Render("⚔ ENEMIES") + "\n")
+	b.WriteString(stylePanelTitle.Render("⚔ ENEMIES"))
+	if m.engine.CurrentEncounter.Boss {
+		// The boss challenge's badge rides the title row — one line, the
+		// frame's geometry unchanged.
+		b.WriteString("  " + styleBoss.Render("☠ BOSS"))
+	}
+	b.WriteString("\n")
 	monsters := m.engine.CurrentEncounter.Monsters
 	if len(monsters) == 0 {
 		return b.String() + styleDim.Render("   (no enemies in sight)")

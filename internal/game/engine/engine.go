@@ -21,6 +21,13 @@ type Engine struct {
 	Player       *entities.Hero
 	CurrentFloor int
 	CanAscend    bool
+	// BossUnlocked mirrors CanAscend's style: set when a normal combat is
+	// won on the final floor of a section with a boss gate, it offers the
+	// boss challenge (CmdChallengeBoss) — ASCEND then stays locked there
+	// until the boss falls. Reset on ASCEND (new floor), on fleeing the
+	// boss, and on a boss victory; another normal-combat victory on that
+	// floor re-unlocks it.
+	BossUnlocked bool
 	// kills counts the enemies defeated during the current run. It is
 	// incremented at the same spot where the kill XP is granted (every
 	// EventEnemyDefeated, mid-combat kills included) and reported on
@@ -148,6 +155,8 @@ func (e *Engine) handleExploring(cmd Command) []Event {
 		e.CurrentEncounter = encounter
 		e.State = StateEncounter
 		return []Event{NewEncounterFound(encounter.Monsters)}
+	case CmdChallengeBoss:
+		return e.challengeBoss()
 	case CmdInventory:
 		// Opening the bag is a pure inspection pause: the bag stays open
 		// until CmdClose (or CmdQuit). No combat state is disturbed —
@@ -160,6 +169,9 @@ func (e *Engine) handleExploring(cmd Command) []Event {
 		}
 		e.CurrentFloor++
 		e.CanAscend = false
+		// The boss unlock belongs to the old floor: the new floor starts
+		// fresh (its own final floor will re-gate the climb).
+		e.BossUnlocked = false
 		sectionDef := e.currentSection()
 		events := []Event{NewFloorEntered(e.CurrentFloor, sectionDef.Name)}
 		// The ascend reward is a loot decision, not an auto-equip: the
@@ -321,13 +333,20 @@ func (e *Engine) handleInventory(cmd Command) []Event {
 }
 
 // resolveFlee attempts to escape the combat. The chance reads the
-// EFFECTIVE speeds (stat-mod statuses included). Success exits combat
-// with no reward; failure gives the current enemy a free turn.
+// EFFECTIVE speeds (stat-mod statuses included) — a boss's SPD applies
+// like any enemy's. Success exits combat with no reward; failure gives
+// the current enemy a free turn. Fleeing a BOSS re-locks the challenge
+// (another normal-combat victory on this floor re-unlocks it); fleeing a
+// normal combat leaves the unlock alone.
 func (e *Engine) resolveFlee() []Event {
 	chance := fleeChance(e.heroStat(entities.StatSPD), e.enemyStat(entities.StatSPD))
 	if e.rng.Intn(100) < chance {
+		boss := e.CurrentEncounter.Boss
 		e.CurrentEncounter = Encounter{}
 		e.State = StateExploring
+		if boss {
+			e.BossUnlocked = false
+		}
 		return []Event{NewFled()}
 	}
 	return append([]Event{NewMessage("You failed to flee!")}, e.enemyFreeTurn()...)

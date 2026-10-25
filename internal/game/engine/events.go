@@ -69,6 +69,13 @@ const (
 	// A DoT status damaged its afflicted at the round-end tick (it can
 	// kill — the defeat events follow when it does).
 	EventStatusDamage
+	// A normal-combat victory on the section's final floor summoned the
+	// boss challenge (the BOSS action is now offered; ASCEND stays
+	// locked until the boss falls).
+	EventBossUnlocked
+	// The boss challenge was accepted: the predefined boss group is
+	// engaged, straight into StateCombat (no FIGHT/SNEAK step).
+	EventBossChallenge
 )
 
 // `Event` é o que o jogo envia após processar um `Command`.
@@ -463,20 +470,46 @@ const (
 	// GoldSourceChest — gold granted by a chest that paid out coins
 	// instead of holding an item.
 	GoldSourceChest = "chest"
+	// GoldSourceBoss — the gold bonus a defeated section boss pays.
+	GoldSourceBoss = "boss"
 )
 
 // NewGoldGained reports gold added to the hero's purse.
 //
 // Payload:
 //   - "amount": the gold gained.
-//   - "source": where it came from — GoldSourceKill (enemy defeated) or
-//     GoldSourceChest (a chest paid out coins instead of an item).
+//   - "source": where it came from — GoldSourceKill (enemy defeated),
+//     GoldSourceChest (a chest paid out coins instead of an item) or
+//     GoldSourceBoss (the section boss's victory bonus).
 func NewGoldGained(amount int, source string) Event {
 	return Event{
 		Type: EventGoldGained,
 		Data: map[string]any{
 			"amount": amount,
 			"source": source,
+		},
+	}
+}
+
+// NewBossUnlocked reports that a normal-combat victory on the section's
+// final floor summoned the boss challenge: the BOSS action is now
+// offered (the engine's BossUnlocked is set), while ASCEND stays locked
+// until the boss falls. No payload.
+func NewBossUnlocked() Event {
+	return Event{Type: EventBossUnlocked}
+}
+
+// NewBossChallenge reports the challenge accepted: the section's
+// PREDEFINED boss group is engaged, straight into StateCombat (no
+// FIGHT/SNEAK step — a boss challenge cannot be sneaked).
+//
+// Payload:
+//   - "monsters": the boss group, in authored order.
+func NewBossChallenge(monsters []entities.Monster) Event {
+	return Event{
+		Type: EventBossChallenge,
+		Data: map[string]any{
+			"monsters": monsters,
 		},
 	}
 }

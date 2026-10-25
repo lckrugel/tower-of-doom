@@ -44,6 +44,11 @@ func (t EncounterType) String() string {
 type Encounter struct {
 	Type     EncounterType
 	Monsters []entities.Monster
+	// Boss marks the section's boss challenge: a PREDEFINED group engaged
+	// straight into combat (no StateEncounter, so the sneak step never
+	// even applies). Drives the TUI's boss styling and the victory's
+	// boss rewards (the tier+1 loot roll, the gold bonus, the gate).
+	Boss bool
 }
 
 // sanctuaryHealPercent is how much of the Hero's base max HP a sanctuary

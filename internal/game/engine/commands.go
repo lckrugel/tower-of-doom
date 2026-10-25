@@ -62,6 +62,12 @@ const (
 	// Leaves the merchant, discarding the remaining stock
 	// (StateMerchant → StateExploring).
 	CmdLeave
+	// Challenges the section's boss (StateExploring, only while the
+	// challenge is unlocked — Engine.BossUnlocked): the PREDEFINED boss
+	// group is engaged straight into StateCombat — no StateEncounter, no
+	// sneak step, no encounter-kind roll. While locked it is a blocked
+	// action: a message, state intact (like a locked ASCEND).
+	CmdChallengeBoss
 )
 
 // `Command` is an action taken.

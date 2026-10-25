@@ -63,7 +63,7 @@ func TestActionsPerState(t *testing.T) {
 		withStock bool // the shop's offers (BUY needs one to be enabled)
 		wantKeys  []string
 	}{
-		{"exploring", engine.StateExploring, false, false, []string{"e", "u", "i", "q"}},
+		{"exploring", engine.StateExploring, false, false, []string{"e", "u", "g", "i", "q"}},
 		{"encounter", engine.StateEncounter, false, false, []string{"f", "s", "q"}},
 		{"combat", engine.StateCombat, false, false, []string{"r", "q"}}, // moves live in the grid
 		{"loot", engine.StateLoot, false, false, []string{"w", "b", "d", "q"}},
@@ -92,11 +92,34 @@ func TestActionsPerState(t *testing.T) {
 				t.Errorf("keys = %v, want %v", keysOf(actions), tt.wantKeys)
 			}
 			for _, a := range actions {
-				if a.cmd != engine.CmdAscend && !a.enabled {
+				// ASCEND and BOSS render disabled while locked — every
+				// other action in the matrix must be enabled here.
+				if a.cmd != engine.CmdAscend && a.cmd != engine.CmdChallengeBoss && !a.enabled {
 					t.Errorf("action %q is unexpectedly disabled", a.key)
 				}
 			}
 		})
+	}
+}
+
+// The BOSS chip mirrors the ASCEND precedent: disabled while the
+// challenge is locked, enabled once a final-floor victory unlocked it.
+// Dispatching it anyway still reaches the engine, which explains the
+// block in the log.
+func TestBossChipFollowsBossUnlocked(t *testing.T) {
+	e := testEngine()
+	e.State = engine.StateExploring
+
+	bossChip := func(a action) bool { return a.cmd == engine.CmdChallengeBoss }
+	locked := actionsFor(e)[slices.IndexFunc(actionsFor(e), bossChip)]
+	if locked.enabled {
+		t.Error("boss chip enabled without an unlock")
+	}
+
+	e.BossUnlocked = true
+	unlocked := actionsFor(e)[slices.IndexFunc(actionsFor(e), bossChip)]
+	if !unlocked.enabled {
+		t.Error("boss chip still disabled after the unlock")
 	}
 }
 
