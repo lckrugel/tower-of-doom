@@ -49,6 +49,20 @@ func damagedGoblin(dmg int, crit bool) engine.Event {
 	return engine.NewDamageDealt(&goblin, dmg, crit)
 }
 
+// damagedGoblinWithMove / damagedHeroWithMove are the same two sides
+// carrying the strike's move name (the engine's WithMove payloads).
+func damagedGoblinWithMove(dmg int, crit bool, move string) engine.Event {
+	goblin := monsterFixture()
+	goblin.TakeDmg(dmg)
+	return engine.NewDamageDealtWithMove(&goblin, dmg, crit, move)
+}
+
+func damagedHeroWithMove(dmg int, crit bool, move string) engine.Event {
+	hero := entities.NewPlayer()
+	hero.TakeDmg(dmg)
+	return engine.NewDamageTakenWithMove(hero, dmg, crit, move)
+}
+
 // The snapshot event map is the renderer's only source of truth, so both
 // payload shapes (legacy-only and exact HP) are hand-constructed below.
 
@@ -407,6 +421,44 @@ func TestEventText(t *testing.T) {
 			"The Goblin uses Venom Bite!",
 			nil,
 		},
+		// The WithMove payloads name the strike's move in the plain
+		// text (the accent span hangs off exactly that name).
+		{
+			"dealt names the move",
+			damagedGoblinWithMove(5, false, "Power Slash"),
+			"You hit the Goblin with Power Slash for 5 damage (25/30 HP left).",
+			nil,
+		},
+		{
+			"critical dealt names the move",
+			damagedGoblinWithMove(10, true, "Power Slash"),
+			"You land a devastating blow on the Goblin with Power Slash — CRIT! 10 damage (20/30 HP left).",
+			nil,
+		},
+		{
+			"killing dealt names the move",
+			damagedGoblinWithMove(30, false, "Power Slash"),
+			"You hit the Goblin with Power Slash for 30 damage — a killing blow!",
+			nil,
+		},
+		{
+			"taken names the enemy's move",
+			damagedHeroWithMove(2, false, "Venom Bite"),
+			"You take 2 damage from Venom Bite (98/100 HP left).",
+			nil,
+		},
+		{
+			"critical taken names the enemy's move",
+			damagedHeroWithMove(4, true, "Venom Bite"),
+			"A crushing hit lands on you — CRIT! You take 4 damage from Venom Bite (96/100 HP left).",
+			nil,
+		},
+		{
+			"lethal taken names the enemy's move",
+			damagedHeroWithMove(100, false, "Venom Bite"),
+			"You take 100 damage from Venom Bite and your vision fades...",
+			nil,
+		},
 		{
 			"debuff lands on the enemy",
 			engine.Event{Type: engine.EventStatusApplied, Data: map[string]any{
@@ -565,5 +617,55 @@ func TestStatusTonesFollowKind(t *testing.T) {
 func TestShrineOfferedTone(t *testing.T) {
 	if got, want := toneOf(engine.NewShrineOffered(2)).Render("x"), styleXP.Render("x"); got != want {
 		t.Error("a shrine offer must take the gold tone")
+	}
+}
+
+// The move NAME renders as an accent span inside the line's base tone:
+// hero moves gold (the XP gold), enemy moves soft red — bold on the
+// damage-taken line, whose base tone is the same red. The plain text is
+// byte-identical either way; a legacy payload without the move key
+// keeps the unspanned whole-tone line.
+func TestMoveNamesRenderAsAccentSpans(t *testing.T) {
+	hero := engine.NewMoveUsed("Hero", "Power Slash")
+	want := styleDim.Render("You use ") + styleXP.Render("Power Slash") + styleDim.Render("!")
+	if got := renderEvent(hero); got != want {
+		t.Errorf("hero move line = %q, want %q", got, want)
+	}
+	if plain := stripANSI(renderEvent(hero)); plain != "You use Power Slash!" {
+		t.Errorf("hero move line stripped = %q, want the plain text", plain)
+	}
+
+	enemy := engine.NewMoveUsed("Goblin", "Venom Bite")
+	want = styleDim.Render("The Goblin uses ") + styleHurt.Render("Venom Bite") + styleDim.Render("!")
+	if got := renderEvent(enemy); got != want {
+		t.Errorf("enemy move line = %q, want %q", got, want)
+	}
+
+	dealt := engine.Event{Type: engine.EventCombatDamageDealt, Data: map[string]any{
+		"enemy": "Goblin", "enemy_hp": 83, "enemy_alive": true,
+		"damage_dealt": 5, "crit": false, "move": "Power Slash",
+	}}
+	want = styleDamage.Render("You hit the Goblin with ") + styleXP.Render("Power Slash") +
+		styleDamage.Render(" for 5 damage (83% HP left).")
+	if got := renderEvent(dealt); got != want {
+		t.Errorf("dealt line = %q, want %q", got, want)
+	}
+	if plain := stripANSI(renderEvent(dealt)); plain != eventText(dealt) {
+		t.Errorf("dealt line stripped = %q, want its own plain text %q", plain, eventText(dealt))
+	}
+
+	taken := engine.Event{Type: engine.EventCombatDamageTaken, Data: map[string]any{
+		"damage_taken": 2, "hero_hp": 98, "hero_alive": true, "move": "Venom Bite",
+	}}
+	want = styleHurt.Render("You take 2 damage from ") + styleHurt.Bold(true).Render("Venom Bite") +
+		styleHurt.Render(" (98% HP left).")
+	if got := renderEvent(taken); got != want {
+		t.Errorf("taken line = %q, want %q", got, want)
+	}
+
+	legacy := damagedGoblin(5, false)
+	want = styleDamage.Render("You hit the Goblin for 5 damage (25/30 HP left).")
+	if got := renderEvent(legacy); got != want {
+		t.Errorf("legacy dealt line = %q, want the whole-tone line %q", got, want)
 	}
 }

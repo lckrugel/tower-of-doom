@@ -4,13 +4,63 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/charmbracelet/lipgloss"
+
 	"github.com/lckrugel/tower-of-doom/internal/game/engine"
 	"github.com/lckrugel/tower-of-doom/internal/game/engine/entities"
 )
 
 // renderEvent returns a log line for an engine event, flavor-colored.
+// The move-carrying strike events (a move use and the damage it dealt
+// or bought) render the move NAME as an accent span inside the line's
+// base tone — the hero's moves gold, enemies' soft red; the plain text
+// is byte-identical either way.
 func renderEvent(ev engine.Event) string {
+	if line, ok := renderMoveSpanned(ev); ok {
+		return line
+	}
 	return toneOf(ev).Render(eventText(ev))
+}
+
+// tones carries the two voices one log line may need: the line's base
+// tone and the move-name accent. The PLAIN pair (zero styles) renders
+// eventText's byte-exact text; renderEvent pairs the base tone with the
+// striker's accent for the spanned line.
+type tones struct {
+	base   lipgloss.Style
+	accent lipgloss.Style
+}
+
+// plainTones is the unstyled voice — a zero style renders the string
+// as-is.
+var plainTones = tones{}
+
+// renderMoveSpanned pairs the event's base tone with the striker's move
+// accent. ok=false for every other event and for legacy payloads
+// without the move key — those keep the unspanned whole-tone line.
+func renderMoveSpanned(ev engine.Event) (string, bool) {
+	if _, ok := moveNameOf(ev.Data); !ok {
+		return "", false
+	}
+	switch ev.Type {
+	case engine.EventMoveUsed:
+		t := tones{base: toneOf(ev), accent: styleHurt}
+		if user, _ := ev.Data["user"].(string); user == heroName {
+			t.accent = styleXP
+		}
+		return moveUsedText(ev.Data, t), true
+	case engine.EventCombatDamageDealt:
+		// The hero's strike: the move name in the XP gold over the
+		// amber damage tone.
+		return damageDealtText(ev.Data, tones{base: toneOf(ev), accent: styleXP}), true
+	case engine.EventCombatDamageTaken:
+		// The enemy's strike: the name in soft red — the base tone is
+		// the same red, so the accent renders BOLD to stay visible
+		// inside the line.
+		return damageTakenText(ev.Data, tones{base: toneOf(ev), accent: styleHurt.Bold(true)}), true
+	default:
+		return "", false
+	}
 }
 
 // eventText converts an engine event into its plain log line. Kept
@@ -26,9 +76,9 @@ func eventText(ev engine.Event) string {
 	case engine.EventSneakFailed:
 		return "You are spotted! Combat begins and the enemies strike first."
 	case engine.EventCombatDamageDealt:
-		return damageDealtText(ev.Data)
+		return damageDealtText(ev.Data, plainTones)
 	case engine.EventCombatDamageTaken:
-		return damageTakenText(ev.Data)
+		return damageTakenText(ev.Data, plainTones)
 	case engine.EventEnemyHealed:
 		return fmt.Sprintf("The %v is healed.", ev.Data["enemy"])
 	case engine.EventEnemyDefeated:
@@ -78,7 +128,7 @@ func eventText(ev engine.Event) string {
 	case engine.EventMoveLearned:
 		return moveLearnedText(ev.Data)
 	case engine.EventMoveUsed:
-		return moveUsedText(ev.Data)
+		return moveUsedText(ev.Data, plainTones)
 	case engine.EventStatusApplied:
 		return statusAppliedText(ev.Data)
 	case engine.EventStatusExpired:
@@ -98,10 +148,32 @@ func eventText(ev engine.Event) string {
 	}
 }
 
-func damageDealtText(data map[string]any) string {
+// moveNameOf reads an event's move payload — a strike's move NAME.
+// ok=false when the key is absent or empty (a legacy payload).
+func moveNameOf(data map[string]any) (string, bool) {
+	name, ok := data["move"].(string)
+	return name, ok && name != ""
+}
+
+// damageDealtText renders the hero's landed hit. With a move payload
+// the strike's move is named (and accented by the tones' span) after
+// the struck enemy; the legacy shape (no move key) is byte-identical to
+// the pre-Combat-2.0 line.
+func damageDealtText(data map[string]any, t tones) string {
 	var b strings.Builder
+	move, hasMove := moveNameOf(data)
 	if crit, _ := data["crit"].(bool); crit {
-		fmt.Fprintf(&b, "You land a devastating blow on the %v — CRIT! %v damage", data["enemy"], data["damage_dealt"])
+		if hasMove {
+			b.WriteString(t.base.Render(fmt.Sprintf("You land a devastating blow on the %v with ", data["enemy"])))
+			b.WriteString(t.accent.Render(move))
+			b.WriteString(t.base.Render(fmt.Sprintf(" — CRIT! %v damage", data["damage_dealt"])))
+		} else {
+			fmt.Fprintf(&b, "You land a devastating blow on the %v — CRIT! %v damage", data["enemy"], data["damage_dealt"])
+		}
+	} else if hasMove {
+		b.WriteString(t.base.Render(fmt.Sprintf("You hit the %v with ", data["enemy"])))
+		b.WriteString(t.accent.Render(move))
+		b.WriteString(t.base.Render(fmt.Sprintf(" for %v damage", data["damage_dealt"])))
 	} else {
 		fmt.Fprintf(&b, "You hit the %v for %v damage", data["enemy"], data["damage_dealt"])
 	}
@@ -109,29 +181,40 @@ func damageDealtText(data map[string]any) string {
 		// Absolute HP wins over the legacy floor percentage: knowing the
 		// enemy needs 2 more hits beats doing the math from 27%.
 		if cur, max, ok := exactHP(data, "enemy_hp_exact", "enemy_max_hp"); ok {
-			fmt.Fprintf(&b, " (%d/%d HP left).", cur, max)
+			b.WriteString(t.base.Render(fmt.Sprintf(" (%d/%d HP left).", cur, max)))
 		} else {
-			fmt.Fprintf(&b, " (%v%% HP left).", data["enemy_hp"])
+			b.WriteString(t.base.Render(fmt.Sprintf(" (%v%% HP left).", data["enemy_hp"])))
 		}
 	} else {
-		b.WriteString(" — a killing blow!")
+		b.WriteString(t.base.Render(" — a killing blow!"))
 	}
 	return b.String()
 }
 
-func damageTakenText(data map[string]any) string {
+// damageTakenText renders a hit landed on the Hero. With a move payload
+// the enemy's move is named ("from Venom Bite") between the damage and
+// the HP readout; the legacy shape stays byte-identical.
+func damageTakenText(data map[string]any, t tones) string {
 	crit := ""
 	if critFlag, _ := data["crit"].(bool); critFlag {
 		crit = "A crushing hit lands on you — CRIT! "
 	}
+	move, hasMove := moveNameOf(data)
+	from := ""
+	if hasMove {
+		from = t.base.Render(" from ") + t.accent.Render(move)
+	}
 	if alive, _ := data["hero_alive"].(bool); alive {
 		// Same absolute-HP preference as the enemy side.
 		if cur, max, ok := exactHP(data, "hero_hp_exact", "hero_max_hp"); ok {
-			return fmt.Sprintf("%vYou take %v damage (%d/%d HP left).", crit, data["damage_taken"], cur, max)
+			return t.base.Render(fmt.Sprintf("%vYou take %v damage", crit, data["damage_taken"])) + from +
+				t.base.Render(fmt.Sprintf(" (%d/%d HP left).", cur, max))
 		}
-		return fmt.Sprintf("%vYou take %v damage (%v%% HP left).", crit, data["damage_taken"], data["hero_hp"])
+		return t.base.Render(fmt.Sprintf("%vYou take %v damage", crit, data["damage_taken"])) + from +
+			t.base.Render(fmt.Sprintf(" (%v%% HP left).", data["hero_hp"]))
 	}
-	return fmt.Sprintf("%vYou take %v damage and your vision fades...", crit, data["damage_taken"])
+	return t.base.Render(fmt.Sprintf("%vYou take %v damage", crit, data["damage_taken"])) + from +
+		t.base.Render(" and your vision fades...")
 }
 
 // exactHP reads an event's optional absolute HP pair (e.g.
@@ -323,16 +406,17 @@ func itemBonusList(item *entities.Item) string {
 }
 
 // moveUsedText renders a move use: "You use Power Slash!" for the hero,
-// "The Goblin uses Venom Bite!" for monsters. The hero is recognized by
-// its fixed name (heroName — the same constant the combat mirror keys
-// its hero-side bookkeeping on).
-func moveUsedText(data map[string]any) string {
+// "The Goblin uses Venom Bite!" for monsters. The move NAME carries the
+// accent span (the tones); the hero is recognized by its fixed name
+// (heroName — the same constant the combat mirror keys its hero-side
+// bookkeeping on).
+func moveUsedText(data map[string]any, t tones) string {
 	user, _ := data["user"].(string)
 	move, _ := data["move"].(string)
 	if user == heroName {
-		return fmt.Sprintf("You use %s!", move)
+		return t.base.Render("You use ") + t.accent.Render(move) + t.base.Render("!")
 	}
-	return fmt.Sprintf("The %s uses %s!", user, move)
+	return t.base.Render(fmt.Sprintf("The %s uses ", user)) + t.accent.Render(move) + t.base.Render("!")
 }
 
 // statusAppliedText renders a status landing (fresh or refreshed —
