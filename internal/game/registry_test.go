@@ -37,6 +37,8 @@ func makeReg(monsters []MonsterAsset, sections []SectionAsset) *Registry {
 	r := &Registry{
 		Monsters: make(map[string]MonsterAsset, len(monsters)),
 		Items:    make(map[string]ItemAsset),
+		Moves:    make(map[string]MoveAsset),
+		Statuses: make(map[string]StatusAsset),
 		Sections: sections,
 	}
 	for _, m := range monsters {
@@ -438,4 +440,234 @@ func TestLoadJSONBrokenExternalFileIsError(t *testing.T) {
 	if !strings.Contains(err.Error(), "parsing") {
 		t.Errorf("error = %v, want a parse error mentioning the file", err)
 	}
+}
+
+// ---- Combat 2.0 data layer: moves & statuses ----
+
+// validMoves is a small move registry spanning tiers 1–3, the canonical
+// basic_attack included.
+func validMoves() []MoveAsset {
+	return []MoveAsset{
+		{ID: "basic_attack", Name: "Basic Attack", Tier: 1, DmgModifier: 100, Weight: 100},
+		{ID: "quick_stab", Name: "Quick Stab", Tier: 1, DmgModifier: 60, CritBonus: 20, Weight: 100},
+		{ID: "heavy_slash", Name: "Heavy Slash", Tier: 2, DmgModifier: 175, Cooldown: 2, Weight: 60},
+		{ID: "frost_touch", Name: "Frost Touch", Tier: 3, DmgModifier: 90, Cooldown: 3, Weight: 40},
+	}
+}
+
+// validStatuses is the four starter statuses.
+func validStatuses() []StatusAsset {
+	return []StatusAsset{
+		{ID: "poison", Name: "Poison", Kind: "debuff",
+			Effect:   StatusEffectAsset{Type: "dot", Amount: 3},
+			Duration: 3},
+		{ID: "weaken", Name: "Weaken", Kind: "debuff",
+			Effect:   StatusEffectAsset{Type: "stat", Stat: "dmg", Amount: -3},
+			Duration: 3},
+		{ID: "slow", Name: "Slow", Kind: "debuff",
+			Effect:   StatusEffectAsset{Type: "stat", Stat: "spd", Amount: -3},
+			Duration: 3},
+		{ID: "guard", Name: "Guard", Kind: "buff",
+			Effect:   StatusEffectAsset{Type: "stat", Stat: "def", Amount: 5},
+			Duration: 2},
+	}
+}
+
+// combat2Reg returns a registry pre-filled with the move/status helpers;
+// tests mutate it to break one rule at a time.
+func combat2Reg() *Registry {
+	r := makeReg(validMonsters(), validSections())
+	for _, m := range validMoves() {
+		r.Moves[m.ID] = m
+	}
+	for _, s := range validStatuses() {
+		r.Statuses[s.ID] = s
+	}
+	return r
+}
+
+// MovesForTiers mirrors ItemIDsForTiers for moves: assets sorted by id,
+// unrestricted when no tier is listed, empty (never an error) pool when
+// nothing matches.
+func TestMovesForTiers(t *testing.T) {
+	r := combat2Reg()
+
+	ids := func(assets []MoveAsset) []string {
+		out := make([]string, len(assets))
+		for i, a := range assets {
+			out[i] = a.ID
+		}
+		return out
+	}
+
+	tests := []struct {
+		name  string
+		tiers []int
+		want  []string
+	}{
+		{"nil tiers is unrestricted", nil,
+			[]string{"basic_attack", "frost_touch", "heavy_slash", "quick_stab"}},
+		{"empty tiers is unrestricted", []int{},
+			[]string{"basic_attack", "frost_touch", "heavy_slash", "quick_stab"}},
+		{"single tier", []int{1}, []string{"basic_attack", "quick_stab"}},
+		{"union of tiers, sorted", []int{3, 1}, []string{"basic_attack", "frost_touch", "quick_stab"}},
+		{"unmatched tier is an empty pool", []int{9}, []string{}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ids(r.MovesForTiers(tt.tiers))
+			if !slices.Equal(got, tt.want) {
+				t.Errorf("MovesForTiers(%v) = %v, want %v", tt.tiers, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestMaxMoveTier(t *testing.T) {
+	if got := combat2Reg().MaxMoveTier(); got != 3 {
+		t.Errorf("MaxMoveTier = %d, want 3", got)
+	}
+	empty := makeReg(validMonsters(), validSections())
+	if got := empty.MaxMoveTier(); got != 0 {
+		t.Errorf("MaxMoveTier on a move-less registry = %d, want 0", got)
+	}
+}
+
+func TestMoveByIDAndStatusByID(t *testing.T) {
+	r := combat2Reg()
+
+	if m, ok := r.MoveByID("heavy_slash"); !ok || m.Name != "Heavy Slash" {
+		t.Errorf("MoveByID(heavy_slash) = (%+v, %v), want the move", m, ok)
+	}
+	if _, ok := r.MoveByID("nope"); ok {
+		t.Error("MoveByID(unknown) reported success")
+	}
+	if s, ok := r.StatusByID("poison"); !ok || s.Effect.Amount != 3 {
+		t.Errorf("StatusByID(poison) = (%+v, %v), want the status", s, ok)
+	}
+	if _, ok := r.StatusByID("nope"); ok {
+		t.Error("StatusByID(unknown) reported success")
+	}
+}
+
+// The embedded assets ship the canonical basic attack and the four
+// starter statuses; this locks their core values.
+func TestLoadEmbeddedMovesAndStatuses(t *testing.T) {
+	r, err := Load("")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	basic, ok := r.MoveByID("basic_attack")
+	if !ok {
+		t.Fatal("the canonical basic_attack move is missing from the embedded assets")
+	}
+	if basic.Tier != 1 || basic.DmgModifier != 100 || basic.CritBonus != 0 ||
+		basic.Cooldown != 0 || basic.Weight != 100 || basic.Status != nil {
+		t.Errorf("basic_attack drifted: %+v", basic)
+	}
+
+	poison, ok := r.StatusByID("poison")
+	if !ok {
+		t.Fatal("the starter poison status is missing from the embedded assets")
+	}
+	if poison.Kind != "debuff" || poison.Effect.Type != "dot" ||
+		poison.Effect.Amount != 3 || poison.Duration != 3 {
+		t.Errorf("poison drifted: %+v", poison)
+	}
+
+	guard, ok := r.StatusByID("guard")
+	if !ok {
+		t.Fatal("the starter guard status is missing from the embedded assets")
+	}
+	if guard.Kind != "buff" || guard.Effect.Stat != "def" ||
+		guard.Effect.Amount != 5 || guard.Duration != 2 {
+		t.Errorf("guard drifted: %+v", guard)
+	}
+
+	if got, want := len(r.Moves), 8; got != want {
+		t.Errorf("embedded moves = %d, want %d (basic attack + 7 starters)", got, want)
+	}
+	if got, want := len(r.Statuses), 4; got != want {
+		t.Errorf("embedded statuses = %d, want %d (the starter set)", got, want)
+	}
+	if got := r.MaxMoveTier(); got != 3 {
+		t.Errorf("embedded MaxMoveTier = %d, want 3", got)
+	}
+}
+
+// A move without a tier field defaults to tier 1 after Load, mirroring
+// items — tier-less moves in mods keep working.
+func TestLoadDefaultsAbsentMoveTierToOne(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, content string) {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("monsters.json", `[
+		{"id": "rat", "name": "Rat", "difficulty": 1, "hp": 10, "dmg": 1, "spd": 5}
+	]`)
+	write("sections.json", `[
+		{"id": "s", "name": "S", "base_difficulty": 1, "min_floor": 1, "max_floor": -1,
+		 "spawns": [{"monster_id": "rat", "weight": 1}]}
+	]`)
+	write("moves.json", `[
+		{"id": "jab", "name": "Jab", "dmg_modifier": 100, "weight": 1},
+		{"id": "hook", "name": "Hook", "tier": 2, "dmg_modifier": 150, "cooldown": 1, "weight": 1}
+	]`)
+
+	r, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if err := r.Validate(100); err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+	if got := r.Moves["jab"].Tier; got != 1 {
+		t.Errorf("tier-less move loaded with tier %d, want 1 (absent = first tier)", got)
+	}
+	if got := r.Moves["hook"].Tier; got != 2 {
+		t.Errorf("explicit tier loaded as %d, want 2", got)
+	}
+}
+
+// Duplicate ids in the new asset files fail at Load (indexBy pattern),
+// never silently hiding content.
+func TestLoadRejectsDuplicateMoveAndStatusIDs(t *testing.T) {
+	t.Run("duplicate move ids", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "moves.json")
+		content := `[
+			{"id": "jab", "name": "Jab", "dmg_modifier": 100, "weight": 1},
+			{"id": "jab", "name": "Jab Again", "dmg_modifier": 120, "weight": 1}
+		]`
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+
+		_, err := Load(dir)
+		if err == nil || !strings.Contains(err.Error(), "duplicate") {
+			t.Errorf("Load(duplicate moves) = %v, want a duplicate id error", err)
+		}
+	})
+
+	t.Run("duplicate status ids", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "statuses.json")
+		content := `[
+			{"id": "poison", "name": "Poison", "kind": "debuff",
+			 "effect": {"type": "dot", "amount": 3}, "duration": 3},
+			{"id": "poison", "name": "Poison II", "kind": "debuff",
+			 "effect": {"type": "dot", "amount": 9}, "duration": 5}
+		]`
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+
+		_, err := Load(dir)
+		if err == nil || !strings.Contains(err.Error(), "duplicate") {
+			t.Errorf("Load(duplicate statuses) = %v, want a duplicate id error", err)
+		}
+	})
 }

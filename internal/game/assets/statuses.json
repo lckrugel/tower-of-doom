@@ -1,0 +1,45 @@
+[
+  {
+    "id": "poison",
+    "name": "Poison",
+    "kind": "debuff",
+    "effect": {
+      "type": "dot",
+      "amount": 3
+    },
+    "duration": 3
+  },
+  {
+    "id": "weaken",
+    "name": "Weaken",
+    "kind": "debuff",
+    "effect": {
+      "type": "stat",
+      "stat": "dmg",
+      "amount": -3
+    },
+    "duration": 3
+  },
+  {
+    "id": "slow",
+    "name": "Slow",
+    "kind": "debuff",
+    "effect": {
+      "type": "stat",
+      "stat": "spd",
+      "amount": -3
+    },
+    "duration": 3
+  },
+  {
+    "id": "guard",
+    "name": "Guard",
+    "kind": "buff",
+    "effect": {
+      "type": "stat",
+      "stat": "def",
+      "amount": 5
+    },
+    "duration": 2
+  }
+]

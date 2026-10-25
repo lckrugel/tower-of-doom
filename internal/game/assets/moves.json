@@ -1,0 +1,94 @@
+[
+  {
+    "id": "basic_attack",
+    "name": "Basic Attack",
+    "tier": 1,
+    "dmg_modifier": 100,
+    "crit_bonus": 0,
+    "cooldown": 0,
+    "weight": 100
+  },
+  {
+    "id": "quick_stab",
+    "name": "Quick Stab",
+    "tier": 1,
+    "dmg_modifier": 60,
+    "crit_bonus": 20,
+    "cooldown": 0,
+    "weight": 100
+  },
+  {
+    "id": "guard_strike",
+    "name": "Guard Strike",
+    "tier": 1,
+    "dmg_modifier": 75,
+    "crit_bonus": 0,
+    "cooldown": 2,
+    "status": {
+      "id": "guard",
+      "chance": 100,
+      "target": "self"
+    },
+    "weight": 50
+  },
+  {
+    "id": "venom_bite",
+    "name": "Venom Bite",
+    "tier": 1,
+    "dmg_modifier": 80,
+    "crit_bonus": 0,
+    "cooldown": 2,
+    "status": {
+      "id": "poison",
+      "chance": 60,
+      "target": "enemy"
+    },
+    "weight": 60
+  },
+  {
+    "id": "heavy_slash",
+    "name": "Heavy Slash",
+    "tier": 2,
+    "dmg_modifier": 175,
+    "crit_bonus": 0,
+    "cooldown": 2,
+    "weight": 60
+  },
+  {
+    "id": "crushing_blow",
+    "name": "Crushing Blow",
+    "tier": 2,
+    "dmg_modifier": 120,
+    "crit_bonus": 0,
+    "cooldown": 3,
+    "status": {
+      "id": "weaken",
+      "chance": 75,
+      "target": "enemy"
+    },
+    "weight": 40
+  },
+  {
+    "id": "frost_touch",
+    "name": "Frost Touch",
+    "tier": 3,
+    "dmg_modifier": 90,
+    "crit_bonus": 0,
+    "cooldown": 3,
+    "status": {
+      "id": "slow",
+      "chance": 80,
+      "target": "enemy"
+    },
+    "weight": 40
+  },
+  {
+    "id": "assassins_strike",
+    "name": "Assassin's Strike",
+    "tier": 3,
+    "dmg_modifier": 110,
+    "crit_bonus": 35,
+    "cooldown": 3,
+    "weight": 30
+  }
+]
