@@ -358,6 +358,92 @@ rewritten as each phase ships.
 - `move_tiers` gate shrine offers; weapon-granted moves are gated by
   the item's own tier gating.
 
+### Moves & statuses — data model
+
+The schemas below are the DATA LAYER of this design (shipped in phase
+1); combat-flow documentation lands with the integration phase.
+
+**Move asset** (`moves.json`). Only `tier` has an absent-field default
+(`0` → 1, mirroring items — JSON cannot tell them apart); every other
+field is required as authored and validated at startup:
+
+- `id`, `name` — identity.
+- `tier` — progression ladder (1 = earliest); absent/0 → 1.
+- `dmg_modifier` — percent scaling of the striker's DMG (100 = neutral);
+  validated to [50, 300].
+- `crit_bonus` — percentage points added to the striker's crit
+  threshold for this move; may be negative (the effective threshold is
+  clamped to [0, 100] at use time).
+- `cooldown` — turns the move stays locked after use (0 = spammable);
+  validated ≥ 0.
+- `status` — optional `{id, chance, target}`: the status applied on
+  hit. `chance` is a percentage validated to [0, 100]; `target` is
+  `enemy` (the hit target) or `self` (the striker). The `id` must exist
+  in statuses.json.
+- `weight` — the move's default AI weight (monster picks); ≥ 1.
+
+**Status asset** (`statuses.json`). Every field is required — statuses
+have no absent-field defaults:
+
+- `id`, `name` — identity.
+- `kind` — `buff` or `debuff`.
+- `effect` — one of `{type: dot, amount ≥ 1}` (damage per turn) or
+  `{type: stat, stat: dmg|def|spd, amount ≠ 0}`.
+- `duration` — turns the status lasts; ≥ 1.
+
+**Where moves attach:**
+
+- `MonsterAsset.moves` — a list of `{id, weight}` refs: at most 4
+  entries, weights ≥ 1, ids must exist. The ref's weight is the
+  MONSTER's own AI weight for that move — it overrides the move asset's
+  `weight` when the engine resolves the set. ABSENT or empty → the
+  monster fights with the canonical `basic_attack`, so older assets and
+  mods keep working unchanged.
+- `ItemAsset.moves` — a list of move ids. ONLY weapons may grant moves;
+  at most 2 per weapon (`MaxWeaponMoves`); every id must exist. The
+  engine resolves the ids into runtime moves when the item is built, so
+  the hero's set is always computed from the EQUIPPED weapon (unwearing
+  it removes the grants).
+- `SectionAsset.move_tiers` — the exact `item_tiers` pattern: it gates
+  which move tiers the section can offer (shrine draws, phase 4).
+  Absent or empty = unrestricted; every listed tier must have at least
+  one registry move (typo protection).
+
+**Registry queries** (mirroring the item ones): `MovesForTiers(tiers)`
+(move assets sorted by id; unrestricted when no tiers are listed; an
+empty pool is never an error), `MoveByID`, `StatusByID`, `MaxMoveTier`.
+
+**Hero move set** — `Hero.EffectiveMoves(weapon)`: the LEARNED moves
+first (learning order, capped at 2 — `MaxLearnedMoves`), then the
+equipped weapon's granted moves, deduplicated by id (the learned copy
+wins), capped at 4 (`MaxMoves`) — weapon moves beyond the cap are
+dropped, so the set never exceeds 4. The canonical `basic_attack` is
+NOT implicitly added to the hero set: a hero with no learned moves and
+no weapon-granted moves has an empty set, and what that means in combat
+is decided by the combat integration. Learning: `LearnMove` refuses at
+the cap (learning never displaces a move on its own — the caller drives
+`ForgetMove(moveID)` and retries); learning an already-known id is a
+refused no-op.
+
+**Monster move set** — built by the engine from the asset's refs at
+spawn time (`NewMonsterFromAsset(asset, moves...)`; no moves passed =
+the canonical basic attack, matching the asset-level fallback). The
+runtime `Move.Weight` carries the ref's per-monster AI weight.
+
+**Load-time validation** (content bugs fail at startup, house style):
+
+- move: tier < 1 (absent/0 defaults to 1 at Load); `dmg_modifier`
+  outside [50, 300]; cooldown < 0; weight < 1; a `status` with chance
+  outside [0, 100], an unknown `target` word, or an unknown status id.
+- status: kind not buff/debuff; effect type not dot/stat; dot amount
+  < 1; stat amount = 0 or an unknown stat word; duration < 1.
+- monster: more than 4 moves, an unknown move id, a ref weight < 1.
+- weapon: more than 2 moves or an unknown move id; any non-weapon slot
+  carrying moves.
+- section: `move_tiers` values < 1, or a listed tier with zero registry
+  moves of that tier.
+- duplicate ids in moves.json / statuses.json fail at Load (indexBy).
+
 ### Implementation phases
 
 1. Schema & entities — moves/statuses assets, move sets, validation
