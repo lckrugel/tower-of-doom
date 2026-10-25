@@ -1,6 +1,7 @@
 package entities
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/lckrugel/tower-of-doom/internal/game"
@@ -121,4 +122,90 @@ func TestBasicAttack(t *testing.T) {
 	if basic.HasStatus() {
 		t.Error("basic attack carries a status, want none")
 	}
+}
+
+// FilterUnknownMoves is the shrine's offer filter: the tier-filtered
+// registry pool minus everything the hero already knows, minus the
+// canonical basic_attack (never offered — every combatant already fights
+// with it as the fallback).
+func TestFilterUnknownMoves(t *testing.T) {
+	pool := []game.MoveAsset{
+		{ID: "basic_attack", Name: "Basic Strike", Tier: 1, DmgModifier: 100, Weight: 100},
+		{ID: "heavy_slash", Name: "Heavy Slash", Tier: 2, DmgModifier: 175, Cooldown: 2, Weight: 60},
+		{ID: "quick_stab", Name: "Quick Stab", Tier: 1, DmgModifier: 60, CritBonus: 20, Weight: 100},
+		{ID: "venom_bite", Name: "Venom Bite", Tier: 1, DmgModifier: 80, Cooldown: 2, Weight: 60},
+	}
+
+	t.Run("drops known moves and the canonical basic_attack", func(t *testing.T) {
+		got := FilterUnknownMoves(pool, []Move{
+			{ID: "quick_stab"}, {ID: "venom_bite"},
+		})
+
+		if len(got) != 1 || got[0].ID != "heavy_slash" {
+			t.Errorf("FilterUnknownMoves = %+v, want [heavy_slash] (basic_attack never offered)", got)
+		}
+	})
+
+	t.Run("dedups the known list by id", func(t *testing.T) {
+		got := FilterUnknownMoves(pool, []Move{
+			{ID: "quick_stab", Name: "Learned Copy"}, {ID: "quick_stab", Name: "Weapon Copy"},
+		})
+
+		for _, asset := range got {
+			if asset.ID == "quick_stab" {
+				t.Errorf("known move leaked through the filter: %+v", asset)
+			}
+		}
+	})
+
+	t.Run("preserves the pool's order", func(t *testing.T) {
+		got := FilterUnknownMoves(pool, nil)
+
+		if len(got) != 3 || got[0].ID != "heavy_slash" || got[1].ID != "quick_stab" || got[2].ID != "venom_bite" {
+			t.Errorf("FilterUnknownMoves = %+v, want the pool's order (sorted by id) minus basic_attack", got)
+		}
+	})
+
+	t.Run("the canonical basic_attack is always dropped", func(t *testing.T) {
+		got := FilterUnknownMoves(pool, nil)
+
+		for _, asset := range got {
+			if asset.ID == BasicAttack().ID {
+				t.Errorf("the canonical basic_attack leaked into the offer pool: %+v", asset)
+			}
+		}
+	})
+
+	t.Run("a known basic_attack is redundant with the always-drop", func(t *testing.T) {
+		got := FilterUnknownMoves(pool, nil)
+
+		if len(got) != 3 {
+			t.Errorf("FilterUnknownMoves = %+v, want 3 moves (basic_attack still dropped)", got)
+		}
+	})
+
+	t.Run("an empty pool stays empty", func(t *testing.T) {
+		if got := FilterUnknownMoves(nil, nil); len(got) != 0 {
+			t.Errorf("FilterUnknownMoves(nil, nil) = %+v, want empty", got)
+		}
+	})
+
+	t.Run("everything filtered out is an empty pool", func(t *testing.T) {
+		allKnown := []Move{
+			{ID: "basic_attack"}, {ID: "heavy_slash"},
+			{ID: "quick_stab"}, {ID: "venom_bite"},
+		}
+		if got := FilterUnknownMoves(pool, allKnown); len(got) != 0 {
+			t.Errorf("FilterUnknownMoves = %+v, want empty (the shrine's nothing-new case)", got)
+		}
+	})
+
+	t.Run("pure: the pool is not mutated", func(t *testing.T) {
+		before := append([]game.MoveAsset(nil), pool...)
+		FilterUnknownMoves(pool, []Move{{ID: "quick_stab"}, {ID: "venom_bite"}, {ID: "heavy_slash"}})
+
+		if !slices.EqualFunc(pool, before, func(a, b game.MoveAsset) bool { return a.ID == b.ID }) {
+			t.Errorf("the input pool was mutated: %+v", pool)
+		}
+	})
 }

@@ -286,6 +286,20 @@ func (r *Registry) StatusByID(id string) (StatusAsset, bool) {
 	return s, ok
 }
 
+// AllStatuses returns every registry status, sorted by id — the
+// read-only surface for lore/UI consumers the engine may expose later
+// (e.g. a status " ? " overlay). The result is a fresh slice: the
+// assets are value copies, so mutating the return never reaches the
+// registry. An empty registry returns an empty slice.
+func (r *Registry) AllStatuses() []StatusAsset {
+	out := make([]StatusAsset, 0, len(r.Statuses))
+	for _, status := range r.Statuses {
+		out = append(out, status)
+	}
+	slices.SortFunc(out, func(a, b StatusAsset) int { return strings.Compare(a.ID, b.ID) })
+	return out
+}
+
 // MovesForTiers returns every registry move whose tier is one of `tiers`,
 // sorted by id (assets, not just ids — moves carry their own display data
 // and AI weight). Empty/nil `tiers` lifts the restriction: every move is

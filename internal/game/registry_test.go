@@ -668,6 +668,46 @@ func TestMoveByIDAndStatusByID(t *testing.T) {
 	}
 }
 
+// AllStatuses is the read-only status surface for lore/UI consumers
+// (the registry's map is unexported to them): every status, sorted by
+// id, as a copy.
+func TestAllStatuses(t *testing.T) {
+	t.Run("every status, sorted by id", func(t *testing.T) {
+		got := combat2Reg().AllStatuses()
+
+		if len(got) != len(validStatuses()) {
+			t.Fatalf("AllStatuses = %d entries, want %d", len(got), len(validStatuses()))
+		}
+		ids := make([]string, len(got))
+		for i, s := range got {
+			ids[i] = s.ID
+		}
+		if !slices.IsSorted(ids) {
+			t.Errorf("AllStatuses ids = %v, want sorted", ids)
+		}
+	})
+
+	t.Run("the result is a copy, not an alias", func(t *testing.T) {
+		r := combat2Reg()
+
+		got := r.AllStatuses()
+		got[0] = StatusAsset{ID: "tampered"}
+
+		if again := r.AllStatuses(); again[0].ID == "tampered" {
+			t.Errorf("mutating the returned slice changed the registry: %+v", again[0])
+		}
+		if _, ok := r.StatusByID("tampered"); ok {
+			t.Error("the mutated asset leaked into the registry")
+		}
+	})
+
+	t.Run("an empty registry is safe", func(t *testing.T) {
+		if got := makeReg(validMonsters(), validSections()).AllStatuses(); len(got) != 0 {
+			t.Errorf("AllStatuses on a status-less registry = %+v, want empty", got)
+		}
+	})
+}
+
 // The embedded boss groups are table-locked: one boss per finite
 // section, none on the infinite tail. Every group references existing
 // monsters and is tuned as a considerable challenge for its section's
