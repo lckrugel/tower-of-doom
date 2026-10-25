@@ -265,11 +265,12 @@ func itemBonusList(item *entities.Item) string {
 
 // moveUsedText renders a move use: "You use Power Slash!" for the hero,
 // "The Goblin uses Venom Bite!" for monsters. The hero is recognized by
-// its fixed name.
+// its fixed name (heroName — the same constant the combat mirror keys
+// its hero-side bookkeeping on).
 func moveUsedText(data map[string]any) string {
 	user, _ := data["user"].(string)
 	move, _ := data["move"].(string)
-	if user == "Hero" {
+	if user == heroName {
 		return fmt.Sprintf("You use %s!", move)
 	}
 	return fmt.Sprintf("The %s uses %s!", user, move)

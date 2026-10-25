@@ -33,6 +33,18 @@ func viewModels() map[string]Model {
 
 	combat := encounter(engine.StateCombat)
 	combat.engine.CurrentEncounter.Monsters[0].TakeDmg(10)
+	// The combat screen mid-fight: the mirror holds statuses on both
+	// sides and a cooling move, as the event replay would have left it.
+	combat.mirror.heroCooldowns["basic_attack"] = 1
+	combat.mirror.heroStatuses = []combatStatus{
+		{name: "Guard", kind: "buff", turns: 2},
+		{name: "Poison", kind: "debuff", turns: 1},
+	}
+	combat.mirror.enemyStatuses = []combatStatus{
+		{name: "Poison", kind: "debuff", turns: 2},
+		{name: "Weaken", kind: "debuff", turns: 3},
+	}
+	combat.gridCursor = 1
 
 	gameOver := func() Model {
 		e := testEngine()
@@ -108,6 +120,7 @@ func viewModels() map[string]Model {
 		"geared":     geared(),
 		"encounter":  encounter(engine.StateEncounter),
 		"combat":     combat,
+		"full grid":  fullGrid(),
 		"loot":       loot(),
 		"inventory":  inventory(),
 		"merchant":   merchant(),
@@ -115,6 +128,34 @@ func viewModels() map[string]Model {
 		"full queue": fullQueue(),
 		"long log":   longLog(),
 	}
+}
+
+// fullGrid is the combat screen's worst case: a 4-move set with the
+// longest shipped move name and every tag flavor, a cooling cell, the
+// cursor resting on a later cell and statuses up on both sides.
+func fullGrid() Model {
+	e := combatEngine()
+	learnMove(e, envenom(0)) // modifier + status tag
+	learnMove(e, heavy())    // modifier only — cooling below
+	equipWeapon(e,
+		entities.Move{ID: "assassins_strike", Name: "Assassin's Strike", Tier: 3, DmgModifier: 110, CritBonus: 35, Cooldown: 3, Weight: 10},
+		entities.Move{ID: "guard_strike", Name: "Guard Strike", Tier: 1, DmgModifier: 75, Weight: 10,
+			Status: entities.MoveStatus{ID: "guard", Chance: 100, Target: entities.TargetSelf}},
+	)
+	m := New(e)
+	e.State = engine.StateCombat
+	e.CurrentEncounter = engine.Encounter{
+		Type:     engine.EncounterCombat,
+		Monsters: []entities.Monster{goblinMonster()},
+	}
+	m.mirror.heroCooldowns["heavy_slash"] = 2
+	m.mirror.heroStatuses = []combatStatus{{name: "Guard", kind: "buff", turns: 2}}
+	m.mirror.enemyStatuses = []combatStatus{
+		{name: "Poison", kind: "debuff", turns: 2},
+		{name: "Weaken", kind: "debuff", turns: 3},
+	}
+	m.gridCursor = 3
+	return m
 }
 
 // fullQueue stacks the maximum allowed enemies — the fattest body the
@@ -131,6 +172,74 @@ func fullQueue() Model {
 	e.CurrentEncounter = engine.Encounter{Type: engine.EncounterCombat, Monsters: monsters}
 	e.State = engine.StateCombat
 	return New(e)
+}
+
+// The combat screen always fits the body slot — never leaning on slot()
+// to clip. Worst case: the enemy block's 6 rows (title, name/HP, stats,
+// the TWO capped status rows, the waiting counter) plus the grid's 5
+// (title + four cell lines) = 11 of the 16 body rows, and every line
+// inside the column. The fixtures cover the fattest screens: statuses
+// on both sides over a full 2×2 grid ("full grid"), the deepest queue
+// ("full queue"), and the enriched mid-fight screen ("combat").
+func TestCombatBodyFitsTheBodySlot(t *testing.T) {
+	for _, name := range []string{"combat", "full grid", "full queue"} {
+		m := viewModels()[name]
+
+		lines := viewLines(m.combatPanel())
+
+		if len(lines) > bodyHeight {
+			t.Errorf("%s: combat body has %d lines, want at most %d", name, len(lines), bodyHeight)
+		}
+		for i, line := range lines {
+			if w := ansiLen(line); w > mainColWidth {
+				t.Errorf("%s: combat body line %d is %d wide, overflows the %d-col column:\n%q",
+					name, i, w, mainColWidth, line)
+			}
+		}
+	}
+}
+
+// The grid's cells are exactly half the column wide, so the two cells
+// of a row always total the column — a modded move with a longer name
+// than any shipped one ("Assassin's Strike", 17 runes) truncates inside
+// its cell instead of stretching the frame.
+func TestGridCellsAreExactlyHalfTheColumn(t *testing.T) {
+	m := viewModels()["full grid"]
+
+	for i, line := range viewLines(m.moveGrid()) {
+		if i == 0 {
+			continue // the title row is not a cell row
+		}
+		if w := ansiLen(line); w != mainColWidth {
+			t.Errorf("grid line %d is %d wide, want exactly %d:\n%q", i, w, mainColWidth, line)
+		}
+	}
+}
+
+// The combat screen shows the whole picture: the enemy block with its
+// status chips, the grid with every tag flavor and the cooling marker,
+// and the bar as the two-key legend.
+func TestViewFullGridShowsEveryElement(t *testing.T) {
+	m := viewModels()["full grid"]
+
+	view := stripControls(stripANSI(m.View()))
+
+	for _, want := range []string{
+		"◈ MOVES",
+		"Envenom", "Heavy Slash", "Assassin's Strike", "Guard Strike",
+		"100% ☠poison 100%", // envenom's tags
+		"(2 turns)",         // the cooling Heavy Slash
+		"110% ✦+35",         // the Assassin's Strike crit tag
+		"75% ☠guard 100%",   // Guard Strike's self-buff tag
+		"Poison(2)",         // the enemy's chips
+		"Weaken(3)",
+		"Guard(2)", // the hero panel's chip
+		"[R] Flee", "[Q] Quit",
+	} {
+		if !strings.Contains(view, want) {
+			t.Errorf("full-grid view missing %q:\n%s", want, view)
+		}
+	}
 }
 
 // longLog fills the event log to its cap.

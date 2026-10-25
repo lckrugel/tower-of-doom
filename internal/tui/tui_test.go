@@ -27,6 +27,10 @@ func press(m Model, raw string) (Model, tea.Cmd) {
 		keyMsg = tea.KeyMsg{Type: tea.KeyLeft}
 	case "right":
 		keyMsg = tea.KeyMsg{Type: tea.KeyRight}
+	case "up":
+		keyMsg = tea.KeyMsg{Type: tea.KeyUp}
+	case "down":
+		keyMsg = tea.KeyMsg{Type: tea.KeyDown}
 	case "ctrl+c":
 		keyMsg = tea.KeyMsg{Type: tea.KeyCtrlC}
 	default:
@@ -61,10 +65,12 @@ func TestExploreShortcutStartsEncounter(t *testing.T) {
 
 // esc quits everywhere except where it has a closer meaning: it closes
 // the bag (StateInventory) and is a deliberate no-op while a chest loot
-// decision is pending — quitting there would silently destroy the item.
+// decision is pending — quitting there would silently destroy the item —
+// and during combat, where the arrows are the move grid's navigation and
+// esc would be one stray finger from ending the run.
 func TestEscapeAlsoQuits(t *testing.T) {
 	for _, state := range []engine.GameState{
-		engine.StateExploring, engine.StateEncounter, engine.StateCombat, engine.StateGameOver,
+		engine.StateExploring, engine.StateEncounter, engine.StateGameOver,
 	} {
 		m := New(testEngine())
 		m.engine.State = state
@@ -498,8 +504,16 @@ func TestViewCombatShowsOnlyTheCurrentEnemy(t *testing.T) {
 			t.Errorf("combat body line %d is %d wide, overflows the %d-col column:\n%q", i, w, mainColWidth, line)
 		}
 	}
-	if !strings.Contains(view, "[1] Basic Attack") || !strings.Contains(view, "[R] Flee") {
+	// The hero's moves live in the 2×2 grid in the body now; the bar
+	// shrank to the two combat-only actions.
+	if !strings.Contains(view, "Basic Attack") || !strings.Contains(view, "◈ MOVES") {
+		t.Errorf("combat view missing the move grid:\n%s", view)
+	}
+	if !strings.Contains(view, "[R] Flee") || !strings.Contains(view, "[Q] Quit") {
 		t.Errorf("combat action bar incomplete:\n%s", view)
+	}
+	if strings.Contains(view, "[1] Basic Attack") {
+		t.Errorf("the move chips still render on the bar:\n%s", view)
 	}
 }
 

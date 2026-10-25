@@ -387,9 +387,17 @@ func (m Model) encounterPanel() string {
 	return b.String()
 }
 
-// combatPanel narrows the screen to the enemy currently in front of the
-// hero; the rest of the queue appears only as a counter. Just like the
-// encounter panel it shows the engaged enemy's stat line.
+// enemyNameWidth is the front enemy's name budget on the combat line:
+// the marker, the gap and the HP bar with its percentage share the row
+// (marker 2 + gap 2 + bar 10 + " NN%" 5).
+const enemyNameWidth = mainColWidth - 2 - 2 - barWidth - 5
+
+// combatPanel is the combat screen: the enemy currently in front of the
+// hero — the rest of the queue appears only as a counter — with its stat
+// line and status chips, and the 2×2 move grid below it. Just like the
+// encounter panel it shows the engaged enemy's stat line. Height budget,
+// worst case: title + name/HP + stats + 2 status rows + waiting = 6,
+// plus the grid's 5 (title + four cell lines) = 11 of the 16 body rows.
 func (m Model) combatPanel() string {
 	var b strings.Builder
 	b.WriteString(stylePanelTitle.Render("⚔ ENEMIES") + "\n")
@@ -398,13 +406,173 @@ func (m Model) combatPanel() string {
 		return b.String() + styleDim.Render("   (no enemies in sight)")
 	}
 	front := monsters[0]
-	b.WriteString("▶ " + stylePanelTitle.Render(front.Name()) +
+	b.WriteString("▶ " + stylePanelTitle.Render(truncateRunes(front.Name(), enemyNameWidth)) +
 		"  " + hpBar(front.CurrentHP, front.MaxHP()) + "\n")
 	b.WriteString("  " + statLine(front) + "\n")
+	if rows := m.enemyStatusRows(); rows != "" {
+		b.WriteString(rows + "\n")
+	}
 	if waiting := len(monsters) - 1; waiting > 0 {
 		b.WriteString(styleDim.Render(fmt.Sprintf("  · %d more waiting", waiting)) + "\n")
 	}
+	b.WriteString(m.moveGrid())
 	return b.String()
+}
+
+// The move grid: a 2×2 block of cells, two per row, each cell TWO lines
+// tall (the move name over its tags) so the widest shipped move
+// ("Assassin's Strike", 17 runes) and its tags always fit the
+// half-column. gridCellWidth is exactly half the game column; the rows
+// join two padded cells and never exceed mainColWidth.
+const (
+	gridCols      = 2
+	gridCellWidth = mainColWidth / gridCols // 23
+)
+
+// moveGrid renders the combat move grid: four fixed cells in the hero's
+// effective move order — the exact order CmdMove's index points into.
+// Each cell shows the move name over a dim tag line (see gridTags); a
+// cooling move's cell grays out and its tags yield to the turns-left
+// marker; cells beyond the move set render a dim — placeholder. The
+// cell cursor (gridCursor) only ever rests on real moves, highlighted
+// like every other selection.
+func (m Model) moveGrid() string {
+	moves := m.engine.CombatMoves()
+	rows := []string{stylePanelTitle.Render("◈ MOVES")}
+	for row := range gridCols {
+		names := make([]string, 0, gridCols)
+		tags := make([]string, 0, gridCols)
+		for col := range gridCols {
+			name, tag := m.gridCell(moves, row*gridCols+col)
+			names = append(names, name)
+			tags = append(tags, tag)
+		}
+		rows = append(rows,
+			lipgloss.JoinHorizontal(lipgloss.Top, names...),
+			lipgloss.JoinHorizontal(lipgloss.Top, tags...),
+		)
+	}
+	return strings.Join(rows, "\n")
+}
+
+// gridCell renders one cell's two lines (name, tags), padded to the
+// cell width so the two cells of a row align. The cursor's cell gets
+// the shared selection style — full-width background highlight; a
+// cooling cell grays out (unless the cursor rests on it: visibility of
+// where you ARE wins over the gray — dispatching still works and the
+// engine explains the block). The name truncates at the cell width for
+// modded assets longer than any shipped move ("Assassin's Strike",
+// 17 runes, always fits).
+func (m Model) gridCell(moves []entities.Move, i int) (name, tags string) {
+	if i >= len(moves) {
+		return styleDim.Render(padRight("—", gridCellWidth)),
+			strings.Repeat(" ", gridCellWidth)
+	}
+	move := moves[i]
+	cooling := m.mirror.cooldownLeft(move.ID) > 0
+	style := styleAction
+	name = "  " + move.Name
+	if cooling {
+		style = styleDisabled
+	}
+	if i == min(max(m.gridCursor, 0), len(moves)-1) {
+		name = "▶ " + move.Name
+		style = styleSelected
+	}
+	name = truncateRunes(name, gridCellWidth)
+	return style.Render(padRight(name, gridCellWidth)),
+		style.Render(padRight(truncateRunes(m.gridTags(move, cooling), gridCellWidth), gridCellWidth))
+}
+
+// gridTags is a cell's tag line: the move's damage modifier, its status
+// tag ("☠poison 60%" — the status ID; the move payload carries ids, not
+// names) and its crit bonus ("✦+20"). Shipped content never carries all
+// three on one move, so the line stays ≤ 2 short tags; a modded asset
+// that packs more truncates at the cell width (the guard, never slot()).
+// A cooling move shows ONLY the turns-left marker: the tags don't matter
+// while the move is unusable.
+func (m Model) gridTags(move entities.Move, cooling bool) string {
+	if cooling {
+		return fmt.Sprintf("   (%d turns)", m.mirror.cooldownLeft(move.ID))
+	}
+	tags := []string{fmt.Sprintf("%d%%", move.DmgModifier)}
+	if move.HasStatus() {
+		tags = append(tags, fmt.Sprintf("☠%s %d%%", move.Status.ID, move.Status.Chance))
+	}
+	if move.CritBonus != 0 {
+		tags = append(tags, fmt.Sprintf("✦%+d", move.CritBonus))
+	}
+	return "   " + strings.Join(tags, " ")
+}
+
+// maxStatusRows is the fixed budget for the enemy block's status chips:
+// they wrap into at most two rows, then the display drops what doesn't
+// fit — the frame's height never moves for statuses (the log carries
+// every application/expiry faithfully).
+const maxStatusRows = 2
+
+// statusChip renders one active status as "Poison(2)" — the name the
+// event payload carried plus the rounds still left — toned by kind:
+// debuffs soft-red, buffs green (the same tones the log uses).
+func statusChip(s combatStatus) string {
+	label := fmt.Sprintf("%s(%d)", s.name, s.turns)
+	if s.kind == string(entities.StatusBuff) {
+		return styleHeal.Render(label)
+	}
+	return styleHurt.Render(label)
+}
+
+// statusChips renders one chip per active status, in application order.
+func statusChips(statuses []combatStatus) []string {
+	chips := make([]string, 0, len(statuses))
+	for _, s := range statuses {
+		chips = append(chips, statusChip(s))
+	}
+	return chips
+}
+
+// wrapChips lays chips into rows of at most maxWidth (lipgloss-aware
+// widths), at most maxRows rows; chips that no longer fit — including a
+// single chip wider than a whole row — are dropped. The cap is the
+// documented display budget, never slot() clipping.
+func wrapChips(chips []string, maxWidth, maxRows int) []string {
+	rows := make([]string, 0, maxRows)
+	var row []string
+	width := 0
+	for _, chip := range chips {
+		w := lipgloss.Width(chip) + 1 // the separator space
+		if len(row) == 0 {
+			w-- // no separator on the first chip of a row
+		}
+		if width+w > maxWidth && len(row) > 0 {
+			rows = append(rows, strings.Join(row, " "))
+			row, width = nil, 0
+			w = lipgloss.Width(chip)
+			if len(rows) == maxRows {
+				return rows // the cap: the rest is dropped
+			}
+		}
+		if w > maxWidth {
+			continue // a lone chip wider than the budget: dropped
+		}
+		row = append(row, chip)
+		width += w
+	}
+	if len(row) > 0 && len(rows) < maxRows {
+		rows = append(rows, strings.Join(row, " "))
+	}
+	return rows
+}
+
+// enemyStatusRows is the enemy block's status rows: the engaged enemy's
+// active chips, wrapped to at most maxStatusRows rows inside the column
+// (the two-space indent is part of the budget).
+func (m Model) enemyStatusRows() string {
+	rows := wrapChips(statusChips(m.mirror.enemyStatuses), mainColWidth-2, maxStatusRows)
+	for i := range rows {
+		rows[i] = "  " + rows[i]
+	}
+	return strings.Join(rows, "\n")
 }
 
 // statLine is a monster's combat profile on one compact, dim line:
@@ -450,7 +618,9 @@ func truncateRunes(s string, width int) string {
 
 // heroPanel is the player's vital stats: level, XP, HP and the derived
 // stats with the purse. Gear is deliberately not listed — the equipped
-// panel owns that view in the trade states.
+// panel owns that view in the trade states. While in combat the HP row
+// carries the hero's active status chips (heroStatusChips) — the panel's
+// four-line shape never changes.
 func (m Model) heroPanel() string {
 	p := m.engine.Player
 	var b strings.Builder
@@ -458,12 +628,28 @@ func (m Model) heroPanel() string {
 	b.WriteString(fmt.Sprintf("  Lv %d", p.Lvl))
 	b.WriteString(styleDim.Render(fmt.Sprintf("   XP %s %d/%d to Lv %d", xpBar(p), p.Xp, p.Xp+p.XpToLevel(), p.Lvl+1)))
 	b.WriteString("\n")
-	b.WriteString(fmt.Sprintf("  HP %s %d/%d\n", hpBarPlain(p.CurrentHP, p.MaxHP()), p.CurrentHP, p.MaxHP()))
+	b.WriteString(m.heroHPRow() + "\n")
 	b.WriteString(fmt.Sprintf("  DMG %d · DEF %d · SPD %d · ", p.Damage(), p.Defense(), p.Speed()))
 	// The purse shares the stats line, dim like the panel's XP segment:
 	// the panel labels stay quiet, the log carries the gold-colored news.
 	b.WriteString(styleDim.Render(fmt.Sprintf("GOLD %d", p.Gold)))
 	return b.String()
+}
+
+// heroHPRow is the HP line of the hero panel — bar and readout, then as
+// many status chips as fit within the column: the first chips that fit
+// render, the rest is dropped (the documented display cap; the log
+// carries every status faithfully).
+func (m Model) heroHPRow() string {
+	p := m.engine.Player
+	row := fmt.Sprintf("  HP %s %d/%d", hpBarPlain(p.CurrentHP, p.MaxHP()), p.CurrentHP, p.MaxHP())
+	for _, chip := range statusChips(m.mirror.heroStatuses) {
+		if lipgloss.Width(row)+1+lipgloss.Width(chip) > mainColWidth {
+			break
+		}
+		row += " " + chip
+	}
+	return row
 }
 
 func (m Model) logPanel() string {
@@ -508,28 +694,23 @@ func (m Model) actionBar() string {
 		return styleSelected.Render("Really quit? [Y] Yes / [N] No")
 	}
 	actions := m.barActions()
-	// The combat bar is compact on purpose: no hint, single-space
-	// separators — four move chips plus Flee/Quit must always fit (the
-	// 2×2 move grid is the next phase's redesign).
+	// The combat bar is a key legend, not a selectable list: the arrows
+	// and Enter belong to the move grid there, so its two spots render
+	// plainly (single-space separators — compact on purpose).
 	hint := "   ← → select · ⏎ confirm"
 	sep := "   "
-	if m.engine.State == engine.StateCombat {
+	inCombat := m.engine.State == engine.StateCombat
+	if inCombat {
 		hint, sep = "", " "
 	}
 	spots := make([]string, 0, len(actions))
 	for i, a := range actions {
 		label := fmt.Sprintf("[%s] %s", strings.ToUpper(a.key), a.label)
 		if !a.enabled {
-			if a.cmd == engine.CmdMove {
-				// Cooled move chips: the "(N)" marker already explains
-				// the block — no extra glyph.
-				spots = append(spots, styleDisabled.Render(label))
-				continue
-			}
 			spots = append(spots, styleDisabled.Render(label+" ✗"))
 			continue
 		}
-		if i == m.cursor {
+		if i == m.cursor && !inCombat {
 			spots = append(spots, styleSelected.Render(" "+label+" "))
 			continue
 		}
