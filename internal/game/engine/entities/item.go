@@ -27,6 +27,11 @@ type Item struct {
 	BonusSPD          int
 	MaxDurability     int
 	CurrentDurability int
+	// grantedMoves holds the Combat 2.0 moves this WEAPON grants while
+	// equipped, resolved from the asset's "moves" ids by the caller (the
+	// engine owns the registry). Empty for every other slot and for
+	// move-less weapons.
+	grantedMoves []Move
 }
 
 // IsArmor reports whether the slot is defensive gear (helmet, body or boots) —
@@ -35,7 +40,12 @@ func IsArmor(slot ItemSlot) bool {
 	return slot == helmet || slot == body || slot == boots
 }
 
-func NewItemFromAsset(asset game.ItemAsset) Item {
+// NewItemFromAsset builds an item from its asset. `granted` carries the
+// item's granted Combat 2.0 moves, resolved by the caller from the
+// asset's move ids (the engine owns the registry) — pass nothing for
+// move-less items, the common case and the only valid one for non-weapon
+// slots.
+func NewItemFromAsset(asset game.ItemAsset, granted ...Move) Item {
 	return Item{
 		ID:                asset.ID,
 		Name:              asset.Name,
@@ -47,7 +57,16 @@ func NewItemFromAsset(asset game.ItemAsset) Item {
 		BonusSPD:          asset.BonusSPD,
 		MaxDurability:     asset.Durability,
 		CurrentDurability: asset.Durability,
+		grantedMoves:      append([]Move(nil), granted...),
 	}
+}
+
+// GrantedMoves returns the moves the item grants while equipped (Combat
+// 2.0; only weapons grant moves). The returned slice is a copy.
+func (i *Item) GrantedMoves() []Move {
+	moves := make([]Move, len(i.grantedMoves))
+	copy(moves, i.grantedMoves)
+	return moves
 }
 
 // Retorna o valor atual do Item.

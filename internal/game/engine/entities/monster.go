@@ -18,10 +18,21 @@ type Monster struct {
 	BaseCRIT  int
 	// Vida atual, persistida
 	CurrentHP int
+	// moves is the monster's Combat 2.0 move set, resolved by the CALLER
+	// from the asset's move refs (registry lookups stay outside
+	// entities). Never empty: monsters without moves fall back to the
+	// canonical basic attack.
+	moves []Move
 }
 
-func NewMonsterFromAsset(asset game.MonsterAsset) Monster {
-	return Monster{
+// NewMonsterFromAsset builds a monster from its asset. `moves` carries
+// the monster's move set, resolved by the caller from the asset's move
+// refs (per-move Weight = the ref's per-monster AI weight). Passing none
+// — what every current caller does — gives the monster the canonical
+// basic attack, matching the asset-level rule that a monster without a
+// moves field uses basic_attack.
+func NewMonsterFromAsset(asset game.MonsterAsset, moves ...Move) Monster {
+	m := Monster{
 		ID:         asset.ID,
 		name:       asset.Name,
 		Difficulty: asset.Difficulty,
@@ -32,6 +43,12 @@ func NewMonsterFromAsset(asset game.MonsterAsset) Monster {
 		BaseDEF:    asset.Defense,
 		BaseCRIT:   asset.Crit,
 	}
+	if len(moves) > 0 {
+		m.moves = append([]Move(nil), moves...)
+	} else {
+		m.moves = []Move{BasicAttack()}
+	}
+	return m
 }
 
 func (m *Monster) Damage() int        { return m.BaseDMG }
@@ -69,6 +86,15 @@ func (m *Monster) Heal(hp int) int {
 
 func (m *Monster) IsAlive() bool {
 	return m.CurrentHP > 0
+}
+
+// Moves returns the monster's move set in asset order — never empty (the
+// fallback is the canonical basic attack). Each move's Weight carries the
+// monster's own AI weight for that move. The returned slice is a copy.
+func (m *Monster) Moves() []Move {
+	moves := make([]Move, len(m.moves))
+	copy(moves, m.moves)
+	return moves
 }
 
 // GetKillXp reports the instant XP reward for defeating the monster.

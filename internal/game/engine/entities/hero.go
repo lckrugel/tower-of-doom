@@ -50,6 +50,10 @@ type Hero struct {
 	// via StashItem and leave via EquipFromBag/DropFromBag; the engine owns
 	// every disposition decision (equip, drop, destroy).
 	bag []*Item
+	// learnedMoves holds the hero's LEARNED moves (shrine learning) in
+	// learning order, capped at MaxLearnedMoves. Weapon-granted moves are
+	// NOT stored here — they ride the equipped weapon (EffectiveMoves).
+	learnedMoves []Move
 }
 
 func NewPlayer(starterItems ...*Item) *Hero {
@@ -340,4 +344,89 @@ func (h *Hero) DropFromBag(index int) *Item {
 	item := h.bag[index]
 	h.bag = slices.Delete(h.bag, index, index+1)
 	return item
+}
+
+// LearnedMoves returns the hero's learned moves in learning order. The
+// returned slice is a copy: mutate the set only through
+// LearnMove/ForgetMove.
+func (h *Hero) LearnedMoves() []Move {
+	moves := make([]Move, len(h.learnedMoves))
+	copy(moves, h.learnedMoves)
+	return moves
+}
+
+// LearnMove appends a move to the hero's learned set. Under the cap
+// (MaxLearnedMoves) and for a new id it learns and returns (nil, true).
+//
+// At the cap — or when the move's id is already learned — nothing changes
+// and it returns (nil, false): forgetting is the CALLER's decision (query
+// LearnedMoves, have the player pick, call ForgetMove, then retry).
+// `forgotten` is therefore always nil — LearnMove never displaces a move
+// on its own; the two-value shape keeps call sites uniform and leaves
+// room for a replace-style variant.
+func (h *Hero) LearnMove(m Move) (forgotten *Move, learned bool) {
+	if len(h.learnedMoves) >= MaxLearnedMoves || h.knowsMove(m.ID) {
+		return nil, false
+	}
+	h.learnedMoves = append(h.learnedMoves, m)
+	return nil, true
+}
+
+// ForgetMove removes the learned move with the given id. Returns true
+// when a move was removed; an unknown id (or an empty set) is a no-op —
+// this is player-reachable, so it must never panic.
+func (h *Hero) ForgetMove(moveID string) bool {
+	for i, m := range h.learnedMoves {
+		if m.ID == moveID {
+			h.learnedMoves = slices.Delete(h.learnedMoves, i, i+1)
+			return true
+		}
+	}
+	return false
+}
+
+func (h *Hero) knowsMove(moveID string) bool {
+	for _, m := range h.learnedMoves {
+		if m.ID == moveID {
+			return true
+		}
+	}
+	return false
+}
+
+// EffectiveMoves returns the hero's combat move set: the LEARNED moves
+// first (learning order), then the equipped weapon's granted moves —
+// deduplicated by id (the learned copy wins) and capped at MaxMoves,
+// dropping weapon moves beyond the cap. It can therefore never exceed
+// MaxMoves entries.
+//
+// The weapon is passed in by the CALLER so entities stay engine-agnostic
+// (no registry lookups here); nil means no weapon. The canonical
+// basic_attack is NOT implicitly added: the set can be empty, and what an
+// empty set means in combat is the combat integration's decision. The
+// returned slice is a copy.
+func (h *Hero) EffectiveMoves(weapon *Item) []Move {
+	moves := make([]Move, 0, MaxMoves)
+	seen := make(map[string]bool, MaxMoves)
+	for _, m := range h.learnedMoves {
+		if len(moves) >= MaxMoves {
+			break
+		}
+		if !seen[m.ID] {
+			seen[m.ID] = true
+			moves = append(moves, m)
+		}
+	}
+	if weapon != nil {
+		for _, m := range weapon.GrantedMoves() {
+			if len(moves) >= MaxMoves {
+				break
+			}
+			if !seen[m.ID] {
+				seen[m.ID] = true
+				moves = append(moves, m)
+			}
+		}
+	}
+	return moves
 }
