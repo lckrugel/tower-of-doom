@@ -44,6 +44,10 @@ func newTestEngine(rngValues ...int) *Engine {
 		Items:    map[string]game.ItemAsset{},
 		Sections: testSections(),
 	})
+	// The punch start (NewPlayer pre-learns it) would eat the learned
+	// slot every move-set fixture below assumes — the fixture hero is
+	// bare; the punch start has its own tests (TestFreshHeroStartsWithThePunch).
+	e.Player.ForgetMove(entities.Punch().ID)
 	if len(rngValues) > 0 {
 		e.rng = &stubRng{values: rngValues}
 	}

@@ -10,6 +10,16 @@
     "weight": 100
   },
   {
+    "id": "punch",
+    "name": "Punch",
+    "type": "creature",
+    "tier": 1,
+    "dmg_modifier": 60,
+    "crit_bonus": 0,
+    "cooldown": 0,
+    "weight": 50
+  },
+  {
     "id": "quick_stab",
     "name": "Quick Stab",
     "type": "both",

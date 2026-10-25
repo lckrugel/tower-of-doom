@@ -156,6 +156,31 @@ func TestMoveUsabilityByType(t *testing.T) {
 	}
 }
 
+// The canonical punch: the hero's opening move — a weak, spammable,
+// creature-only strike. Both the constructor and the embedded asset ship
+// these values; they must never drift apart.
+func TestPunch(t *testing.T) {
+	punch := Punch()
+
+	if punch.ID != "punch" || punch.Name != "Punch" ||
+		punch.Tier != 1 || punch.DmgModifier != 60 || punch.CritBonus != 0 ||
+		punch.Cooldown != 0 || punch.Weight != 50 {
+		t.Errorf("canonical punch drifted: %+v", punch)
+	}
+	if punch.Type != MoveTypeCreature {
+		t.Errorf("punch type = %q, want %q (a fist is no weapon grant)", punch.Type, MoveTypeCreature)
+	}
+	if punch.UsableByWeapons() {
+		t.Error("the punch is weapon-grantable, want creature-only")
+	}
+	if !punch.UsableByCreatures() {
+		t.Error("the punch is not usable by creatures, want true (shrine-correct)")
+	}
+	if punch.HasStatus() {
+		t.Error("the punch carries a status, want none")
+	}
+}
+
 // FilterUnknownMoves is the shrine's offer filter: the tier-filtered
 // registry pool minus everything the hero already knows, minus the
 // canonical basic_attack (never offered — every combatant already fights
@@ -213,6 +238,20 @@ func TestFilterUnknownMoves(t *testing.T) {
 
 		if len(got) != 3 {
 			t.Errorf("FilterUnknownMoves = %+v, want 3 moves (basic_attack still dropped)", got)
+		}
+	})
+
+	t.Run("the pre-learned punch filters out once learned", func(t *testing.T) {
+		// The fresh hero KNOWS the punch; a shrine pool carrying it must
+		// drop it like any other known move.
+		withPunch := []game.MoveAsset{
+			{ID: "punch", Name: "Punch", Tier: 1, DmgModifier: 60, Weight: 50, Type: "creature"},
+			{ID: "heavy_slash", Name: "Heavy Slash", Tier: 2, DmgModifier: 175, Cooldown: 2, Weight: 60, Type: "both"},
+		}
+		got := FilterUnknownMoves(withPunch, []Move{Punch()})
+
+		if len(got) != 1 || got[0].ID != "heavy_slash" {
+			t.Errorf("FilterUnknownMoves = %+v, want [heavy_slash] (the learned punch never re-offered)", got)
 		}
 	})
 

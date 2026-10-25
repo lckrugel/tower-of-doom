@@ -506,8 +506,10 @@ func TestViewCombatShowsOnlyTheCurrentEnemy(t *testing.T) {
 		}
 	}
 	// The hero's moves live in the 2×2 grid in the body now; the bar
-	// shrank to the two combat-only actions.
-	if !strings.Contains(view, "Basic Strike") || !strings.Contains(view, "◈ MOVES") {
+	// shrank to the two combat-only actions. The fixture hero is a fresh
+	// NewPlayer: its opening move is the pre-learned Punch (the fixture
+	// registry carries no starter item to grant anything else).
+	if !strings.Contains(view, "Punch") || !strings.Contains(view, "◈ MOVES") {
 		t.Errorf("combat view missing the move grid:\n%s", view)
 	}
 	if !strings.Contains(view, "[R] Flee") || !strings.Contains(view, "[Q] Quit") {

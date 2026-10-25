@@ -53,6 +53,7 @@ type Hero struct {
 	// learnedMoves holds the hero's LEARNED moves (shrine learning) in
 	// learning order, capped at MaxLearnedMoves. Weapon-granted moves are
 	// NOT stored here — they ride the equipped weapon (EffectiveMoves).
+	// A fresh hero starts with the Punch pre-learned in slot 1.
 	learnedMoves []Move
 }
 
@@ -67,6 +68,12 @@ func NewPlayer(starterItems ...*Item) *Hero {
 		BaseSPD:   baseSpd,
 		BaseDEF:   baseDef,
 	}
+	// The punch start: every hero is born knowing how to throw a fist.
+	// It is PRE-LEARNED into learned slot 1 of MaxLearnedMoves (2) — the
+	// opening set is Punch (◆) + the starter weapon's explicit grants,
+	// and a late shrine may replace it through the forget flow like any
+	// other learned move. No rng, no registry: the move is canonical.
+	hero.learnedMoves = append(hero.learnedMoves, Punch())
 
 	for _, i := range starterItems {
 		hero.EquipItem(i)

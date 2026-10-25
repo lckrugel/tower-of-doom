@@ -254,3 +254,23 @@ func BasicAttack() Move {
 		Weight:      100,
 	}
 }
+
+// Punch returns the canonical opening move (asset id "punch"): a weak,
+// spammable, creature-only strike — the move every hero is BORN knowing
+// (NewPlayer pre-learns it into learned slot 1). Creature-typed on
+// purpose: a fist is no weapon grant, so no weapon can ever carry it,
+// and it is exactly what a shrine offers a hero who forgot it. A
+// function (not a package variable) so callers can never mutate a
+// shared value; the embedded moves.json ships the same move as an asset.
+func Punch() Move {
+	return Move{
+		ID:          "punch",
+		Name:        "Punch",
+		Type:        MoveTypeCreature,
+		Tier:        1,
+		DmgModifier: 60,
+		CritBonus:   0,
+		Cooldown:    0,
+		Weight:      50,
+	}
+}

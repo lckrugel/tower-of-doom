@@ -793,11 +793,11 @@ func TestLoadEmbeddedMovesAndStatuses(t *testing.T) {
 	// anywhere). The punch is creature-only: the hero's opening move,
 	// never weapon-grantable.
 	wantTypes := map[string]string{
-		"basic_attack": "both", "quick_stab": "both", "guard_strike": "both",
-		"venom_bite": "creature", "heavy_slash": "both", "crushing_blow": "creature",
-		"steel_flurry": "weapon", "assassins_strike": "both", "venomous_blade": "both",
-		"shield_wall": "both", "soul_rot": "creature", "skull_crusher": "creature",
-		"bloodletter": "creature", "dragons_might": "both",
+		"basic_attack": "both", "punch": "creature", "quick_stab": "both",
+		"guard_strike": "both", "venom_bite": "creature", "heavy_slash": "both",
+		"crushing_blow": "creature", "steel_flurry": "weapon", "assassins_strike": "both",
+		"venomous_blade": "both", "shield_wall": "both", "soul_rot": "creature",
+		"skull_crusher": "creature", "bloodletter": "creature", "dragons_might": "both",
 	}
 	for id, wantType := range wantTypes {
 		move, ok := r.MoveByID(id)
@@ -829,6 +829,17 @@ func TestLoadEmbeddedMovesAndStatuses(t *testing.T) {
 		t.Errorf("assassins_strike drifted: %+v, want tier 4 cooldown 0 (the draconic sword's spammable)", assassins)
 	}
 
+	// The punch: the hero's opening move (NewPlayer pre-learns it) —
+	// weak, spammable, creature-only.
+	punch, ok := r.MoveByID("punch")
+	if !ok {
+		t.Fatal("the punch move is missing from the embedded assets")
+	}
+	if punch.Name != "Punch" || punch.Tier != 1 || punch.DmgModifier != 60 ||
+		punch.CritBonus != 0 || punch.Cooldown != 0 || punch.Weight != 50 || punch.Status != nil {
+		t.Errorf("punch drifted: %+v", punch)
+	}
+
 	poison, ok := r.StatusByID("poison")
 	if !ok {
 		t.Fatal("the starter poison status is missing from the embedded assets")
@@ -847,8 +858,8 @@ func TestLoadEmbeddedMovesAndStatuses(t *testing.T) {
 		t.Errorf("guard drifted: %+v", guard)
 	}
 
-	if got, want := len(r.Moves), 15; got != want {
-		t.Errorf("embedded moves = %d, want %d (basic attack + the tier 1-4 set + steel_flurry)", got, want)
+	if got, want := len(r.Moves), 16; got != want {
+		t.Errorf("embedded moves = %d, want %d (basic attack + punch + the tier 1-4 set + steel_flurry)", got, want)
 	}
 	if got, want := len(r.Statuses), 4; got != want {
 		t.Errorf("embedded statuses = %d, want %d (the starter set)", got, want)

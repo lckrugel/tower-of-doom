@@ -6,6 +6,15 @@ import (
 	"github.com/lckrugel/tower-of-doom/internal/game"
 )
 
+// newBareHero returns a fresh hero with the pre-learned punch forgotten
+// — the "empty learned set" fixture the move-set mechanics tests below
+// assume (the punch start itself has its own test).
+func newBareHero() *Hero {
+	h := NewPlayer()
+	h.ForgetMove(Punch().ID)
+	return h
+}
+
 // learnBoth fills a hero's learned set to the cap (MaxLearnedMoves).
 func learnBoth(h *Hero) {
 	if _, ok := h.LearnMove(Move{ID: "a", Name: "A"}); !ok {
@@ -16,10 +25,60 @@ func learnBoth(h *Hero) {
 	}
 }
 
+// NewPlayer starts with the Punch PRE-LEARNED: learned slot 1 of
+// MaxLearnedMoves — the opening set is Punch (◆) plus the starter
+// weapon's grants, and late shrines may replace the punch through the
+// forget flow like any other learned move.
+func TestNewPlayerStartsWithThePunch(t *testing.T) {
+	t.Run("a fresh hero's learned set is exactly [Punch]", func(t *testing.T) {
+		got := NewPlayer().LearnedMoves()
+
+		if len(got) != 1 || got[0].ID != Punch().ID || got[0].Name != "Punch" {
+			t.Errorf("fresh learned set = %+v, want [Punch]", got)
+		}
+	})
+
+	t.Run("the punch eats one of the two learned slots", func(t *testing.T) {
+		h := NewPlayer()
+
+		if _, learned := h.LearnMove(Move{ID: "guard_strike"}); !learned {
+			t.Fatal("learning one more move under the cap failed")
+		}
+		if _, learned := h.LearnMove(Move{ID: "power_slash"}); learned {
+			t.Error("learned a third move — the punch already ate one slot")
+		}
+		got := h.LearnedMoves()
+		if len(got) != 2 || got[0].ID != Punch().ID || got[1].ID != "guard_strike" {
+			t.Errorf("learned set = %+v, want [Punch guard_strike]", got)
+		}
+	})
+
+	t.Run("the punch rides the learned set first, weapon grants after", func(t *testing.T) {
+		h := NewPlayer()
+
+		got := h.EffectiveMoves(newTestWeapon(Move{ID: "basic_attack", Name: "Basic Strike"}))
+
+		if len(got) != 2 || got[0].ID != Punch().ID || got[1].ID != "basic_attack" {
+			t.Errorf("effective set = %+v, want [Punch basic_attack]", got)
+		}
+	})
+
+	t.Run("the punch is forgettable — late shrines can replace it", func(t *testing.T) {
+		h := NewPlayer()
+
+		if !h.ForgetMove(Punch().ID) {
+			t.Fatal("ForgetMove(punch) = false, want true")
+		}
+		if got := h.LearnedMoves(); len(got) != 0 {
+			t.Errorf("learned set after forgetting the punch = %+v, want empty", got)
+		}
+	})
+}
+
 // LearnMove appends under the cap, in learning order.
 func TestHeroLearnMove(t *testing.T) {
 	t.Run("learns under the cap, in learning order", func(t *testing.T) {
-		h := NewPlayer()
+		h := newBareHero()
 
 		forgotten, learned := h.LearnMove(Move{ID: "a", Name: "A"})
 		if !learned || forgotten != nil {
@@ -36,7 +95,7 @@ func TestHeroLearnMove(t *testing.T) {
 	})
 
 	t.Run("refuses at the cap — forgetting is the caller's decision", func(t *testing.T) {
-		h := NewPlayer()
+		h := newBareHero()
 		learnBoth(h)
 
 		forgotten, learned := h.LearnMove(Move{ID: "c"})
@@ -50,7 +109,7 @@ func TestHeroLearnMove(t *testing.T) {
 	})
 
 	t.Run("refuses an already-known move id", func(t *testing.T) {
-		h := NewPlayer()
+		h := newBareHero()
 		h.LearnMove(Move{ID: "a", Name: "A"})
 
 		if _, learned := h.LearnMove(Move{ID: "a", Name: "A Again"}); learned {
@@ -63,7 +122,7 @@ func TestHeroLearnMove(t *testing.T) {
 	})
 
 	t.Run("learning again after forgetting works", func(t *testing.T) {
-		h := NewPlayer()
+		h := newBareHero()
 		learnBoth(h)
 
 		if !h.ForgetMove("a") {
@@ -83,7 +142,7 @@ func TestHeroLearnMove(t *testing.T) {
 // empty sets are no-ops (player-reachable — never a panic).
 func TestHeroForgetMove(t *testing.T) {
 	t.Run("removes the named move, keeping order", func(t *testing.T) {
-		h := NewPlayer()
+		h := newBareHero()
 		h.LearnMove(Move{ID: "a"})
 		h.LearnMove(Move{ID: "b"})
 
@@ -97,7 +156,7 @@ func TestHeroForgetMove(t *testing.T) {
 	})
 
 	t.Run("unknown id is a no-op", func(t *testing.T) {
-		h := NewPlayer()
+		h := newBareHero()
 		h.LearnMove(Move{ID: "a"})
 
 		if h.ForgetMove("nope") {
@@ -119,7 +178,7 @@ func TestHeroEffectiveMoves(t *testing.T) {
 	w2 := Move{ID: "w2", Name: "W2"}
 
 	t.Run("learned first, then weapon moves", func(t *testing.T) {
-		h := NewPlayer()
+		h := newBareHero()
 		h.LearnMove(a)
 		h.LearnMove(b)
 
@@ -131,7 +190,7 @@ func TestHeroEffectiveMoves(t *testing.T) {
 	})
 
 	t.Run("nil weapon leaves just the learned moves", func(t *testing.T) {
-		h := NewPlayer()
+		h := newBareHero()
 		h.LearnMove(a)
 
 		got := h.EffectiveMoves(nil)
@@ -142,7 +201,7 @@ func TestHeroEffectiveMoves(t *testing.T) {
 	})
 
 	t.Run("an empty set stays empty — basic attack is not implicit", func(t *testing.T) {
-		h := NewPlayer()
+		h := newBareHero()
 
 		got := h.EffectiveMoves(newTestWeapon())
 
@@ -152,7 +211,7 @@ func TestHeroEffectiveMoves(t *testing.T) {
 	})
 
 	t.Run("deduplicates by id, learned copy wins", func(t *testing.T) {
-		h := NewPlayer()
+		h := newBareHero()
 		h.LearnMove(a)
 
 		got := h.EffectiveMoves(newTestWeapon(Move{ID: "a", Name: "Weapon A"}, w1))
@@ -163,7 +222,7 @@ func TestHeroEffectiveMoves(t *testing.T) {
 	})
 
 	t.Run("never exceeds MaxMoves — weapon moves drop first", func(t *testing.T) {
-		h := NewPlayer()
+		h := newBareHero()
 		learnBoth(h) // 2 learned
 
 		got := h.EffectiveMoves(newTestWeapon(w1, w2, Move{ID: "w3"})) // 3 granted
@@ -181,7 +240,7 @@ func TestHeroEffectiveMoves(t *testing.T) {
 	t.Run("learned moves also respect the cap", func(t *testing.T) {
 		// learnBoth + ForgetMove-shaped flows can never exceed the cap,
 		// but the effective set guards it anyway (defense in depth).
-		h := NewPlayer()
+		h := newBareHero()
 		learnBoth(h)
 
 		got := h.EffectiveMoves(nil)
@@ -192,7 +251,7 @@ func TestHeroEffectiveMoves(t *testing.T) {
 	})
 
 	t.Run("returned slice is a copy", func(t *testing.T) {
-		h := NewPlayer()
+		h := newBareHero()
 		h.LearnMove(a)
 
 		got := h.EffectiveMoves(nil)
@@ -248,7 +307,7 @@ func TestHeroEffectiveMovesWithSource(t *testing.T) {
 	w2 := Move{ID: "w2", Name: "W2"}
 
 	t.Run("learned moves first, weapon moves after", func(t *testing.T) {
-		h := NewPlayer()
+		h := newBareHero()
 		h.LearnMove(a)
 		h.LearnMove(b)
 
@@ -267,7 +326,7 @@ func TestHeroEffectiveMovesWithSource(t *testing.T) {
 	})
 
 	t.Run("a move known via both reports as LEARNED", func(t *testing.T) {
-		h := NewPlayer()
+		h := newBareHero()
 		h.LearnMove(a)
 
 		got := h.EffectiveMovesWithSource(newTestWeapon(Move{ID: "a", Name: "Weapon A"}, w1))
@@ -285,7 +344,7 @@ func TestHeroEffectiveMovesWithSource(t *testing.T) {
 	})
 
 	t.Run("nil weapon leaves only learned sources", func(t *testing.T) {
-		h := NewPlayer()
+		h := newBareHero()
 		h.LearnMove(a)
 
 		got := h.EffectiveMovesWithSource(nil)
@@ -296,7 +355,7 @@ func TestHeroEffectiveMovesWithSource(t *testing.T) {
 	})
 
 	t.Run("the cap drops weapon moves, sources stay consistent", func(t *testing.T) {
-		h := NewPlayer()
+		h := newBareHero()
 		learnBoth(h) // 2 learned
 
 		got := h.EffectiveMovesWithSource(newTestWeapon(w1, w2, Move{ID: "w3"}))
@@ -316,7 +375,7 @@ func TestHeroEffectiveMovesWithSource(t *testing.T) {
 	})
 
 	t.Run("EffectiveMoves mirrors the sourced set", func(t *testing.T) {
-		h := NewPlayer()
+		h := newBareHero()
 		h.LearnMove(a)
 		weapon := newTestWeapon(Move{ID: "a", Name: "Weapon A"}, w1, w2)
 
@@ -334,7 +393,7 @@ func TestHeroEffectiveMovesWithSource(t *testing.T) {
 	})
 
 	t.Run("returned slice is a copy", func(t *testing.T) {
-		h := NewPlayer()
+		h := newBareHero()
 		h.LearnMove(a)
 
 		got := h.EffectiveMovesWithSource(nil)
