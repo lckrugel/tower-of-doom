@@ -746,14 +746,14 @@ func TestLoadEmbeddedMovesAndStatuses(t *testing.T) {
 		t.Errorf("guard drifted: %+v", guard)
 	}
 
-	if got, want := len(r.Moves), 8; got != want {
-		t.Errorf("embedded moves = %d, want %d (basic attack + 7 starters)", got, want)
+	if got, want := len(r.Moves), 14; got != want {
+		t.Errorf("embedded moves = %d, want %d (basic attack + the tier 1-4 set)", got, want)
 	}
 	if got, want := len(r.Statuses), 4; got != want {
 		t.Errorf("embedded statuses = %d, want %d (the starter set)", got, want)
 	}
-	if got := r.MaxMoveTier(); got != 3 {
-		t.Errorf("embedded MaxMoveTier = %d, want 3", got)
+	if got := r.MaxMoveTier(); got != 4 {
+		t.Errorf("embedded MaxMoveTier = %d, want 4", got)
 	}
 }
 
@@ -768,6 +768,11 @@ func TestLoadDefaultsAbsentMoveTierToOne(t *testing.T) {
 	}
 	write("monsters.json", `[
 		{"id": "rat", "name": "Rat", "difficulty": 1, "hp": 10, "dmg": 1, "spd": 5}
+	]`)
+	// A move-less weapon isolates the fixture from the embedded items
+	// (whose grants reference moves this registry does not carry).
+	write("items.json", `[
+		{"id": "stick", "slot": "weapon", "name": "Stick", "bonus_dmg": 1, "durability": 5}
 	]`)
 	write("sections.json", `[
 		{"id": "s", "name": "S", "base_difficulty": 1, "min_floor": 1, "max_floor": -1,
