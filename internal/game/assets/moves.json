@@ -1,7 +1,7 @@
 [
   {
     "id": "basic_attack",
-    "name": "Basic Attack",
+    "name": "Basic Strike",
     "tier": 1,
     "dmg_modifier": 100,
     "crit_bonus": 0,
@@ -83,12 +83,21 @@
     "weight": 40
   },
   {
-    "id": "assassins_strike",
-    "name": "Assassin's Strike",
+    "id": "steel_flurry",
+    "name": "Steel Flurry",
     "tier": 3,
     "dmg_modifier": 110,
+    "crit_bonus": 0,
+    "cooldown": 0,
+    "weight": 70
+  },
+  {
+    "id": "assassins_strike",
+    "name": "Assassin's Strike",
+    "tier": 4,
+    "dmg_modifier": 110,
     "crit_bonus": 35,
-    "cooldown": 3,
+    "cooldown": 0,
     "weight": 30
   },
   {

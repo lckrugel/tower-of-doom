@@ -593,7 +593,7 @@ func TestViewGridShowsTheBasicAttackFallback(t *testing.T) {
 
 	view := stripControls(stripANSI(m.View()))
 
-	if !strings.Contains(view, "Basic Attack") || !strings.Contains(view, "100%") {
+	if !strings.Contains(view, "Basic Strike") || !strings.Contains(view, "100%") {
 		t.Errorf("the basic-attack fallback is missing from the grid:\n%s", view)
 	}
 }

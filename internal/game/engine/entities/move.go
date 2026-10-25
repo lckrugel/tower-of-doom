@@ -154,7 +154,7 @@ func NewStatusFromAsset(asset game.StatusAsset) Status {
 func BasicAttack() Move {
 	return Move{
 		ID:          "basic_attack",
-		Name:        "Basic Attack",
+		Name:        "Basic Strike",
 		Tier:        1,
 		DmgModifier: 100,
 		CritBonus:   0,

@@ -723,9 +723,29 @@ func TestLoadEmbeddedMovesAndStatuses(t *testing.T) {
 	if !ok {
 		t.Fatal("the canonical basic_attack move is missing from the embedded assets")
 	}
-	if basic.Tier != 1 || basic.DmgModifier != 100 || basic.CritBonus != 0 ||
-		basic.Cooldown != 0 || basic.Weight != 100 || basic.Status != nil {
+	if basic.Name != "Basic Strike" || basic.Tier != 1 || basic.DmgModifier != 100 ||
+		basic.CritBonus != 0 || basic.Cooldown != 0 || basic.Weight != 100 || basic.Status != nil {
 		t.Errorf("basic_attack drifted: %+v", basic)
+	}
+
+	// The spammable the steel sword grants (a tier-3, cooldown-0 strike).
+	flurry, ok := r.MoveByID("steel_flurry")
+	if !ok {
+		t.Fatal("the steel_flurry move is missing from the embedded assets")
+	}
+	if flurry.Name != "Steel Flurry" || flurry.Tier != 3 || flurry.DmgModifier != 110 ||
+		flurry.CritBonus != 0 || flurry.Cooldown != 0 || flurry.Status != nil {
+		t.Errorf("steel_flurry drifted: %+v", flurry)
+	}
+
+	// The drake blade's spammable: retuned to tier 4 / cooldown 0 (it
+	// replaced the basic_attack fallback on the game's best weapon).
+	assassins, ok := r.MoveByID("assassins_strike")
+	if !ok {
+		t.Fatal("the assassins_strike move is missing from the embedded assets")
+	}
+	if assassins.Tier != 4 || assassins.Cooldown != 0 {
+		t.Errorf("assassins_strike drifted: %+v, want tier 4 cooldown 0 (the draconic sword's spammable)", assassins)
 	}
 
 	poison, ok := r.StatusByID("poison")
@@ -746,14 +766,50 @@ func TestLoadEmbeddedMovesAndStatuses(t *testing.T) {
 		t.Errorf("guard drifted: %+v", guard)
 	}
 
-	if got, want := len(r.Moves), 14; got != want {
-		t.Errorf("embedded moves = %d, want %d (basic attack + the tier 1-4 set)", got, want)
+	if got, want := len(r.Moves), 15; got != want {
+		t.Errorf("embedded moves = %d, want %d (basic attack + the tier 1-4 set + steel_flurry)", got, want)
 	}
 	if got, want := len(r.Statuses), 4; got != want {
 		t.Errorf("embedded statuses = %d, want %d (the starter set)", got, want)
 	}
 	if got := r.MaxMoveTier(); got != 4 {
 		t.Errorf("embedded MaxMoveTier = %d, want 4", got)
+	}
+
+	// Every shipped weapon's grant list, retiered so each weapon with
+	// moves carries a spammable (the spammable rule).
+	wantWeaponMoves := map[string][]string{
+		"wooden_sword":   nil, // starter: the Basic Strike fallback
+		"iron_sword":     {"quick_stab"},
+		"steel_sword":    {"steel_flurry", "heavy_slash"},
+		"draconic_sword": {"assassins_strike", "dragons_might"},
+	}
+	for id, want := range wantWeaponMoves {
+		item, ok := r.Items[id]
+		if !ok {
+			t.Fatalf("shipped weapon %q is missing from the embedded assets", id)
+		}
+		if got := item.Moves; !slices.Equal(got, want) {
+			t.Errorf("weapon %q grants %v, want %v", id, got, want)
+		}
+	}
+
+	// Spammable-rule compliance for every shipped weapon: a weapon with a
+	// moves list must carry at least one cooldown-0 move (move-less
+	// weapons keep the Basic Strike fallback — spammable by definition).
+	for id, item := range r.Items {
+		if item.Slot != "weapon" || len(item.Moves) == 0 {
+			continue
+		}
+		spammable := false
+		for _, moveID := range item.Moves {
+			if move, ok := r.MoveByID(moveID); ok && move.Cooldown == 0 {
+				spammable = true
+			}
+		}
+		if !spammable {
+			t.Errorf("weapon %q grants %v, none with cooldown 0 (no spammable)", id, item.Moves)
+		}
 	}
 }
 
@@ -998,6 +1054,33 @@ func TestValidateCombat2Content(t *testing.T) {
 					Moves: []string{"heavy_slash"}}
 			},
 			"only weapons",
+		},
+		// The spammable rule: a weapon that grants moves REPLACES the
+		// basic_attack fallback, so its list must carry at least one
+		// cooldown-0 move.
+		{
+			"weapon whose only move is on cooldown",
+			func(r *Registry) {
+				r.Items["sword"] = ItemAsset{ID: "sword", Name: "Sword", Slot: "weapon", Tier: 1,
+					Moves: []string{"heavy_slash"}}
+			},
+			"spammable",
+		},
+		{
+			"weapon whose every move is on cooldown",
+			func(r *Registry) {
+				r.Items["sword"] = ItemAsset{ID: "sword", Name: "Sword", Slot: "weapon", Tier: 1,
+					Moves: []string{"heavy_slash", "crushing_blow"}}
+			},
+			"spammable",
+		},
+		{
+			"weapon with a lone spammable",
+			func(r *Registry) {
+				r.Items["sword"] = ItemAsset{ID: "sword", Name: "Sword", Slot: "weapon", Tier: 1,
+					Moves: []string{"quick_stab"}}
+			},
+			"",
 		},
 		// Section move_tiers.
 		{

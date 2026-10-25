@@ -506,13 +506,13 @@ func TestViewCombatShowsOnlyTheCurrentEnemy(t *testing.T) {
 	}
 	// The hero's moves live in the 2×2 grid in the body now; the bar
 	// shrank to the two combat-only actions.
-	if !strings.Contains(view, "Basic Attack") || !strings.Contains(view, "◈ MOVES") {
+	if !strings.Contains(view, "Basic Strike") || !strings.Contains(view, "◈ MOVES") {
 		t.Errorf("combat view missing the move grid:\n%s", view)
 	}
 	if !strings.Contains(view, "[R] Flee") || !strings.Contains(view, "[Q] Quit") {
 		t.Errorf("combat action bar incomplete:\n%s", view)
 	}
-	if strings.Contains(view, "[1] Basic Attack") {
+	if strings.Contains(view, "[1] Basic Strike") {
 		t.Errorf("the move chips still render on the bar:\n%s", view)
 	}
 }

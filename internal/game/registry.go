@@ -543,6 +543,24 @@ func (r *Registry) Validate(topFloor int) error {
 				)
 			}
 		}
+		// The spammable rule: granting moves REPLACES the canonical
+		// basic_attack fallback, so the grant list must carry at least
+		// one cooldown-0 move — a weapon whose every move is locked can
+		// never act. A weapon with NO moves list keeps the fallback
+		// (spammable by definition) and skips this rule.
+		hasSpammable := false
+		for _, moveID := range item.Moves {
+			if move, _ := r.MoveByID(moveID); move.Cooldown == 0 {
+				hasSpammable = true
+			}
+		}
+		if !hasSpammable {
+			return fmt.Errorf(
+				"content validation: weapon %q grants moves, but none has cooldown 0 — "+
+					"want at least one spammable (the grants replace the basic_attack fallback)",
+				item.ID,
+			)
+		}
 	}
 
 	for _, s := range r.Sections {

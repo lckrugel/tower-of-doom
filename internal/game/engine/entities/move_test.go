@@ -113,7 +113,7 @@ func TestNewStatusFromAsset(t *testing.T) {
 func TestBasicAttack(t *testing.T) {
 	basic := BasicAttack()
 
-	if basic.ID != "basic_attack" || basic.Name != "Basic Attack" ||
+	if basic.ID != "basic_attack" || basic.Name != "Basic Strike" ||
 		basic.Tier != 1 || basic.DmgModifier != 100 || basic.CritBonus != 0 ||
 		basic.Cooldown != 0 || basic.Weight != 100 {
 		t.Errorf("canonical basic attack drifted: %+v", basic)
