@@ -60,9 +60,9 @@ func (e *Engine) MoveCooldown(moveID string) int {
 }
 
 // resolveRound plays one full round of combat from the hero's move
-// choice: whoever has the higher total Speed (items included) acts first
-// — the Hero wins ties — and both combatants act unless someone dies
-// mid-round. `move` is the Hero's chosen move (the CmdMove index into
+// choice: whoever has the higher EFFECTIVE Speed acts first — the Hero
+// wins ties — and both combatants act unless someone dies mid-round.
+// `move` is the Hero's chosen move (the CmdMove index into
 // CombatMoves); nil means a RECOVER round — every hero move is locked,
 // so the turn advances with an announced idle round instead of a
 // soft-lock.
