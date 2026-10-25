@@ -16,10 +16,10 @@ func TestKillGrantsGold(t *testing.T) {
 		events := e.Process(Command{Type: CmdMove, Index: 0})
 
 		if got := eventTypes(events); !typesEqual(got,
-			EventCombatDamageDealt, EventEnemyDefeated, EventGoldGained, EventVictory) {
-			t.Fatalf("events = %v, want [dealt defeated gold-gained victory]", got)
+			EventMoveUsed, EventCombatDamageDealt, EventEnemyDefeated, EventGoldGained, EventVictory) {
+			t.Fatalf("events = %v, want [move-used dealt defeated gold-gained victory]", got)
 		}
-		gold := events[2]
+		gold := events[3]
 		if amount, _ := gold.Data["amount"].(int); amount != 25 {
 			t.Errorf("amount = %v, want 25 (5 × difficulty 5)", amount)
 		}

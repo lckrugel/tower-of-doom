@@ -72,12 +72,23 @@ All combat randomness flows through the engine's injectable `rng` seam
 (`Intn(n)`), so tests stay deterministic. The crypto-based `game.RollD*`
 helpers are for non-engine use only (e.g. item durability).
 
-- **Attack resolution (per strike):** no hit/miss roll — every attack lands.
-    1. Damage spread: `max(1, DMG − 1 + Intn(3))` (±1 around the attack stat).
-    2. Critical hit: crit if `Intn(100) < CritThreshold()` (a percentage),
-       doubling the swung damage of that hit.
-    - The Hero has a fixed 10% crit threshold; each monster has its own
-      `crit` asset value (0 = never crits, validated in [0, 100]).
+- **Attack resolution (per strike):** no hit/miss roll — every attack
+  lands. The strike is made with a MOVE (the hero picks one; monsters
+  fight the canonical basic attack until the monster AI lands):
+  1. Damage base: `round(effective DMG × dmg_modifier / 100)` — pure
+     math, no rng (the modifier is a percent; 100 = neutral).
+  2. Damage spread: `max(1, base − 1 + Intn(3))` (±1 around the base).
+  3. Critical hit: crit if
+     `Intn(100) < clamp(CritThreshold() + move.crit_bonus, 0, 100)`,
+     doubling the swung damage of that hit.
+  - The Hero has a fixed 10% crit threshold; each monster has its own
+    `crit` asset value (0 = never crits, validated in [0, 100]).
+- **Move cooldowns:** using a move locks it for exactly its `cooldown`
+  full rounds after the round of use (0 = spammable). Locks tick at
+  round end and never survive the encounter. A fully-cooled hero turn
+  resolves as an automatic RECOVER round (a message, the enemy acts,
+  ticks run) — never a soft-lock; picking one locked move while another
+  is ready is only a blocking message with no state change.
 - **SNEAK:** 50/50 (`Intn(2)`), no stats involved.
 - **FLEE:** chance = `50% + 5% × (hero SPD − enemy SPD)`, clamped to [5, 95].
 

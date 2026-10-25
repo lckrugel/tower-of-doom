@@ -57,6 +57,13 @@ type Engine struct {
 	// value is combat, so a fresh engine's empty history can never
 	// satisfy the non-combat streak and false-trigger the override.
 	recentKinds [2]EncounterType
+	// heroCombat / enemyCombat are the combat-scoped states (move
+	// cooldowns, active statuses) of the two combatants. Reset at every
+	// combat start (startCombat); the enemy state also resets whenever
+	// the queue advances (the next monster steps in fresh). Never
+	// survives the encounter — see combat_state.go.
+	heroCombat  combatantState
+	enemyCombat combatantState
 }
 
 // `rng` é a fonte de aleatoriedade usada pelo engine.
@@ -182,13 +189,22 @@ func (e *Engine) handleEncounter(cmd Command) []Event {
 		// Entering combat resolves NO round: rounds advance from the
 		// hero's move choices (CmdMove in StateCombat). FIGHT only opens
 		// the state — no rng consumed, no strike forced.
-		e.State = StateCombat
+		e.startCombat()
 		return nil
 	case CmdSneak:
 		return e.resolveSneak()
 	default:
 		return []Event{NewMessage("Unhandled command")}
 	}
+}
+
+// startCombat opens a fresh combat: the combat-scoped state (move
+// cooldowns, active statuses) resets — every FIGHT / failed-SNEAK / boss
+// start begins a clean slate. Nothing here survives the encounter.
+func (e *Engine) startCombat() {
+	e.heroCombat = newCombatantState()
+	e.enemyCombat = newCombatantState()
+	e.State = StateCombat
 }
 
 // resolveSneak attempts to slip past the encounter. Success avoids combat
@@ -201,7 +217,8 @@ func (e *Engine) resolveSneak() []Event {
 		e.State = StateExploring
 		return []Event{NewSneakSuccess()}
 	}
-	e.State = StateCombat
+	// A failed sneak is a fresh combat with a free turn for the enemy.
+	e.startCombat()
 	return append([]Event{NewSneakFailed()}, e.enemyFreeTurn()...)
 }
 
@@ -211,12 +228,35 @@ func (e *Engine) handleCombat(cmd Command) []Event {
 		// The index was range-checked by isValidCommand against the
 		// hero's combat move set, so this indexes safely.
 		move := e.CombatMoves()[cmd.Index]
+		if e.heroCombat.onCooldown(move.ID) {
+			// A locked move is a blocked action, not an error: a message,
+			// no state change. But a FULLY cooled hero must still be able
+			// to act — never a soft-lock — so when every move is locked
+			// the turn resolves as a RECOVER round (the hero doesn't act,
+			// the enemy does, everything ticks).
+			if !e.heroHasReadyMove() {
+				return e.resolveRound(nil)
+			}
+			return []Event{NewMessage("Move on cooldown.")}
+		}
 		return e.resolveRound(&move)
 	case CmdFlee:
 		return e.resolveFlee()
 	default:
 		return []Event{NewMessage("Unhandled command")}
 	}
+}
+
+// heroHasReadyMove reports whether any of the hero's combat moves is off
+// cooldown (a fully-cooled hero turn resolves as a RECOVER round instead
+// of a blocked command).
+func (e *Engine) heroHasReadyMove() bool {
+	for _, m := range e.CombatMoves() {
+		if !e.heroCombat.onCooldown(m.ID) {
+			return true
+		}
+	}
+	return false
 }
 
 // handleLoot resolves the pending loot decision (StateLoot — chests and,

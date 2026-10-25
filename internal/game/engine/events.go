@@ -60,6 +60,8 @@ const (
 	EventItemBought
 	// An item was sold to a merchant (it is destroyed).
 	EventItemSold
+	// A combatant used a Combat 2.0 move (every strike is a move use).
+	EventMoveUsed
 )
 
 // `Event` é o que o jogo envia após processar um `Command`.
@@ -149,6 +151,16 @@ func NewDamageDealt(enemy Combatant, dmgDealt int, crit bool) Event {
 	}
 }
 
+// NewDamageDealtWithMove is the full EventCombatDamageDealt payload: the
+// legacy keys above plus the ADDITIVE key:
+//   - "move": the name of the Combat 2.0 move the strike was made with.
+//     Consumers predating the key keep working.
+func NewDamageDealtWithMove(enemy Combatant, dmgDealt int, crit bool, move string) Event {
+	data := NewDamageDealt(enemy, dmgDealt, crit).Data
+	data["move"] = move
+	return Event{Type: EventCombatDamageDealt, Data: data}
+}
+
 // NewDamageTaken reports a hit landed on the Hero.
 //
 // Payload:
@@ -178,6 +190,32 @@ func NewDamageTaken(hero Combatant, dmgTaken int, crit bool) Event {
 
 func NewSneakSuccess() Event {
 	return Event{Type: EventSneakSuccess}
+}
+
+// NewDamageTakenWithMove is the full EventCombatDamageTaken payload: the
+// legacy keys above plus the ADDITIVE key:
+//   - "move": the name of the Combat 2.0 move the strike was made with.
+//     Consumers predating the key keep working.
+func NewDamageTakenWithMove(hero Combatant, dmgTaken int, crit bool, move string) Event {
+	data := NewDamageTaken(hero, dmgTaken, crit).Data
+	data["move"] = move
+	return Event{Type: EventCombatDamageTaken, Data: data}
+}
+
+// NewMoveUsed reports a combatant using a Combat 2.0 move — every strike
+// is a move use now (the canonical basic attack included).
+//
+// Payload:
+//   - "user": the striker's name.
+//   - "move": the move's name.
+func NewMoveUsed(user, move string) Event {
+	return Event{
+		Type: EventMoveUsed,
+		Data: map[string]any{
+			"user": user,
+			"move": move,
+		},
+	}
 }
 
 func NewSneakFailed() Event {
