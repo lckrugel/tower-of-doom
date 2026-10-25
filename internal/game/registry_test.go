@@ -660,6 +660,49 @@ func TestMoveByIDAndStatusByID(t *testing.T) {
 	}
 }
 
+// The embedded boss groups are table-locked: one boss per finite
+// section, none on the infinite tail. Every group references existing
+// monsters and is tuned as a considerable challenge for its section's
+// LATE floors — see the assets commit for the tuning rationale.
+func TestLoadEmbeddedSectionBosses(t *testing.T) {
+	r, err := Load("")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	want := map[string][]string{
+		"goblin_pits":           {"goblin_chief", "hobgoblin"},
+		"goblin_camp_outskirts": {"orc_warlord", "orc_berserker", "orc"},
+		"underdark_reaches":     {"lich", "vampire_spawn", "wraith"},
+		"wraithfall_bastion":    {"beholder", "wraith", "wraith"},
+		"dragon_hoard":          nil, // the infinite tail: no boss gate, ever
+	}
+	wantGold := map[string]int{
+		"goblin_pits":           250,
+		"goblin_camp_outskirts": 1000,
+		"underdark_reaches":     2500,
+		"wraithfall_bastion":    5000,
+		"dragon_hoard":          0,
+	}
+
+	for _, s := range r.Sections {
+		var got []string
+		if s.Boss != nil {
+			got = s.Boss.Monsters
+		}
+		if !slices.Equal(got, want[s.ID]) {
+			t.Errorf("section %q boss = %v, want %v", s.ID, got, want[s.ID])
+		}
+		gold := 0
+		if s.Boss != nil {
+			gold = s.Boss.Gold
+		}
+		if gold != wantGold[s.ID] {
+			t.Errorf("section %q boss gold = %d, want %d", s.ID, gold, wantGold[s.ID])
+		}
+	}
+}
+
 // The embedded assets ship the canonical basic attack and the four
 // starter statuses; this locks their core values.
 func TestLoadEmbeddedMovesAndStatuses(t *testing.T) {
