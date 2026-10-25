@@ -389,8 +389,8 @@ func (m Model) encounterPanel() string {
 
 // combatPanel is the combat screen: the enemy currently in front of the
 // hero — the rest of the queue appears only as a counter — with its stat
-// line, and the 2×2 move grid below it. Just like the encounter panel it
-// shows the engaged enemy's stat line.
+// line and status chips, and the 2×2 move grid below it. Just like the
+// encounter panel it shows the engaged enemy's stat line.
 func (m Model) combatPanel() string {
 	var b strings.Builder
 	b.WriteString(stylePanelTitle.Render("⚔ ENEMIES") + "\n")
@@ -402,6 +402,9 @@ func (m Model) combatPanel() string {
 	b.WriteString("▶ " + stylePanelTitle.Render(front.Name()) +
 		"  " + hpBar(front.CurrentHP, front.MaxHP()) + "\n")
 	b.WriteString("  " + statLine(front) + "\n")
+	if rows := m.enemyStatusRows(); rows != "" {
+		b.WriteString(rows + "\n")
+	}
 	if waiting := len(monsters) - 1; waiting > 0 {
 		b.WriteString(styleDim.Render(fmt.Sprintf("  · %d more waiting", waiting)) + "\n")
 	}
@@ -492,6 +495,76 @@ func (m Model) gridTags(move entities.Move, cooling bool) string {
 	return "   " + strings.Join(tags, " ")
 }
 
+// maxStatusRows is the fixed budget for the enemy block's status chips:
+// they wrap into at most two rows, then the display drops what doesn't
+// fit — the frame's height never moves for statuses (the log carries
+// every application/expiry faithfully).
+const maxStatusRows = 2
+
+// statusChip renders one active status as "Poison(2)" — the name the
+// event payload carried plus the rounds still left — toned by kind:
+// debuffs soft-red, buffs green (the same tones the log uses).
+func statusChip(s combatStatus) string {
+	label := fmt.Sprintf("%s(%d)", s.name, s.turns)
+	if s.kind == string(entities.StatusBuff) {
+		return styleHeal.Render(label)
+	}
+	return styleHurt.Render(label)
+}
+
+// statusChips renders one chip per active status, in application order.
+func statusChips(statuses []combatStatus) []string {
+	chips := make([]string, 0, len(statuses))
+	for _, s := range statuses {
+		chips = append(chips, statusChip(s))
+	}
+	return chips
+}
+
+// wrapChips lays chips into rows of at most maxWidth (lipgloss-aware
+// widths), at most maxRows rows; chips that no longer fit — including a
+// single chip wider than a whole row — are dropped. The cap is the
+// documented display budget, never slot() clipping.
+func wrapChips(chips []string, maxWidth, maxRows int) []string {
+	rows := make([]string, 0, maxRows)
+	var row []string
+	width := 0
+	for _, chip := range chips {
+		w := lipgloss.Width(chip) + 1 // the separator space
+		if len(row) == 0 {
+			w-- // no separator on the first chip of a row
+		}
+		if width+w > maxWidth && len(row) > 0 {
+			rows = append(rows, strings.Join(row, " "))
+			row, width = nil, 0
+			w = lipgloss.Width(chip)
+			if len(rows) == maxRows {
+				return rows // the cap: the rest is dropped
+			}
+		}
+		if w > maxWidth {
+			continue // a lone chip wider than the budget: dropped
+		}
+		row = append(row, chip)
+		width += w
+	}
+	if len(row) > 0 && len(rows) < maxRows {
+		rows = append(rows, strings.Join(row, " "))
+	}
+	return rows
+}
+
+// enemyStatusRows is the enemy block's status rows: the engaged enemy's
+// active chips, wrapped to at most maxStatusRows rows inside the column
+// (the two-space indent is part of the budget).
+func (m Model) enemyStatusRows() string {
+	rows := wrapChips(statusChips(m.mirror.enemyStatuses), mainColWidth-2, maxStatusRows)
+	for i := range rows {
+		rows[i] = "  " + rows[i]
+	}
+	return strings.Join(rows, "\n")
+}
+
 // statLine is a monster's combat profile on one compact, dim line:
 // damage, defense, speed, crit chance and difficulty — the same
 // DMG→DEF→SPD order the hero panel uses, prefixed with the ⚔ combat
@@ -535,7 +608,9 @@ func truncateRunes(s string, width int) string {
 
 // heroPanel is the player's vital stats: level, XP, HP and the derived
 // stats with the purse. Gear is deliberately not listed — the equipped
-// panel owns that view in the trade states.
+// panel owns that view in the trade states. While in combat the HP row
+// carries the hero's active status chips (heroStatusChips) — the panel's
+// four-line shape never changes.
 func (m Model) heroPanel() string {
 	p := m.engine.Player
 	var b strings.Builder
@@ -543,12 +618,28 @@ func (m Model) heroPanel() string {
 	b.WriteString(fmt.Sprintf("  Lv %d", p.Lvl))
 	b.WriteString(styleDim.Render(fmt.Sprintf("   XP %s %d/%d to Lv %d", xpBar(p), p.Xp, p.Xp+p.XpToLevel(), p.Lvl+1)))
 	b.WriteString("\n")
-	b.WriteString(fmt.Sprintf("  HP %s %d/%d\n", hpBarPlain(p.CurrentHP, p.MaxHP()), p.CurrentHP, p.MaxHP()))
+	b.WriteString(m.heroHPRow() + "\n")
 	b.WriteString(fmt.Sprintf("  DMG %d · DEF %d · SPD %d · ", p.Damage(), p.Defense(), p.Speed()))
 	// The purse shares the stats line, dim like the panel's XP segment:
 	// the panel labels stay quiet, the log carries the gold-colored news.
 	b.WriteString(styleDim.Render(fmt.Sprintf("GOLD %d", p.Gold)))
 	return b.String()
+}
+
+// heroHPRow is the HP line of the hero panel — bar and readout, then as
+// many status chips as fit within the column: the first chips that fit
+// render, the rest is dropped (the documented display cap; the log
+// carries every status faithfully).
+func (m Model) heroHPRow() string {
+	p := m.engine.Player
+	row := fmt.Sprintf("  HP %s %d/%d", hpBarPlain(p.CurrentHP, p.MaxHP()), p.CurrentHP, p.MaxHP())
+	for _, chip := range statusChips(m.mirror.heroStatuses) {
+		if lipgloss.Width(row)+1+lipgloss.Width(chip) > mainColWidth {
+			break
+		}
+		row += " " + chip
+	}
+	return row
 }
 
 func (m Model) logPanel() string {

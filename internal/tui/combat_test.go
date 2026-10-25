@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -782,5 +783,154 @@ func TestVerticalArrowsAreNoOpsOutsideCombat(t *testing.T) {
 
 	if m.cursor != 0 {
 		t.Errorf("vertical arrows moved the bar cursor to %d outside combat", m.cursor)
+	}
+}
+
+// ---- status chips beside the HP bars ----
+
+// The enemy block shows its active statuses as chips next to the fight:
+// the poison chip appears as the event lands (already ticked once —
+// the round ended).
+func TestViewCombatShowsEnemyStatusChips(t *testing.T) {
+	e := combatEngine()
+	learnMove(e, envenom(0))
+	m := enterCombat(t, e)
+
+	m = useMove(t, m, 0)
+
+	view := stripControls(stripANSI(m.View()))
+	if !strings.Contains(view, "Poison(2)") {
+		t.Errorf("the enemy block shows no poison chip:\n%s", view)
+	}
+}
+
+// Chips count down as completed rounds pass and vanish on expiry —
+// the whole scripted lifecycle, asserted on the rendered view.
+func TestStatusChipsCountDownAndVanish(t *testing.T) {
+	e := combatEngine()
+	learnMove(e, envenom(0))
+	learnMove(e, jab())
+	m := enterCombat(t, e)
+
+	m = useMove(t, m, 0) // applied: 3, ticked to 2 at round end
+	if !strings.Contains(stripControls(stripANSI(m.View())), "Poison(2)") {
+		t.Errorf("round 1: the chip should show Poison(2):\n%s", stripControls(stripANSI(m.View())))
+	}
+
+	m = useMove(t, m, 1) // round 2
+	if !strings.Contains(stripControls(stripANSI(m.View())), "Poison(1)") {
+		t.Errorf("round 2: the chip should show Poison(1):\n%s", stripControls(stripANSI(m.View())))
+	}
+
+	m = useMove(t, m, 1) // round 3: the last tick expires it
+	if strings.Contains(stripControls(stripANSI(m.View())), "Poison(") {
+		t.Errorf("round 3: the expired chip still renders:\n%s", stripControls(stripANSI(m.View())))
+	}
+}
+
+// The hero panel's HP row gains its own chips — without growing a row:
+// the panel's four-line shape is the layout invariant.
+func TestViewHeroPanelShowsStatusChips(t *testing.T) {
+	e := combatEngine()
+	learnMove(e, jab())
+	e.CurrentEncounter = engine.Encounter{
+		Type:     engine.EncounterCombat,
+		Monsters: []entities.Monster{spitterMonster(200), goblinMonster()},
+	}
+	e.State = engine.StateCombat
+	m := New(e)
+
+	m = useMove(t, m, 0) // the spitter poisons the hero
+
+	lines := viewLines(m.heroPanel())
+	if len(lines) != 4 {
+		t.Fatalf("hero panel has %d lines with chips, want 4", len(lines))
+	}
+	if !strings.Contains(lines[2], "Poison(2)") {
+		t.Errorf("hero HP row shows no poison chip: %q", lines[2])
+	}
+}
+
+// Chips render ONLY while the fight lives: after combat ends the hero
+// panel is back to plain vitals.
+func TestHeroChipsVanishOutsideCombat(t *testing.T) {
+	e := combatEngine()
+	learnMove(e, jab())
+	e.Player.BaseDMG = 40
+	e.CurrentEncounter = engine.Encounter{
+		Type:     engine.EncounterCombat,
+		Monsters: []entities.Monster{spitterMonster(200), goblinMonster()},
+	}
+	e.State = engine.StateCombat
+	m := New(e)
+
+	m = useMove(t, m, 0) // poisoned
+	m.engine.CurrentEncounter.Monsters[0].CurrentHP = 1
+	m = useMove(t, m, 0) // the spitter falls
+	m = useMove(t, m, 0) // the goblin falls → victory
+
+	if m.engine.State != engine.StateExploring {
+		t.Fatalf("setup: state = %v, want StateExploring (victory)", m.engine.State)
+	}
+	if strings.Contains(stripControls(stripANSI(m.View())), "Poison(") {
+		t.Errorf("the hero chip survived the victory:\n%s", stripControls(stripANSI(m.View())))
+	}
+}
+
+// Chip tones follow the status KIND, same rule as the log: debuffs
+// soft-red, buffs green.
+func TestStatusChipsToneByKind(t *testing.T) {
+	chips := statusChips([]combatStatus{
+		{name: "Guard", kind: "buff", turns: 2},
+		{name: "Poison", kind: "debuff", turns: 3},
+	})
+
+	if got, want := chips[0], styleHeal.Render("Guard(2)"); got != want {
+		t.Errorf("buff chip = %q, want %q", got, want)
+	}
+	if got, want := chips[1], styleHurt.Render("Poison(3)"); got != want {
+		t.Errorf("debuff chip = %q, want %q", got, want)
+	}
+}
+
+// The enemy block's chips wrap to at most two rows and never lean on
+// slot() to clip: every row fits the column, the rest is dropped.
+func TestEnemyStatusRowsCap(t *testing.T) {
+	m := New(combatEngine())
+	for i := range 6 {
+		m.mirror.enemyStatuses = append(m.mirror.enemyStatuses, combatStatus{
+			name: fmt.Sprintf("Status %d", i), kind: "debuff", turns: 3,
+		})
+	}
+
+	rows := strings.Split(m.enemyStatusRows(), "\n")
+
+	if len(rows) > maxStatusRows {
+		t.Errorf("enemy statuses occupy %d rows, want at most %d", len(rows), maxStatusRows)
+	}
+	for i, row := range rows {
+		if w := ansiLen(row); w > mainColWidth {
+			t.Errorf("status row %d is %d wide, overflows the %d-col column: %q", i, w, mainColWidth, row)
+		}
+	}
+}
+
+// The hero's chips fill the HP row while they fit — the row never
+// overflows the column and the panel keeps its four lines.
+func TestHeroChipsNeverOverflowTheRow(t *testing.T) {
+	m := New(combatEngine())
+	for i := range 8 {
+		m.mirror.heroStatuses = append(m.mirror.heroStatuses, combatStatus{
+			name: fmt.Sprintf("Status %d", i), kind: "debuff", turns: 3,
+		})
+	}
+
+	lines := viewLines(m.heroPanel())
+
+	if len(lines) != 4 {
+		t.Fatalf("hero panel has %d lines, want 4", len(lines))
+	}
+	if w := ansiLen(lines[2]); w > mainColWidth {
+		t.Errorf("hero HP row is %d wide, overflows the %d-col column: %q", w, mainColWidth, lines[2])
 	}
 }
