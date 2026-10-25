@@ -20,6 +20,14 @@ func heroWithDamage(e *Engine, dmg int) {
 	e.Player.BaseDMG = dmg
 }
 
+// fightFirstRound engages the encounter (FIGHT) and resolves the first
+// round with the hero's first move — the Combat 2.0 flow: FIGHT only
+// opens the state, rounds advance from move choices.
+func fightFirstRound(e *Engine) []Event {
+	e.Process(Command{Type: CmdFight})
+	return e.Process(Command{Type: CmdMove, Index: 0})
+}
+
 func monsterFromFixture(id string) entities.Monster {
 	return entities.NewMonsterFromAsset(testMonsters()[id])
 }
@@ -61,22 +69,47 @@ func TestExploreTransitionsToEncounter(t *testing.T) {
 	}
 }
 
-func TestFightResolvesFirstRound(t *testing.T) {
+func TestFightEntersCombatWithoutResolvingARound(t *testing.T) {
+	// FIGHT only opens the combat state: rounds advance from the hero's
+	// move choices (CmdMove), so engaging must consume no rng at all.
+	e := newTestEngine(0)
+	stub := &stubRng{values: []int{0}}
+	e.rng = stub
+	heroWithDamage(e, 5)
+	startEncounter(e, monsterFromFixture("goblin"))
+
+	events := e.Process(Command{Type: CmdFight})
+
+	if len(events) != 0 {
+		t.Errorf("events = %v, want none (FIGHT enters, it does not resolve)", events)
+	}
+	if e.State != StateCombat {
+		t.Errorf("state after fight = %v, want StateCombat", e.State)
+	}
+	if stub.calls != 0 {
+		t.Errorf("FIGHT consumed %d rng calls, want 0", stub.calls)
+	}
+	if hp := e.CurrentEncounter.Monsters[0].CurrentHP; hp != 30 {
+		t.Errorf("goblin HP = %d, want 30 (no round resolved)", hp)
+	}
+}
+
+func TestMoveResolvesOneRoundPerCommand(t *testing.T) {
 	t.Run("tie on speed: hero acts first", func(t *testing.T) {
-		// stub [1, 50] = average spread (no crit) per strike, cycling.
-		e := newTestEngine(1, 50)
+		// stub [1, 50, 0, 1, 50]: hero strike (spread 1, no crit), the
+		// monster's pick, then the enemy strike (spread 1, no crit).
+		e := newTestEngine(1, 50, 0, 1, 50)
 		heroWithDamage(e, 5)
 		startEncounter(e, monsterFromFixture("goblin")) // SPD 10 == hero SPD 10
+		e.Process(Command{Type: CmdFight})
 
-		events := e.Process(Command{Type: CmdFight})
+		events := e.Process(Command{Type: CmdMove, Index: 0})
 
-		if e.State != StateCombat {
-			t.Errorf("state after fight = %v, want StateCombat", e.State)
-		}
-		// The round resolves immediately: hero hits, then the enemy hits back.
+		// The round resolves on the move choice: hero hits, then the
+		// enemy hits back (each strike announces its move first).
 		if got := eventTypes(events); !typesEqual(got,
-			EventCombatDamageDealt, EventCombatDamageTaken) {
-			t.Errorf("events = %v, want [dealt taken (tie = hero first)]", got)
+			EventMoveUsed, EventCombatDamageDealt, EventMoveUsed, EventCombatDamageTaken) {
+			t.Errorf("events = %v, want [move-used dealt move-used taken (tie = hero first)]", got)
 		}
 		if hp := e.CurrentEncounter.Monsters[0].CurrentHP; hp != 25 {
 			t.Errorf("goblin HP = %d, want 25", hp)
@@ -90,12 +123,13 @@ func TestFightResolvesFirstRound(t *testing.T) {
 		e := newTestEngine()
 		heroWithDamage(e, 5)
 		startEncounter(e, fastRat()) // SPD 12 > hero SPD 10
+		e.Process(Command{Type: CmdFight})
 
-		events := e.Process(Command{Type: CmdFight})
+		events := e.Process(Command{Type: CmdMove, Index: 0})
 
 		if got := eventTypes(events); !typesEqual(got,
-			EventCombatDamageTaken, EventCombatDamageDealt) {
-			t.Errorf("events = %v, want [taken dealt (enemy faster)]", got)
+			EventMoveUsed, EventCombatDamageTaken, EventMoveUsed, EventCombatDamageDealt) {
+			t.Errorf("events = %v, want [move-used taken move-used dealt (enemy faster)]", got)
 		}
 	})
 
@@ -103,47 +137,59 @@ func TestFightResolvesFirstRound(t *testing.T) {
 		e := newTestEngine()
 		heroWithDamage(e, 5)
 		startEncounter(e, monsterFromFixture("orc")) // SPD 8 < hero SPD 10
+		e.Process(Command{Type: CmdFight})
 
-		events := e.Process(Command{Type: CmdFight})
+		events := e.Process(Command{Type: CmdMove, Index: 0})
 
 		if got := eventTypes(events); !typesEqual(got,
-			EventCombatDamageDealt, EventCombatDamageTaken) {
-			t.Errorf("events = %v, want [dealt taken (hero faster)]", got)
+			EventMoveUsed, EventCombatDamageDealt, EventMoveUsed, EventCombatDamageTaken) {
+			t.Errorf("events = %v, want [move-used dealt move-used taken (hero faster)]", got)
 		}
 	})
 }
 
-func TestAttackResolvesOneRoundPerCommand(t *testing.T) {
-	e := newTestEngine(1, 50) // average spread (no crit) per strike
+// The move index points into the hero's combat move set; anything out of
+// range is a generic invalid command with no state change and no rng.
+func TestMoveIndexOutOfRangeIsInvalid(t *testing.T) {
+	e := newTestEngine(0)
 	heroWithDamage(e, 5)
 	startEncounter(e, monsterFromFixture("goblin"))
 	e.State = StateCombat
+	stub := &stubRng{values: []int{0}}
+	e.rng = stub
 
-	events := e.Process(Command{Type: CmdAttack})
+	for _, index := range []int{-1, 1, 99} { // the fallback set has one move
+		events := e.Process(Command{Type: CmdMove, Index: index})
 
-	if got := eventTypes(events); !typesEqual(got,
-		EventCombatDamageDealt, EventCombatDamageTaken) {
-		t.Errorf("events = %v, want [dealt taken]", got)
+		if got := eventTypes(events); !typesEqual(got, EventMessage) {
+			t.Errorf("index %d: events = %v, want [message (invalid command)]", index, got)
+		}
+		if e.State != StateCombat {
+			t.Errorf("index %d: state = %v, want StateCombat (rejected command must not transition)", index, e.State)
+		}
 	}
-	if hp := e.CurrentEncounter.Monsters[0].CurrentHP; hp != 25 {
-		t.Errorf("goblin HP = %d, want 25 (one hit per command)", hp)
+	if stub.calls != 0 {
+		t.Errorf("rejected moves consumed %d rng calls, want 0", stub.calls)
+	}
+	if hp := e.CurrentEncounter.Monsters[0].CurrentHP; hp != 30 {
+		t.Errorf("goblin HP = %d, want 30 (no strike on a rejected move)", hp)
 	}
 }
 
-func TestAttackKillsEnemyAndAdvancesQueue(t *testing.T) {
+func TestMoveKillsEnemyAndAdvancesQueue(t *testing.T) {
 	e := newTestEngine()
 	heroWithDamage(e, 40)
 	startEncounter(e, monsterFromFixture("goblin"), monsterFromFixture("orc"))
 	e.State = StateCombat
 
-	events := e.Process(Command{Type: CmdAttack})
+	events := e.Process(Command{Type: CmdMove, Index: 0})
 
 	// Hero kills on its strike: the enemy never gets its turn this round
 	// and the next enemy in the queue steps in with normal initiative.
-	if got := eventTypes(events); !typesEqual(got, EventCombatDamageDealt, EventEnemyDefeated, EventGoldGained) {
-		t.Errorf("events = %v, want [dealt defeated gold-gained]", got)
+	if got := eventTypes(events); !typesEqual(got, EventMoveUsed, EventCombatDamageDealt, EventEnemyDefeated, EventGoldGained) {
+		t.Errorf("events = %v, want [move-used dealt defeated gold-gained]", got)
 	}
-	evt := events[1]
+	evt := events[2]
 	if name := evt.Data["enemy"]; name != "Goblin" {
 		t.Errorf("defeated enemy = %v, want Goblin", name)
 	}
@@ -162,10 +208,10 @@ func TestVictoryOnLastEnemyKill(t *testing.T) {
 	startEncounter(e, monsterFromFixture("goblin"))
 	e.State = StateCombat
 
-	events := e.Process(Command{Type: CmdAttack})
+	events := e.Process(Command{Type: CmdMove, Index: 0})
 
-	if got := eventTypes(events); !typesEqual(got, EventCombatDamageDealt, EventEnemyDefeated, EventGoldGained, EventVictory) {
-		t.Errorf("events = %v, want [dealt defeated gold-gained victory]", got)
+	if got := eventTypes(events); !typesEqual(got, EventMoveUsed, EventCombatDamageDealt, EventEnemyDefeated, EventGoldGained, EventVictory) {
+		t.Errorf("events = %v, want [move-used dealt defeated gold-gained victory]", got)
 	}
 	if e.State != StateExploring {
 		t.Errorf("state after victory = %v, want StateExploring", e.State)
@@ -185,21 +231,21 @@ func TestMidCombatLevelUp(t *testing.T) {
 	startEncounter(e, monsterFromFixture("goblin"), monsterFromFixture("orc"))
 	e.State = StateCombat
 
-	events := e.Process(Command{Type: CmdAttack})
+	events := e.Process(Command{Type: CmdMove, Index: 0})
 
 	if got := eventTypes(events); !typesEqual(got,
-		EventCombatDamageDealt, EventEnemyDefeated, EventGoldGained, EventLevelUp) {
-		t.Errorf("events = %v, want [dealt defeated gold-gained level-up]", got)
+		EventMoveUsed, EventCombatDamageDealt, EventEnemyDefeated, EventGoldGained, EventLevelUp) {
+		t.Errorf("events = %v, want [move-used dealt defeated gold-gained level-up]", got)
 	}
 	if e.Player.Lvl != 2 {
 		t.Errorf("hero level = %d, want 2 (mid-combat level up)", e.Player.Lvl)
 	}
-	if lvl := events[3].Data["level"]; lvl != 2 {
+	if lvl := events[4].Data["level"]; lvl != 2 {
 		t.Errorf("level event data = %v, want 2", lvl)
 	}
 	// A full-health hero gains nothing from the level-up heal — the
 	// additive "healed" key reports 0.
-	if healed := events[3].Data["healed"]; healed != 0 {
+	if healed := events[4].Data["healed"]; healed != 0 {
 		t.Errorf("healed event data = %v, want 0 (already at full health)", healed)
 	}
 	// Combat continues with the next enemy, still in StateCombat.
@@ -220,15 +266,15 @@ func TestMidCombatLevelUpHeals(t *testing.T) {
 	startEncounter(e, monsterFromFixture("goblin"), monsterFromFixture("orc"))
 	e.State = StateCombat
 
-	events := e.Process(Command{Type: CmdAttack})
+	events := e.Process(Command{Type: CmdMove, Index: 0})
 
 	if got := eventTypes(events); !typesEqual(got,
-		EventCombatDamageDealt, EventEnemyDefeated, EventGoldGained, EventLevelUp) {
-		t.Fatalf("events = %v, want [dealt defeated gold-gained level-up]", got)
+		EventMoveUsed, EventCombatDamageDealt, EventEnemyDefeated, EventGoldGained, EventLevelUp) {
+		t.Fatalf("events = %v, want [move-used dealt defeated gold-gained level-up]", got)
 	}
 	// 50/100 → rescaled to 55/110, then healed 25% of the new base max
 	// HP (110 × 25% = 27.5, floored to 27).
-	if healed := events[3].Data["healed"]; healed != 27 {
+	if healed := events[4].Data["healed"]; healed != 27 {
 		t.Errorf("healed event data = %v, want 27 (25%% of base max HP 110)", healed)
 	}
 	if hp := e.Player.CurrentHP; hp != 82 {
@@ -246,12 +292,12 @@ func TestHeroDeathEndsCombatAndGame(t *testing.T) {
 	startEncounter(e, monsterFromFixture("orc")) // dmg 8, slower than hero
 	e.State = StateCombat
 
-	events := e.Process(Command{Type: CmdAttack})
+	events := e.Process(Command{Type: CmdMove, Index: 0})
 
 	// Hero is faster, hits, fails to kill; the orc returns fire and wins.
 	if got := eventTypes(events); !typesEqual(got,
-		EventCombatDamageDealt, EventCombatDamageTaken, EventHeroDefeated) {
-		t.Errorf("events = %v, want [dealt taken hero-defeated]", got)
+		EventMoveUsed, EventCombatDamageDealt, EventMoveUsed, EventCombatDamageTaken, EventHeroDefeated) {
+		t.Errorf("events = %v, want [move-used dealt move-used taken hero-defeated]", got)
 	}
 	if e.State != StateGameOver {
 		t.Errorf("state after death = %v, want StateGameOver", e.State)
@@ -281,15 +327,15 @@ func TestSneak(t *testing.T) {
 
 	t.Run("failure starts combat with a free enemy turn", func(t *testing.T) {
 		// Intn(2) = 1 → failure; then the free strike rolls average spread, no crit.
-		e := newTestEngine(1, 1, 50)
+		e := newTestEngine(1, 0, 1, 50)
 		heroWithDamage(e, 5)
 		startEncounter(e, monsterFromFixture("goblin"))
 
 		events := e.Process(Command{Type: CmdSneak})
 
 		// No initiative: the Hero does not act, the enemy gets a single attack.
-		if got := eventTypes(events); !typesEqual(got, EventSneakFailed, EventCombatDamageTaken) {
-			t.Errorf("events = %v, want [sneak-failed taken (free turn)]", got)
+		if got := eventTypes(events); !typesEqual(got, EventSneakFailed, EventMoveUsed, EventCombatDamageTaken) {
+			t.Errorf("events = %v, want [sneak-failed move-used taken (free turn)]", got)
 		}
 		if e.State != StateCombat {
 			t.Errorf("state after failed sneak = %v, want StateCombat", e.State)
@@ -352,15 +398,15 @@ func TestFlee(t *testing.T) {
 
 	t.Run("failure gives the enemy a free turn", func(t *testing.T) {
 		// Intn(100) = 99 → flee fails; then the free strike rolls average spread, no crit.
-		e := newTestEngine(99, 1, 50)
+		e := newTestEngine(99, 0, 1, 50)
 		heroWithDamage(e, 5)
 		startEncounter(e, monsterFromFixture("goblin"))
 		e.State = StateCombat
 
 		events := e.Process(Command{Type: CmdFlee})
 
-		if got := eventTypes(events); !typesEqual(got, EventMessage, EventCombatDamageTaken) {
-			t.Errorf("events = %v, want [message taken (free turn)]", got)
+		if got := eventTypes(events); !typesEqual(got, EventMessage, EventMoveUsed, EventCombatDamageTaken) {
+			t.Errorf("events = %v, want [message move-used taken (free turn)]", got)
 		}
 		if e.State != StateCombat {
 			t.Errorf("state after failed flee = %v, want StateCombat", e.State)
@@ -371,15 +417,15 @@ func TestFlee(t *testing.T) {
 	})
 
 	t.Run("a deadly free turn on failed flee ends the game", func(t *testing.T) {
-		e := newTestEngine(99) // failure
+		e := newTestEngine(99, 0, 1, 0) // failure
 		e.Player.CurrentHP = 1
 		startEncounter(e, monsterFromFixture("goblin"))
 		e.State = StateCombat
 
 		events := e.Process(Command{Type: CmdFlee})
 
-		if got := eventTypes(events); !typesEqual(got, EventMessage, EventCombatDamageTaken, EventHeroDefeated) {
-			t.Errorf("events = %v, want [message taken hero-defeated]", got)
+		if got := eventTypes(events); !typesEqual(got, EventMessage, EventMoveUsed, EventCombatDamageTaken, EventHeroDefeated) {
+			t.Errorf("events = %v, want [message move-used taken hero-defeated]", got)
 		}
 		if e.State != StateGameOver {
 			t.Errorf("state = %v, want StateGameOver", e.State)
@@ -405,7 +451,7 @@ func TestAscendUnlocking(t *testing.T) {
 		e := newTestEngine()
 		heroWithDamage(e, 40)
 		startEncounter(e, monsterFromFixture("goblin"))
-		e.Process(Command{Type: CmdFight}) // kill goblin → victory
+		fightFirstRound(e) // enters combat; the move kills → victory
 
 		if !e.CanAscend {
 			t.Fatal("victory did not unlock ascending")
@@ -460,7 +506,7 @@ func TestEffectiveDamage(t *testing.T) {
 func TestDefenseMitigationInCombat(t *testing.T) {
 	t.Run("hero wearing armor takes less damage", func(t *testing.T) {
 		// stub [1, 50, 1, 50]: each strike rolls nothing special.
-		e := newTestEngine(1, 50, 1, 50)
+		e := newTestEngine(1, 50, 0, 1, 50)
 		heroWithDamage(e, 5)
 		helm := entities.NewItemFromAsset(game.ItemAsset{
 			ID: "helm", Name: "Helm", Slot: "helmet", BonusDEF: 5,
@@ -468,7 +514,7 @@ func TestDefenseMitigationInCombat(t *testing.T) {
 		e.Player.EquipItem(&helm)
 		startEncounter(e, monsterFromFixture("goblin"))
 
-		e.Process(Command{Type: CmdFight})
+		fightFirstRound(e)
 
 		// goblin swing 2 mitigated by DEF 5: 2×35/40 = 1.
 		if hp := e.Player.CurrentHP; hp != 99 {
@@ -477,14 +523,14 @@ func TestDefenseMitigationInCombat(t *testing.T) {
 	})
 
 	t.Run("armored monsters take less damage", func(t *testing.T) {
-		e := newTestEngine(1, 50, 1, 50)
+		e := newTestEngine(1, 50, 0, 1, 50)
 		heroWithDamage(e, 5)
 		armored := entities.NewMonsterFromAsset(game.MonsterAsset{
 			ID: "armored", Name: "Armored Rat", Difficulty: 2, HP: 30, Damage: 2, Speed: 5, Defense: 5,
 		})
 		startEncounter(e, armored)
 
-		e.Process(Command{Type: CmdFight})
+		fightFirstRound(e)
 
 		// hero swing 5 mitigated by monster DEF 5: 5×35/40 = 4.
 		if hp := e.CurrentEncounter.Monsters[0].CurrentHP; hp != 26 {
@@ -606,8 +652,11 @@ func TestInvalidCommandInWrongState(t *testing.T) {
 	}
 }
 
-// rollDamage consumes two rng values per strike: spread, then crit roll.
+// rollMoveDamage consumes two rng values per strike: spread, then crit
+// roll. With a neutral move (100% modifier, no crit bonus) the base is
+// the attack stat itself, so the table pins the raw spread/crit math.
 func TestRollDamageSpread(t *testing.T) {
+	basic := entities.BasicAttack()
 	tests := []struct {
 		name     string
 		stat     int
@@ -628,9 +677,8 @@ func TestRollDamageSpread(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			e := newTestEngine(tt.spread, tt.critRoll)
-			heroWithDamage(e, tt.stat)
 
-			got, crit := e.rollDamage(e.Player)
+			got, crit := e.rollMoveDamage(tt.stat, &basic, 10)
 
 			if got != tt.want {
 				t.Errorf("damage = %d, want %d", got, tt.want)
@@ -646,13 +694,13 @@ func TestRollDamageSpread(t *testing.T) {
 func TestHeroCritInCombat(t *testing.T) {
 	// hero strike: spread 1 → swing 5, crit roll 0 < 10 → 10 dealt;
 	// enemy strike: spread 1 → swing 2, crit roll 50 → no crit.
-	e := newTestEngine(1, 0, 1, 50)
+	e := newTestEngine(1, 0, 0, 1, 50)
 	heroWithDamage(e, 5)
 	startEncounter(e, monsterFromFixture("goblin"))
 
-	events := e.Process(Command{Type: CmdFight})
+	events := fightFirstRound(e)
 
-	dealt, taken := events[0], events[1]
+	dealt, taken := events[1], events[3]
 	if dmg := dealt.Data["damage_dealt"]; dmg != 10 {
 		t.Errorf("damage_dealt = %v, want 10 (crit doubled)", dmg)
 	}
@@ -673,18 +721,18 @@ func TestHeroCritInCombat(t *testing.T) {
 // Monsters use their own crit attribute, from the spawn asset.
 func TestMonsterCritInCombat(t *testing.T) {
 	// hero strike: spread 1, crit 50 → plain 5 dealt;
-	// enemy strike: spread 1 → swing 2, crit roll 0 < 50 → 4 taken.
+	// monster pick, then enemy strike: spread 1 → swing 2, crit roll 0 < 50 → 4 taken.
 	e := newTestEngine()
-	e.rng = &stubRng{values: []int{1, 50, 1, 0}}
+	e.rng = &stubRng{values: []int{1, 50, 0, 1, 0}}
 	heroWithDamage(e, 5)
 	critter := entities.NewMonsterFromAsset(game.MonsterAsset{
 		ID: "critter", Name: "Critter", Difficulty: 2, HP: 30, Damage: 2, Speed: 5, Crit: 50,
 	})
 	startEncounter(e, critter)
 
-	events := e.Process(Command{Type: CmdFight})
+	events := fightFirstRound(e)
 
-	taken := events[1]
+	taken := events[3]
 	if dmg := taken.Data["damage_taken"]; dmg != 4 {
 		t.Errorf("damage_taken = %v, want 4 (monster crit doubled)", dmg)
 	}
@@ -700,13 +748,13 @@ func TestMonsterCritInCombat(t *testing.T) {
 // percentage keys, reflecting the defender's state AFTER the hit
 // (mitigation, clamp and mid-round death included).
 func TestDamageEventsCarryExactHP(t *testing.T) {
-	e := newTestEngine(1, 50) // average spread (no crit) per strike, cycling
+	e := newTestEngine(1, 50, 0, 1, 50) // average spread (no crit) per strike, pick between
 	heroWithDamage(e, 5)
 	startEncounter(e, monsterFromFixture("goblin")) // 30 HP, DEF 0
 
-	events := e.Process(Command{Type: CmdFight})
+	events := fightFirstRound(e)
 
-	dealt := events[0]
+	dealt := events[1]
 	if dmg := dealt.Data["damage_dealt"]; dmg != 5 {
 		t.Errorf("damage_dealt = %v, want 5", dmg)
 	}
@@ -721,7 +769,7 @@ func TestDamageEventsCarryExactHP(t *testing.T) {
 		t.Errorf("enemy_hp = %v, want 83 (legacy percentage key untouched)", pct)
 	}
 
-	taken := events[1]
+	taken := events[3]
 	if hp := taken.Data["hero_hp_exact"]; hp != 98 {
 		t.Errorf("hero_hp_exact = %v, want 98", hp)
 	}
@@ -738,15 +786,15 @@ func TestDamageEventsCarryExactHP(t *testing.T) {
 func TestDamageEventsExactHPClampsAtZeroOnDeath(t *testing.T) {
 	// Hero strike: spread 1 → swing 5 (orc 50 HP survives);
 	// orc strike: spread 1 → swing 8, which exceeds the hero's 5 HP.
-	e := newTestEngine(1, 50, 1, 50)
+	e := newTestEngine(1, 50, 0, 1, 50)
 	heroWithDamage(e, 5)
 	e.Player.CurrentHP = 5
 	startEncounter(e, monsterFromFixture("orc")) // dmg 8, slower than hero
 	e.State = StateCombat
 
-	events := e.Process(Command{Type: CmdAttack})
+	events := e.Process(Command{Type: CmdMove, Index: 0})
 
-	dealt := events[0]
+	dealt := events[1]
 	if hp := dealt.Data["enemy_hp_exact"]; hp != 45 {
 		t.Errorf("enemy_hp_exact = %v, want 45", hp)
 	}
@@ -754,7 +802,7 @@ func TestDamageEventsExactHPClampsAtZeroOnDeath(t *testing.T) {
 		t.Errorf("enemy_hp = %v, want 90 (legacy percentage)", pct)
 	}
 
-	taken := events[1]
+	taken := events[3]
 	if dmg := taken.Data["damage_taken"]; dmg != 5 {
 		t.Errorf("damage_taken = %v, want 5 (the swing was 8, but only the hero's remaining 5 HP got subtracted)", dmg)
 	}
@@ -771,8 +819,8 @@ func TestDamageEventsExactHPClampsAtZeroOnDeath(t *testing.T) {
 		t.Errorf("hero_alive = %v, want false (mid-round death)", alive)
 	}
 	if got := eventTypes(events); !typesEqual(got,
-		EventCombatDamageDealt, EventCombatDamageTaken, EventHeroDefeated) {
-		t.Errorf("events = %v, want [dealt taken hero-defeated]", got)
+		EventMoveUsed, EventCombatDamageDealt, EventMoveUsed, EventCombatDamageTaken, EventHeroDefeated) {
+		t.Errorf("events = %v, want [move-used dealt move-used taken hero-defeated]", got)
 	}
 }
 
@@ -791,25 +839,25 @@ func TestKillsCounter(t *testing.T) {
 		startEncounter(e, monsterFromFixture("goblin"), monsterFromFixture("orc"))
 		e.State = StateCombat
 
-		e.Process(Command{Type: CmdAttack}) // goblin falls
+		e.Process(Command{Type: CmdMove, Index: 0}) // goblin falls
 		if got := e.kills; got != 1 {
 			t.Errorf("kills after the first kill = %d, want 1", got)
 		}
 
-		e.Process(Command{Type: CmdAttack}) // orc falls → victory
+		e.Process(Command{Type: CmdMove, Index: 0}) // orc falls → victory
 		if got := e.kills; got != 2 {
 			t.Errorf("kills after the second kill = %d, want 2", got)
 		}
 	})
 
 	t.Run("does not increment when the player loses", func(t *testing.T) {
-		e := newTestEngine(1, 50, 1, 50)
+		e := newTestEngine(1, 50, 0, 1, 50)
 		heroWithDamage(e, 5)
 		e.Player.CurrentHP = 1
 		startEncounter(e, monsterFromFixture("orc")) // dmg 8, slower than hero
 		e.State = StateCombat
 
-		e.Process(Command{Type: CmdAttack}) // hero strikes, then the orc wins
+		e.Process(Command{Type: CmdMove, Index: 0}) // hero strikes, then the orc wins
 
 		if got := e.kills; got != 0 {
 			t.Errorf("kills after a defeat = %d, want 0", got)
@@ -827,7 +875,7 @@ func TestHeroDefeatedEventCarriesRunStats(t *testing.T) {
 	// First kill of the run: kills → 1, then a scripted death.
 	startEncounter(e, monsterFromFixture("goblin"))
 	e.State = StateCombat
-	e.Process(Command{Type: CmdAttack})
+	e.Process(Command{Type: CmdMove, Index: 0})
 	if got := e.kills; got != 1 {
 		t.Fatalf("kills after the goblin = %d, want 1", got)
 	}
@@ -836,13 +884,13 @@ func TestHeroDefeatedEventCarriesRunStats(t *testing.T) {
 	e.Player.CurrentHP = 1
 	startEncounter(e, monsterFromFixture("orc")) // dmg 8, slower than hero
 	e.State = StateCombat
-	events := e.Process(Command{Type: CmdAttack})
+	events := e.Process(Command{Type: CmdMove, Index: 0})
 
 	if got := eventTypes(events); !typesEqual(got,
-		EventCombatDamageDealt, EventCombatDamageTaken, EventHeroDefeated) {
-		t.Fatalf("events = %v, want [dealt taken hero-defeated]", got)
+		EventMoveUsed, EventCombatDamageDealt, EventMoveUsed, EventCombatDamageTaken, EventHeroDefeated) {
+		t.Fatalf("events = %v, want [move-used dealt move-used taken hero-defeated]", got)
 	}
-	death := events[2]
+	death := events[4]
 	if floor := death.Data["floor"]; floor != 3 {
 		t.Errorf("floor = %v, want 3 (CurrentFloor at death)", floor)
 	}
@@ -859,7 +907,8 @@ func TestCritNeverFiresWithZeroThreshold(t *testing.T) {
 	e := newTestEngine(1, 0)
 
 	goblin := monsterFromFixture("goblin") // crit asset value absent → 0
-	got, crit := e.rollDamage(&goblin)
+	basic := entities.BasicAttack()
+	got, crit := e.rollMoveDamage(2, &basic, goblin.CritThreshold())
 
 	if crit {
 		t.Error("crit fired with a 0 threshold")

@@ -27,20 +27,34 @@
       see "Gold & prices" and "Types of encounters"
 - PLayer can FIGHT or SNEAK
 - FIGHT leads to combat (StateCombat)
+    - Entering combat resolves NO round: rounds advance from the hero's
+      move choices, so engaging consumes no rng
 - SKEAK leads to a roll to determined success
     - 50/50 for now, no stats involved
     - On success combat is avoided
     - On fail combat starts and enemy gets a free turn
 - Combat is 1x1
     - An encounter with multiple enemies is tranformed into a queue
-- Each turn, whoever has the highest SPD attacks first
-    - Total SPD, including items
-- During StateCombat, player can ATTACK or FLEE
+- Each round, whoever has the highest EFFECTIVE SPD acts first
+    - base + gear + active stat-mod statuses (the hero wins ties)
+    - both sides act unless someone dies mid-round; a round that
+      completes ends with the round-end tick (statuses and cooldowns —
+      see "Combat calculations → RNG")
+- During StateCombat, player can MOVE (a move choice) or FLEE
 - FLEE leads to a roll weighted by the difference in SPD between the player and the current enemy
     - FLEE chance is never higher than 95% and never lower than 5%
     - On success exits combat with no reward
     - On fail current enemy gets a free turn
-- ATTACK trigger a normal attack
+- MOVE uses the hero move at the chosen index of the hero's combat move
+    set (learned moves, then weapon-granted; a move-less hero fights
+    with the canonical basic_attack)
+    - A move on cooldown is a blocked action: a message, no state
+      change; when EVERY move is locked the turn resolves as an
+      automatic RECOVER round (never a soft-lock)
+- Statuses are COMBAT-SCOPED: applied by moves on landed hits (with an
+    application chance), ticked at round end (DoTs can kill), never
+    stacked (a re-application refreshes to the longest duration) and
+    cleared when combat ends — see "Status effects"
 - When an enemy die mid combat the player gets the XP reward instantly
     - mid combat level ups are possible
     - each level-up also heals 25% of the base max HP (no rng — see
@@ -68,12 +82,46 @@ All combat randomness flows through the engine's injectable `rng` seam
 (`Intn(n)`), so tests stay deterministic. The crypto-based `game.RollD*`
 helpers are for non-engine use only (e.g. item durability).
 
-- **Attack resolution (per strike):** no hit/miss roll — every attack lands.
-    1. Damage spread: `max(1, DMG − 1 + Intn(3))` (±1 around the attack stat).
-    2. Critical hit: crit if `Intn(100) < CritThreshold()` (a percentage),
-       doubling the swung damage of that hit.
-    - The Hero has a fixed 10% crit threshold; each monster has its own
-      `crit` asset value (0 = never crits, validated in [0, 100]).
+- **Attack resolution (per strike):** no hit/miss roll — every attack
+  lands. The strike is made with a MOVE (the hero picks one; the monster
+  picks by AI, below):
+  1. Damage base: `round(effective DMG × dmg_modifier / 100)` — pure
+     math, no rng (the modifier is a percent; 100 = neutral).
+  2. Damage spread: `max(1, base − 1 + Intn(3))` (±1 around the base).
+  3. Critical hit: crit if
+     `Intn(100) < clamp(CritThreshold() + move.crit_bonus, 0, 100)`,
+     doubling the swung damage of that hit.
+  - The Hero has a fixed 10% crit threshold; each monster has its own
+    `crit` asset value (0 = never crits, validated in [0, 100]).
+- **Monster move AI (v1):** each monster turn, the engine filters the
+  monster's move set to the moves NOT on cooldown and picks ONE `Intn`
+  over the filtered total weight (the per-monster ref weights, resolved
+  at spawn). Filtering consumes no rng; when every move is locked the
+  monster falls back to the canonical basic attack WITHOUT a pick roll —
+  there is nothing left to pick.
+- **Status application (per status-carrying strike):** ONE
+  `Intn(100)` — fires when the roll is < the move's status chance. The
+  roll happens even when it fails (and even at chance 0), keeping every
+  rng sequence position-stable. The full per-strike rng order is
+  [monster move pick] → [spread] → [crit] → [status chance]; a strike
+  that killed its recipient still rolls, but afflicts nothing.
+- **Round-end tick (completed rounds only):** the hero's statuses tick
+  first, then the enemy's — each in application order: DoT damage (a
+  plain clamp, no mitigation, CAN kill: a dead monster goes through the
+  normal defeat path, a dead hero ends the game), then every status
+  counts a round down, expiring at 0 with an event. Then cooldowns tick
+  and the round's used moves lock. A round aborted by a death skips the
+  remaining ticks (the used move still locks).
+- **Effective stats:** every stat read in combat (strike damage,
+  mitigation, initiative, the flee formula) is base+gear plus the sum of
+  the combatant's active stat-mod statuses, clamped — DMG at 1, DEF/SPD
+  at 0. Pure math — no rng.
+- **Move cooldowns:** using a move locks it for exactly its `cooldown`
+  full rounds after the round of use (0 = spammable). Locks tick at
+  round end and never survive the encounter. A fully-cooled hero turn
+  resolves as an automatic RECOVER round (a message, the enemy acts,
+  ticks run) — never a soft-lock; picking one locked move while another
+  is ready is only a blocking message with no state change.
 - **SNEAK:** 50/50 (`Intn(2)`), no stats involved.
 - **FLEE:** chance = `50% + 5% × (hero SPD − enemy SPD)`, clamped to [5, 95].
 
@@ -121,11 +169,11 @@ current HP as a fraction of the previous max (`rescaleHP`).
   slot; the emission is identical in both states
   (`event-item-equipped{item, swapped_from?}`, `swapped_from` ABSENT when
   nothing was displaced):
-    - StateLoot (pending loot) — wears `Engine.PendingLoot` (`ItemIndex`
+    - StateLoot (pending loot) — wears `Engine.PendingLoot` (`Index`
       ignored); the displaced item goes to the bag when there is room,
       else it is destroyed (`event-item-lost`). Either way back to
       StateExploring with nothing pending. Chests never unlock ASCEND.
-    - StateInventory (bag screen) — wears the bag item at `ItemIndex`;
+    - StateInventory (bag screen) — wears the bag item at `Index`;
       the displaced item takes the worn item's old bag position (the bag
       length is unchanged — an empty slot shrinks the bag by one). The
       bag stays open.
@@ -286,13 +334,15 @@ an extra roll):
 
 Only a combat victory clears the floor path and unlocks ASCEND.
 
-## Combat 2.0 — decided design
+## Combat 2.0 — implemented design
 
-The decisions below are LOCKED. Implementation lands across the phases
-listed at the end; the game-loop and combat sections above will be
-rewritten as each phase ships.
+Moves, statuses and the combat flow below are IMPLEMENTED (phases 1-2
+of the plan at the end are shipped; the stopgap TUI ships with them and
+the game-loop/combat sections above describe the implemented reality).
+**Bosses** and **shrines** are decided but NOT YET IMPLEMENTED — their
+sections below are the design they will ship with.
 
-### Bosses
+### Bosses (NOT YET IMPLEMENTED)
 
 - ONE Boss Encounter per section, fought at the END of the section (the
   section's `max_floor`): the goblin pits' boss on floor 3, the
@@ -321,15 +371,26 @@ rewritten as each phase ships.
   optional `status {id, chance, target: enemy|self}`, and `weight`
   (monster AI).
 - Each combatant has AT MOST 4 moves (`MAX_MOVES`).
-- Monsters pick moves by weight (AI v1; a decision tree may come later).
-  A monster without a `moves` field uses the canonical `basic_attack`
-  (cooldown 0), so older assets/mods keep working.
-- Hero moves: 2 LEARNED (via shrines, below) plus up to 2 granted by
-  the equipped weapon (a `moves` field on weapon assets).
-- `CmdMove(index)` replaces ATTACK: every combat turn is a move choice.
-- A move on cooldown is locked for its cooldown's turns (ticked at
-  round end). A fully-cooled hero turn resolves as an automatic
-  RECOVER turn (statuses tick, monsters act) — never a soft-lock.
+- Monsters pick moves by weight (AI v1; a decision tree may come later):
+  each monster turn, ONE `Intn` over the cooldown-filtered set's total
+  weight; an all-locked set falls back to the canonical `basic_attack`
+  WITHOUT consuming a pick roll. A monster without a `moves` field uses
+  `basic_attack` (cooldown 0), so older assets/mods keep working.
+- Hero moves: up to 2 LEARNED (shrine learning is not implemented yet —
+  today only weapon grants populate the set in practice) plus up to 2
+  granted by the equipped weapon (a `moves` field on weapon assets,
+  resolved by the engine when the item is built).
+- `CmdMove(index)` replaces ATTACK: every combat turn is a move choice,
+  indexing the hero's combat move set (CombatMoves: the effective set,
+  or the canonical `basic_attack` when that set is empty — a move-less
+  hero must still be able to act).
+- A move on cooldown is locked for exactly its cooldown's FULL rounds
+  after the round of use (the lock is set after the round-end tick, so
+  the round of use doesn't eat one turn of it). Cooldowns tick at round
+  end and never survive the encounter. Picking one locked move while
+  another is ready is a blocked action (a message, no state change); a
+  FULLY-cooled hero turn resolves as an automatic RECOVER round (a
+  message, the enemy acts, the ticks run) — never a soft-lock.
 - Damage: `base = round(effective DMG × dmg_modifier / 100)`, then the
   usual spread and crit math; the crit check gains the move's
   `crit_bonus`.
@@ -344,11 +405,20 @@ rewritten as each phase ships.
   left, ticked at round end, refreshed to the longest duration (never
   stacked), and cleared when combat ends.
 - Effective stats = base + gear + active status modifiers, clamped
-  at 0 (DMG at 1). DoT damage CAN kill.
+  at 0 (DMG at 1). DoT damage CAN kill — through the normal defeat path
+  (kill XP/gold for monsters, game over for the hero).
+- The round-end tick order is deterministic: the HERO's statuses first,
+  then the enemy's, each in application order; a status deals its DoT
+  then counts its round down, expiring at 0 with an event.
+- Events: `event-move-used{user, move}`, `event-status-applied{target,
+  status, turns, kind}`, `event-status-expired{target, status, kind}`,
+  `event-status-damage{target, status, amount, target_hp_exact,
+  target_max_hp, kind}`; the damage-dealt/taken payloads also carry the
+  additive `move` key.
 - Starter set: poison (DoT), weaken (−DMG), slow (−SPD), guard
   (+DEF, self).
 
-### Shrines (move learning)
+### Shrines (move learning — NOT YET IMPLEMENTED)
 
 - A fifth encounter kind (`shrine`): offers a random UNLEARNED move
   drawn from the section's `move_tiers` (the `item_tiers` pattern:
@@ -361,7 +431,8 @@ rewritten as each phase ships.
 ### Moves & statuses — data model
 
 The schemas below are the DATA LAYER of this design (shipped in phase
-1); combat-flow documentation lands with the integration phase.
+1); the combat flow consuming them is documented above and in
+"Combat calculations → RNG".
 
 **Move asset** (`moves.json`). Only `tier` has an absent-field default
 (`0` → 1, mirroring items — JSON cannot tell them apart); every other
@@ -418,9 +489,11 @@ first (learning order, capped at 2 — `MaxLearnedMoves`), then the
 equipped weapon's granted moves, deduplicated by id (the learned copy
 wins), capped at 4 (`MaxMoves`) — weapon moves beyond the cap are
 dropped, so the set never exceeds 4. The canonical `basic_attack` is
-NOT implicitly added to the hero set: a hero with no learned moves and
-no weapon-granted moves has an empty set, and what that means in combat
-is decided by the combat integration. Learning: `LearnMove` refuses at
+NOT implicitly added to the hero SET — the integration decided what an
+empty set means instead: `Engine.CombatMoves` resolves an empty
+effective set to the canonical `basic_attack` (a move-less hero must
+still be able to act, mirroring the monster-side fallback, so move-less
+mods and starter gear keep working). Learning: `LearnMove` refuses at
 the cap (learning never displaces a move on its own — the caller drives
 `ForgetMove(moveID)` and retries); learning an already-known id is a
 refused no-op.
@@ -446,8 +519,14 @@ runtime `Move.Weight` carries the ref's per-monster AI weight.
 
 ### Implementation phases
 
-1. Schema & entities — moves/statuses assets, move sets, validation
-2. Combat integration — CmdMove, monster AI, cooldowns, status ticks,
-   stopgap UI
+1. ~~Schema & entities — moves/statuses assets, move sets, validation~~
+   (shipped)
+2. ~~Combat integration — CmdMove, monster AI, cooldowns, status ticks,
+   stopgap UI~~ (shipped: the engine flow plus the stopgap move-chip
+   bar and status log lines; the rng contracts live in
+   "Combat calculations → RNG")
 3. TUI combat redesign — 2×2 move grid, status chips, cooldown display
+   (the stopgap bar above holds the slot until then)
 4. Bosses & shrines — gate flow, move learning, content, balance retune
+   (NOT YET IMPLEMENTED; the embedded assets carry no move sets yet —
+   the content pass lands here)

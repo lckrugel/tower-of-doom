@@ -171,14 +171,15 @@ func (m Model) selectableRows() int {
 	}
 }
 
-// itemIndexFor resolves the row an index-carrying command acts on. The
+// indexFor resolves the row an index-carrying command acts on. The
 // bag commands (WEAR/DROP) take the bag cursor directly; at the
 // merchant the same cursor walks the combined stock-then-bag list, so
 // BUY takes it as-is (stock rows come first) and SELL subtracts the
-// stock size to reach the bag row. A cursor on the wrong section sends
-// an out-of-range index, which the engine rejects as a generic message
-// — never a panic, no state change.
-func (m Model) itemIndexFor(cmd engine.CommandType) int {
+// stock size to reach the bag row. (CmdMove does not come through
+// here — its chips carry their own move position.) A cursor on the
+// wrong section sends an out-of-range index, which the engine rejects
+// as a generic message — never a panic, no state change.
+func (m Model) indexFor(cmd engine.CommandType) int {
 	if cmd == engine.CmdSell {
 		return m.bagCursor - len(m.engine.MerchantStock)
 	}
@@ -191,10 +192,15 @@ func (m Model) dispatch(a action) (tea.Model, tea.Cmd) {
 	quit := false
 	cmd := engine.Command{Type: a.cmd}
 	if a.usesIndex {
-		// Indexed commands act on the selected row; an out-of-range
-		// index is rejected by the engine as a generic message, no
-		// state change.
-		cmd.ItemIndex = m.itemIndexFor(a.cmd)
+		// Indexed commands act on their subject: the move chips carry
+		// their own position; the row-indexed commands act on the
+		// selected row. An out-of-range index is rejected by the engine
+		// as a generic message, no state change.
+		if a.cmd == engine.CmdMove {
+			cmd.Index = a.index
+		} else {
+			cmd.Index = m.indexFor(a.cmd)
+		}
 	}
 	for _, ev := range m.engine.Process(cmd) {
 		m.absorb(ev)

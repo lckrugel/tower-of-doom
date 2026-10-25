@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"fmt"
 	"slices"
 
 	"github.com/lckrugel/tower-of-doom/internal/game"
@@ -67,8 +68,26 @@ func stockIDs(stock []*entities.Item) map[string]bool {
 
 // itemFromID builds a fresh item from a registry id (no rng).
 func (e *Engine) itemFromID(id string) *entities.Item {
-	item := entities.NewItemFromAsset(e.reg.Items[id])
+	item := e.itemFromAsset(e.reg.Items[id])
 	return &item
+}
+
+// itemFromAsset builds a runtime item from its asset, resolving the
+// asset's granted-move ids through the registry (only weapons grant
+// moves, and validated content guarantees every id exists). The resolved
+// moves are what the hero's EffectiveMoves reports while the item is
+// equipped. Consumes no rng.
+func (e *Engine) itemFromAsset(asset game.ItemAsset) entities.Item {
+	granted := make([]entities.Move, 0, len(asset.Moves))
+	for _, id := range asset.Moves {
+		moveAsset, ok := e.reg.MoveByID(id)
+		if !ok {
+			panic(fmt.Sprintf("unreachable: item %q references unknown move %q despite passing content validation",
+				asset.ID, id))
+		}
+		granted = append(granted, entities.NewMoveFromAsset(moveAsset))
+	}
+	return entities.NewItemFromAsset(asset, granted...)
 }
 
 // upgradedItem rolls a registry item one tier above base, capped at the
@@ -98,7 +117,7 @@ func (e *Engine) upgradedItem(base *entities.Item, inStock map[string]bool) *ent
 func (e *Engine) handleMerchant(cmd Command) []Event {
 	switch cmd.Type {
 	case CmdBuy:
-		item := e.MerchantStock[cmd.ItemIndex]
+		item := e.MerchantStock[cmd.Index]
 		price := item.BuyPrice()
 		// Gold is reported first, then a full bag: both rejections leave
 		// gold, bag and stock untouched (the player can pick another
@@ -111,12 +130,12 @@ func (e *Engine) handleMerchant(cmd Command) []Event {
 		}
 		e.Player.Gold -= price
 		e.Player.StashItem(item)
-		e.MerchantStock = slices.Delete(e.MerchantStock, cmd.ItemIndex, cmd.ItemIndex+1)
+		e.MerchantStock = slices.Delete(e.MerchantStock, cmd.Index, cmd.Index+1)
 		return []Event{NewItemBought(item, price)}
 	case CmdSell:
 		// Destroyed on the spot via the hero's existing drop: the
 		// merchant takes the item for its SellValue.
-		item := e.Player.DropFromBag(cmd.ItemIndex)
+		item := e.Player.DropFromBag(cmd.Index)
 		price := item.SellValue()
 		e.Player.Gold += price
 		return []Event{NewItemSold(item, price)}

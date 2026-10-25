@@ -498,7 +498,7 @@ func TestViewCombatShowsOnlyTheCurrentEnemy(t *testing.T) {
 			t.Errorf("combat body line %d is %d wide, overflows the %d-col column:\n%q", i, w, mainColWidth, line)
 		}
 	}
-	if !strings.Contains(view, "[A] Attack") || !strings.Contains(view, "[R] Flee") {
+	if !strings.Contains(view, "[1] Basic Attack") || !strings.Contains(view, "[R] Flee") {
 		t.Errorf("combat action bar incomplete:\n%s", view)
 	}
 }

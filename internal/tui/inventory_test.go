@@ -51,7 +51,7 @@ func fightThroughTheOpener(t *testing.T, m Model) Model {
 		case engine.StateEncounter:
 			m, _ = press(m, "f")
 		case engine.StateCombat:
-			m, _ = press(m, "a")
+			m, _ = press(m, "1") // the basic-attack move chip (combat 2.0 bar)
 		case engine.StateExploring:
 			return m
 		default:
@@ -76,7 +76,7 @@ func exploreUntilChest(t *testing.T, m Model) Model {
 		case engine.StateEncounter:
 			m, _ = press(m, "f")
 		case engine.StateCombat:
-			m, _ = press(m, "a")
+			m, _ = press(m, "1") // the basic-attack move chip (combat 2.0 bar)
 		case engine.StateLoot:
 			return m
 		default:

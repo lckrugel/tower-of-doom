@@ -508,10 +508,24 @@ func (m Model) actionBar() string {
 		return styleSelected.Render("Really quit? [Y] Yes / [N] No")
 	}
 	actions := m.barActions()
+	// The combat bar is compact on purpose: no hint, single-space
+	// separators — four move chips plus Flee/Quit must always fit (the
+	// 2×2 move grid is the next phase's redesign).
+	hint := "   ← → select · ⏎ confirm"
+	sep := "   "
+	if m.engine.State == engine.StateCombat {
+		hint, sep = "", " "
+	}
 	spots := make([]string, 0, len(actions))
 	for i, a := range actions {
 		label := fmt.Sprintf("[%s] %s", strings.ToUpper(a.key), a.label)
 		if !a.enabled {
+			if a.cmd == engine.CmdMove {
+				// Cooled move chips: the "(N)" marker already explains
+				// the block — no extra glyph.
+				spots = append(spots, styleDisabled.Render(label))
+				continue
+			}
 			spots = append(spots, styleDisabled.Render(label+" ✗"))
 			continue
 		}
@@ -525,7 +539,6 @@ func (m Model) actionBar() string {
 	// walk the bag rows inside the bag, the shop's combined list while
 	// shopping — while the chest screen has nothing to select, only the
 	// decision to make.
-	hint := "   ← → select · ⏎ confirm"
 	switch m.engine.State {
 	case engine.StateInventory:
 		hint = "   ← → item · ⏎ confirm"
@@ -534,7 +547,10 @@ func (m Model) actionBar() string {
 	case engine.StateLoot:
 		hint = "   decide the loot's fate"
 	}
-	return lipgloss.JoinHorizontal(lipgloss.Center, strings.Join(spots, "   "), styleDim.Render(hint))
+	if hint == "" {
+		return lipgloss.JoinHorizontal(lipgloss.Center, strings.Join(spots, sep))
+	}
+	return lipgloss.JoinHorizontal(lipgloss.Center, strings.Join(spots, sep), styleDim.Render(hint))
 }
 
 // gearSlot pairs an equipment slot's short panel label with the item

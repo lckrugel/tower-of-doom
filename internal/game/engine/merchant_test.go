@@ -248,7 +248,7 @@ func TestMerchantBuy(t *testing.T) {
 		e := setup()
 		offer := e.MerchantStock[0] // t1_sword
 
-		events := e.Process(Command{Type: CmdBuy, ItemIndex: 0})
+		events := e.Process(Command{Type: CmdBuy, Index: 0})
 
 		if got := eventTypes(events); !typesEqual(got, EventItemBought) {
 			t.Fatalf("events = %v, want [item-bought]", got)
@@ -278,7 +278,7 @@ func TestMerchantBuy(t *testing.T) {
 		e := setup()
 		e.Player.Gold = 100 // t1_sword costs 250
 
-		events := e.Process(Command{Type: CmdBuy, ItemIndex: 0})
+		events := e.Process(Command{Type: CmdBuy, Index: 0})
 
 		if got := eventTypes(events); !typesEqual(got, EventMessage) {
 			t.Fatalf("events = %v, want [message (not enough gold)]", got)
@@ -295,7 +295,7 @@ func TestMerchantBuy(t *testing.T) {
 		e := setup()
 		fillBag(e)
 
-		events := e.Process(Command{Type: CmdBuy, ItemIndex: 0})
+		events := e.Process(Command{Type: CmdBuy, Index: 0})
 
 		if got := eventTypes(events); !typesEqual(got, EventBagFull) {
 			t.Fatalf("events = %v, want [bag-full]", got)
@@ -318,7 +318,7 @@ func TestMerchantSell(t *testing.T) {
 	})
 	e.Player.StashItem(&heirloom)
 
-	events := e.Process(Command{Type: CmdSell, ItemIndex: 0})
+	events := e.Process(Command{Type: CmdSell, Index: 0})
 
 	if got := eventTypes(events); !typesEqual(got, EventItemSold) {
 		t.Fatalf("events = %v, want [item-sold]", got)
@@ -369,7 +369,7 @@ func TestMerchantCommandGuards(t *testing.T) {
 				e := newTestEngine()
 				e.State = state
 
-				events := e.Process(Command{Type: cmdType, ItemIndex: 0})
+				events := e.Process(Command{Type: cmdType, Index: 0})
 
 				if got := eventTypes(events); len(got) != 1 || got[0] != EventMessage {
 					t.Errorf("%v in %v: events = %v, want a single [invalid command] message", cmdType, state, got)
@@ -386,12 +386,12 @@ func TestMerchantCommandGuards(t *testing.T) {
 		e.Process(Command{Type: CmdExplore})
 
 		for _, index := range []int{-1, 4, 100} {
-			if got := eventTypes(e.Process(Command{Type: CmdBuy, ItemIndex: index})); len(got) != 1 || got[0] != EventMessage {
+			if got := eventTypes(e.Process(Command{Type: CmdBuy, Index: index})); len(got) != 1 || got[0] != EventMessage {
 				t.Errorf("CmdBuy(%d): events = %v, want a single [invalid command] message", index, got)
 			}
 		}
 		for _, index := range []int{-1, 0, 100} { // 0: the bag is empty
-			if got := eventTypes(e.Process(Command{Type: CmdSell, ItemIndex: index})); len(got) != 1 || got[0] != EventMessage {
+			if got := eventTypes(e.Process(Command{Type: CmdSell, Index: index})); len(got) != 1 || got[0] != EventMessage {
 				t.Errorf("CmdSell(%d): events = %v, want a single [invalid command] message", index, got)
 			}
 		}

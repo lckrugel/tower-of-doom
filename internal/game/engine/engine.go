@@ -57,6 +57,13 @@ type Engine struct {
 	// value is combat, so a fresh engine's empty history can never
 	// satisfy the non-combat streak and false-trigger the override.
 	recentKinds [2]EncounterType
+	// heroCombat / enemyCombat are the combat-scoped states (move
+	// cooldowns, active statuses) of the two combatants. Reset at every
+	// combat start (startCombat); the enemy state also resets whenever
+	// the queue advances (the next monster steps in fresh). Never
+	// survives the encounter — see combat_state.go.
+	heroCombat  combatantState
+	enemyCombat combatantState
 }
 
 // `rng` é a fonte de aleatoriedade usada pelo engine.
@@ -73,11 +80,7 @@ func (mathRandRng) Intn(n int) int { return rand.Intn(n) }
 
 func NewEngine(reg *game.Registry) *Engine {
 	player := entities.NewPlayer()
-	if asset, ok := reg.Items[starterItemID]; ok {
-		starter := entities.NewItemFromAsset(asset)
-		player.EquipItem(&starter)
-	}
-	return &Engine{
+	e := &Engine{
 		Player:       player,
 		CurrentFloor: 1,
 		State:        StateExploring,
@@ -85,6 +88,13 @@ func NewEngine(reg *game.Registry) *Engine {
 		reg:          reg,
 		rng:          mathRandRng{},
 	}
+	if asset, ok := reg.Items[starterItemID]; ok {
+		// The starter item is built through the engine's resolver so its
+		// granted moves (if any) are resolved from the registry.
+		starter := e.itemFromAsset(asset)
+		player.EquipItem(&starter)
+	}
+	return e
 }
 
 func (e *Engine) Process(cmd Command) []Event {
@@ -176,15 +186,25 @@ func (e *Engine) handleExploring(cmd Command) []Event {
 func (e *Engine) handleEncounter(cmd Command) []Event {
 	switch cmd.Type {
 	case CmdFight:
-		// Entering combat resolves the first round immediately: the Hero
-		// engages the enemy with standard initiative.
-		e.State = StateCombat
-		return e.resolveRound(true)
+		// Entering combat resolves NO round: rounds advance from the
+		// hero's move choices (CmdMove in StateCombat). FIGHT only opens
+		// the state — no rng consumed, no strike forced.
+		e.startCombat()
+		return nil
 	case CmdSneak:
 		return e.resolveSneak()
 	default:
 		return []Event{NewMessage("Unhandled command")}
 	}
+}
+
+// startCombat opens a fresh combat: the combat-scoped state (move
+// cooldowns, active statuses) resets — every FIGHT / failed-SNEAK / boss
+// start begins a clean slate. Nothing here survives the encounter.
+func (e *Engine) startCombat() {
+	e.heroCombat = newCombatantState()
+	e.enemyCombat = newCombatantState()
+	e.State = StateCombat
 }
 
 // resolveSneak attempts to slip past the encounter. Success avoids combat
@@ -197,19 +217,46 @@ func (e *Engine) resolveSneak() []Event {
 		e.State = StateExploring
 		return []Event{NewSneakSuccess()}
 	}
-	e.State = StateCombat
+	// A failed sneak is a fresh combat with a free turn for the enemy.
+	e.startCombat()
 	return append([]Event{NewSneakFailed()}, e.enemyFreeTurn()...)
 }
 
 func (e *Engine) handleCombat(cmd Command) []Event {
 	switch cmd.Type {
-	case CmdAttack:
-		return e.resolveRound(true)
+	case CmdMove:
+		// The index was range-checked by isValidCommand against the
+		// hero's combat move set, so this indexes safely.
+		move := e.CombatMoves()[cmd.Index]
+		if e.heroCombat.onCooldown(move.ID) {
+			// A locked move is a blocked action, not an error: a message,
+			// no state change. But a FULLY cooled hero must still be able
+			// to act — never a soft-lock — so when every move is locked
+			// the turn resolves as a RECOVER round (the hero doesn't act,
+			// the enemy does, everything ticks).
+			if !e.heroHasReadyMove() {
+				return e.resolveRound(nil)
+			}
+			return []Event{NewMessage("Move on cooldown.")}
+		}
+		return e.resolveRound(&move)
 	case CmdFlee:
 		return e.resolveFlee()
 	default:
 		return []Event{NewMessage("Unhandled command")}
 	}
+}
+
+// heroHasReadyMove reports whether any of the hero's combat moves is off
+// cooldown (a fully-cooled hero turn resolves as a RECOVER round instead
+// of a blocked command).
+func (e *Engine) heroHasReadyMove() bool {
+	for _, m := range e.CombatMoves() {
+		if !e.heroCombat.onCooldown(m.ID) {
+			return true
+		}
+	}
+	return false
 }
 
 // handleLoot resolves the pending loot decision (StateLoot — chests and,
@@ -219,7 +266,7 @@ func (e *Engine) handleCombat(cmd Command) []Event {
 func (e *Engine) handleLoot(cmd Command) []Event {
 	switch cmd.Type {
 	case CmdWear:
-		// The pending item is the only subject here: ItemIndex is ignored.
+		// The pending item is the only subject here: Index is ignored.
 		item := e.PendingLoot
 		displaced := e.Player.EquipItem(item)
 		events := []Event{NewItemEquipped(item, displaced)}
@@ -257,13 +304,13 @@ func (e *Engine) handleLoot(cmd Command) []Event {
 func (e *Engine) handleInventory(cmd Command) []Event {
 	switch cmd.Type {
 	case CmdWear:
-		item := e.Player.Bag()[cmd.ItemIndex]
-		displaced := e.Player.EquipFromBag(cmd.ItemIndex)
+		item := e.Player.Bag()[cmd.Index]
+		displaced := e.Player.EquipFromBag(cmd.Index)
 		return []Event{NewItemEquipped(item, displaced)}
 	case CmdDrop:
 		// Destroyed on the spot: there is no floor layer to drop things
 		// on, so the item is gone for good.
-		item := e.Player.DropFromBag(cmd.ItemIndex)
+		item := e.Player.DropFromBag(cmd.Index)
 		return []Event{NewItemDiscarded(item)}
 	case CmdClose:
 		e.State = StateExploring
@@ -273,11 +320,11 @@ func (e *Engine) handleInventory(cmd Command) []Event {
 	}
 }
 
-// resolveFlee attempts to escape the combat. Success exits combat with no
-// reward; failure gives the current enemy a free turn.
+// resolveFlee attempts to escape the combat. The chance reads the
+// EFFECTIVE speeds (stat-mod statuses included). Success exits combat
+// with no reward; failure gives the current enemy a free turn.
 func (e *Engine) resolveFlee() []Event {
-	enemy := e.currentEnemy()
-	chance := fleeChance(e.Player.Speed(), enemy.Speed())
+	chance := fleeChance(e.heroStat(entities.StatSPD), e.enemyStat(entities.StatSPD))
 	if e.rng.Intn(100) < chance {
 		e.CurrentEncounter = Encounter{}
 		e.State = StateExploring
@@ -348,13 +395,40 @@ func (e *Engine) generateEncounter(floor int) (Encounter, error) {
 		}
 
 		def := weightedPick(e.rng, candidates, weights)
-		encounter.Monsters = append(encounter.Monsters, entities.NewMonsterFromAsset(def))
+		moves, err := e.monsterMoves(def)
+		if err != nil {
+			return Encounter{}, err
+		}
+		encounter.Monsters = append(encounter.Monsters, entities.NewMonsterFromAsset(def, moves...))
 		budget -= def.Difficulty
 	}
 	if len(encounter.Monsters) == 0 {
 		log.Printf("generated empty encounter for floor %v ", floor)
 	}
 	return encounter, nil
+}
+
+// monsterMoves resolves a monster asset's move refs into its runtime
+// move set: each ref's move is looked up in the registry and the REF's
+// weight OVERRIDES the move asset's default AI weight for that monster.
+// A monster without refs returns nil — NewMonsterFromAsset then equips
+// the canonical basic attack. Unknown refs are an error: a content bug
+// that load-time validation otherwise catches.
+func (e *Engine) monsterMoves(asset game.MonsterAsset) ([]entities.Move, error) {
+	if len(asset.Moves) == 0 {
+		return nil, nil
+	}
+	moves := make([]entities.Move, 0, len(asset.Moves))
+	for _, ref := range asset.Moves {
+		moveAsset, ok := e.reg.MoveByID(ref.ID)
+		if !ok {
+			return nil, fmt.Errorf("monster %v references unknown move %v", asset.ID, ref.ID)
+		}
+		m := entities.NewMoveFromAsset(moveAsset)
+		m.Weight = ref.Weight
+		moves = append(moves, m)
+	}
+	return moves, nil
 }
 
 // pickItem rolls a random item from the registry whose slot passes the
@@ -372,7 +446,7 @@ func (e *Engine) pickItem(accept func(entities.ItemSlot) bool, tiers []int) *ent
 	if len(pool) == 0 {
 		return nil
 	}
-	item := entities.NewItemFromAsset(e.reg.Items[pool[e.rng.Intn(len(pool))]])
+	item := e.itemFromAsset(e.reg.Items[pool[e.rng.Intn(len(pool))]])
 	return &item
 }
 
@@ -445,21 +519,27 @@ func (e *Engine) isValidCommand(cmd Command) bool {
 	// Index-carrying commands must point at a real slot, otherwise it is
 	// a generic invalid command with no state change (never a panic —
 	// the index is player-reachable): bag commands and selling at a bag
-	// item, buying at a stock offer.
+	// item, buying at a stock offer, and CmdMove at the hero's combat
+	// move set.
 	if cmd.Type == CmdDrop || cmd.Type == CmdSell {
-		if cmd.ItemIndex < 0 || cmd.ItemIndex >= len(e.Player.Bag()) {
+		if cmd.Index < 0 || cmd.Index >= len(e.Player.Bag()) {
 			return false
 		}
 	}
 	// CmdWear indexes the bag only from StateInventory: the StateLoot
 	// wear takes the pending item and ignores the index.
 	if cmd.Type == CmdWear && e.State == StateInventory {
-		if cmd.ItemIndex < 0 || cmd.ItemIndex >= len(e.Player.Bag()) {
+		if cmd.Index < 0 || cmd.Index >= len(e.Player.Bag()) {
 			return false
 		}
 	}
 	if cmd.Type == CmdBuy {
-		if cmd.ItemIndex < 0 || cmd.ItemIndex >= len(e.MerchantStock) {
+		if cmd.Index < 0 || cmd.Index >= len(e.MerchantStock) {
+			return false
+		}
+	}
+	if cmd.Type == CmdMove {
+		if cmd.Index < 0 || cmd.Index >= len(e.CombatMoves()) {
 			return false
 		}
 	}
