@@ -200,6 +200,8 @@ func (m Model) badge() string {
 		style = styleBadgeWarn
 	case engine.StateMerchant:
 		style = styleBadgeWarn
+	case engine.StateLearn:
+		style = styleBadgeWarn
 	case engine.StateInventory:
 		style = styleBadgeOk
 	case engine.StateGameOver:
@@ -232,6 +234,8 @@ func (m Model) body() string {
 		return m.inventoryPanel()
 	case engine.StateMerchant: // the shop: offers and bag in one list
 		return m.merchantPanel()
+	case engine.StateLearn: // the shrine: the offer's dossier + the forget rows
+		return m.shrinePanel()
 	case engine.StateEncounter: // the whole queue helps weigh FIGHT vs SNEAK
 		return m.encounterPanel()
 	case engine.StateCombat: // only the front enemy matters mid-fight
@@ -335,6 +339,53 @@ func (m Model) shopRow(index int, item *entities.Item, price string) string {
 func (m Model) merchantCursor() int {
 	n := len(m.engine.MerchantStock) + len(m.engine.Player.Bag())
 	return min(max(m.bagCursor, 0), max(n-1, 0))
+}
+
+// moveRowNameWidth is the shrine forget rows' name budget: the longest
+// shipped move ("Assassin's Strike", 17 runes) plus slack; modded names
+// truncate inside the row instead of stretching the frame.
+const moveRowNameWidth = 20
+
+// shrinePanel is the shrine screen (StateLearn): the offered move's
+// dossier — reusing the move grid's tag renderer — over the forget
+// selection: the hero's learned moves as selectable rows, the row FORGET
+// acts on. The decision is explicit-only (esc is a no-op), like the
+// chest loot: leaving the shrine is a choice, not a stray keystroke.
+func (m Model) shrinePanel() string {
+	var b strings.Builder
+	b.WriteString(stylePanelTitle.Render("◈ SHRINE") + "\n")
+	move := m.engine.PendingMove
+	if move == nil {
+		return b.String() + styleDim.Render("   (the shrine is silent)")
+	}
+	offer := "The shrine offers: " + move.Name
+	b.WriteString("  " + stylePanelTitle.Render(truncateRunes(offer, mainColWidth-2)) + "\n")
+	// The dossier line reuses the grid's tag renderer (modifier, status
+	// id, crit) with the move's tier ahead of it.
+	tags := strings.TrimLeft(m.gridTags(*move, false), " ")
+	b.WriteString(styleDim.Render(fmt.Sprintf("    tier %d · %s", move.Tier, tags)) + "\n")
+	learned := m.engine.Player.LearnedMoves()
+	if len(learned) == 0 {
+		return b.String() + styleDim.Render("   (nothing learned to forget)")
+	}
+	b.WriteString(styleDim.Render("  forget one of your moves to make room:") + "\n")
+	width := 0
+	for _, mv := range learned {
+		width = max(width, len([]rune(mv.Name)))
+	}
+	width = min(width, moveRowNameWidth)
+	selected := min(max(m.bagCursor, 0), len(learned)-1)
+	for i, mv := range learned {
+		rowTags := strings.TrimLeft(m.gridTags(mv, false), " ")
+		label := padRight(truncateRunes(mv.Name, moveRowNameWidth), width) + "  " + rowTags
+		label = truncateRunes(label, mainColWidth-3)
+		if i == selected {
+			b.WriteString(styleSelected.Render("▶ "+label) + "\n")
+		} else {
+			b.WriteString("  " + styleAction.Render(label) + "\n")
+		}
+	}
+	return b.String()
 }
 
 // gameOverPanel is the body after death: the banner, then the run's
@@ -733,6 +784,8 @@ func (m Model) actionBar() string {
 		hint = "   ← → row · ⏎ act"
 	case engine.StateLoot:
 		hint = "   decide the loot's fate"
+	case engine.StateLearn:
+		hint = "   ← → pick the move to forget"
 	}
 	if hint == "" {
 		return lipgloss.JoinHorizontal(lipgloss.Center, strings.Join(spots, sep))

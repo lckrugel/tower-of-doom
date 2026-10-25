@@ -19,9 +19,9 @@ type action struct {
 	// reaches the engine, which explains the block as a log message.
 	enabled bool
 	// usesIndex marks the index-carrying commands: the row-indexed ones
-	// (WEAR/DROP/BUY/SELL) dispatch with the selected row. The move grid
-	// dispatches CmdMove through its own helpers, which build the same
-	// action shape with the cell's index.
+	// (WEAR/DROP/BUY/SELL/FORGET) dispatch with the selected row. The
+	// move grid dispatches CmdMove through its own helpers, which build
+	// the same action shape with the cell's index.
 	usesIndex bool
 	// index is the index an explicitly built CmdMove action dispatches
 	// (ignored by every other action, which derive their index from the
@@ -60,6 +60,11 @@ var orderedOptions = []struct {
 	{"p", "Buy", engine.CmdBuy},   // buy the offer under the shop cursor
 	{"v", "Sell", engine.CmdSell}, // sell the selected bag item
 	{"l", "Leave", engine.CmdLeave},
+	// The shrine's forget prompt: forget the selected learned move to
+	// make room for the offer, or keep both and walk away. ("f" is
+	// Fight's and "d" is Discard's — the uniqueness invariant keeps them.)
+	{"t", "Forget", engine.CmdForget},   // t for "toss"
+	{"n", "Decline", engine.CmdDecline}, // n for "no — keep both"
 	{"q", "Quit", engine.CmdQuit},
 }
 
@@ -100,7 +105,8 @@ func actionsFor(e *engine.Engine) []action {
 		actions = append(actions, action{
 			key: opt.key, label: opt.label, cmd: opt.cmd, enabled: enabled,
 			usesIndex: opt.cmd == engine.CmdWear || opt.cmd == engine.CmdDrop ||
-				opt.cmd == engine.CmdBuy || opt.cmd == engine.CmdSell,
+				opt.cmd == engine.CmdBuy || opt.cmd == engine.CmdSell ||
+				opt.cmd == engine.CmdForget,
 			index: -1,
 		})
 	}
