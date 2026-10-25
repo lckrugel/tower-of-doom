@@ -22,6 +22,10 @@ func TestAllowedCommandsMatrix(t *testing.T) {
 		{"loot decision", StateLoot, []CommandType{CmdWear, CmdStashLoot, CmdDiscardLoot, CmdQuit}},
 		{"inventory", StateInventory, []CommandType{CmdWear, CmdDrop, CmdClose, CmdQuit}},
 		{"merchant", StateMerchant, []CommandType{CmdBuy, CmdSell, CmdLeave, CmdQuit}},
+		// StateLearn's row is the UNION of its two steps (the package
+		// surface cannot see the internal step — see
+		// TestStateLearnStepCommandMatrix for the engine's per-step view).
+		{"learn", StateLearn, []CommandType{CmdChooseOffer, CmdForget, CmdDecline, CmdQuit}},
 		{"game over", StateGameOver, []CommandType{CmdQuit}},
 	}
 	for _, tt := range tests {
@@ -46,6 +50,66 @@ func containsCommand(cmds []CommandType, c CommandType) bool {
 		}
 	}
 	return false
+}
+
+// The shrine's step-dependent command matrix: inside StateLearn the
+// ENGINE allows exactly the current step's commands — the CHOOSING step
+// [CmdChooseOffer, CmdDecline, CmdQuit], the FORGETTING step
+// [CmdForget, CmdDecline, CmdQuit] — while the package-level
+// AllowedCommands (the TUI's view, which cannot see the internal step)
+// returns the union of both. A command from the OTHER step is a generic
+// invalid command with no state change.
+func TestStateLearnStepCommandMatrix(t *testing.T) {
+	t.Run("choosing step", func(t *testing.T) {
+		e := shrineEngine(30, 0, 0)
+		e.Process(Command{Type: CmdExplore}) // under the cap: StateLearn choosing
+
+		got := e.allowedCommands(StateLearn)
+		want := []CommandType{CmdChooseOffer, CmdDecline, CmdQuit}
+		if len(got) != len(want) {
+			t.Fatalf("choosing-step commands = %v, want %v", got, want)
+		}
+		for _, c := range want {
+			if !containsCommand(got, c) {
+				t.Errorf("choosing-step commands are missing %v", c)
+			}
+		}
+		if containsCommand(got, CmdForget) {
+			t.Error("the choosing step must not allow CmdForget")
+		}
+		// Process-level: FORGET is out of the step — generic invalid.
+		if got := eventTypes(e.Process(Command{Type: CmdForget, Index: 0})); !typesEqual(got, EventMessage) {
+			t.Errorf("FORGET in the choosing step = %v, want [message]", got)
+		}
+		if e.State != StateLearn {
+			t.Errorf("state after the rejected FORGET = %v, want StateLearn", e.State)
+		}
+	})
+
+	t.Run("forgetting step", func(t *testing.T) {
+		e := shrineForgetting()
+
+		got := e.allowedCommands(StateLearn)
+		want := []CommandType{CmdForget, CmdDecline, CmdQuit}
+		if len(got) != len(want) {
+			t.Fatalf("forgetting-step commands = %v, want %v", got, want)
+		}
+		for _, c := range want {
+			if !containsCommand(got, c) {
+				t.Errorf("forgetting-step commands are missing %v", c)
+			}
+		}
+		if containsCommand(got, CmdChooseOffer) {
+			t.Error("the forgetting step must not allow CmdChooseOffer")
+		}
+		// Process-level: CHOOSE is out of the step — generic invalid.
+		if got := eventTypes(e.Process(Command{Type: CmdChooseOffer, Index: 0})); !typesEqual(got, EventMessage) {
+			t.Errorf("CHOOSE in the forgetting step = %v, want [message]", got)
+		}
+		if e.State != StateLearn {
+			t.Errorf("state after the rejected CHOOSE = %v, want StateLearn", e.State)
+		}
+	})
 }
 
 // testBagItem builds a bag-ready item of the given slot name.

@@ -79,11 +79,19 @@ const (
 	// A shrine offered a move at the learned cap: the offer is held in
 	// Engine.PendingMove and the player must forget a learned move or
 	// decline (StateLearn).
+	//
+	// Deprecated: superseded by EventShrineOffered (the two-offer flow —
+	// the offers live in Engine.PendingMoves). No longer emitted; kept
+	// because the current TUI still renders it.
 	EventShrineFound
 	// The hero learned a move (a shrine's teaching): the optional
 	// additive `forgotten` key carries the move displaced from the
 	// learned set when it was at the cap.
 	EventMoveLearned
+	// A shrine presented its offers: ONE OR TWO moves are held in
+	// Engine.PendingMoves and the player must choose one (StateLearn's
+	// choosing step — the TUI reads PendingMoves for the dossiers).
+	EventShrineOffered
 )
 
 // `Event` é o que o jogo envia após processar um `Command`.
@@ -570,6 +578,9 @@ func NewItemSold(item *entities.Item, price int) Event {
 // offer is held in Engine.PendingMove while the player decides in
 // StateLearn (forget a learned move or decline) — nothing is learned yet.
 //
+// Deprecated: superseded by NewShrineOffered (the two-offer flow). No
+// longer emitted; kept because the current TUI still renders it.
+//
 // Payload:
 //   - "move": the offered move.
 func NewShrineFound(move entities.Move) Event {
@@ -596,4 +607,20 @@ func NewMoveLearned(move entities.Move, forgotten *entities.Move) Event {
 		data["forgotten"] = *forgotten
 	}
 	return Event{Type: EventMoveLearned, Data: data}
+}
+
+// NewShrineOffered reports a shrine presenting its offers. The offers
+// are held in Engine.PendingMoves while the player chooses one in
+// StateLearn's choosing step — nothing is learned yet (the forget
+// prompt, at the learned cap, only opens after the choice).
+//
+// Payload:
+//   - "count": how many moves the shrine offers (1–2).
+func NewShrineOffered(count int) Event {
+	return Event{
+		Type: EventShrineOffered,
+		Data: map[string]any{
+			"count": count,
+		},
+	}
 }
