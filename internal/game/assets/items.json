@@ -8,7 +8,10 @@
     "bonus_dmg": 5,
     "bonus_def": 0,
     "bonus_spd": 0,
-    "durability": 50
+    "durability": 50,
+    "moves": [
+      "basic_attack"
+    ]
   },
   {
     "id": "leather_armor",

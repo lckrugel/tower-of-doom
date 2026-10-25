@@ -585,16 +585,27 @@ func (r *Registry) Validate(topFloor int) error {
 		}
 	}
 
-	// Only weapons may grant moves, at most MaxWeaponMoves each, and
-	// every granted id must exist.
+	// Only weapons may grant moves — and every weapon MUST: an absent or
+	// empty grant list is a content bug now (the explicit-spammable
+	// rule), at most MaxWeaponMoves each, and every granted id must
+	// exist.
 	for _, id := range sortedIDs(r.Items) {
 		item := r.Items[id]
-		if len(item.Moves) == 0 {
-			continue
-		}
 		if item.Slot != weaponSlot {
-			fail("item %q (slot %q) grants moves, but only weapons may", item.ID, item.Slot)
+			if len(item.Moves) > 0 {
+				fail("item %q (slot %q) grants moves, but only weapons may", item.ID, item.Slot)
+			}
 			continue // the weapon-only rules below make no sense for other slots
+		}
+		// The explicit-spammable rule: every weapon declares its moves.
+		// The old behavior — a move-less weapon keeping the basic_attack
+		// fallback — is gone (BREAKING for mods, intended): a weapon
+		// without an explicit list no longer loads.
+		if len(item.Moves) == 0 {
+			fail("weapon %q grants no moves, want an explicit list with at least one "+
+				"cooldown-0 move (move-less weapons no longer keep the basic_attack fallback)",
+				item.ID)
+			continue
 		}
 		if len(item.Moves) > MaxWeaponMoves {
 			// An over-cap grant list is one fault: its entries are not
@@ -626,8 +637,8 @@ func (r *Registry) Validate(topFloor int) error {
 		// The spammable rule: granting moves REPLACES the canonical
 		// basic_attack fallback, so the grant list must carry at least
 		// one cooldown-0 move — a weapon whose every move is locked can
-		// never act. A weapon with NO moves list keeps the fallback
-		// (spammable by definition) and skips this rule.
+		// never act. (Every weapon reaches this point WITH a list: the
+		// move-less case failed above.)
 		hasSpammable := false
 		for _, moveID := range item.Moves {
 			if move, _ := r.MoveByID(moveID); move.Cooldown == 0 {

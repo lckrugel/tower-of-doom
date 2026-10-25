@@ -222,19 +222,26 @@ func TestFloorDifficulty(t *testing.T) {
 	}
 }
 
-// regWithItems fills the registry's item index (makeReg leaves it empty).
+// regWithItems fills the registry's item index on top of the Combat 2.0
+// move/status helpers (combat2Reg) — the weapon rules (explicit
+// spammables, grant types) need every grant resolvable for Validate to
+// pass.
 func regWithItems(items []ItemAsset, sections []SectionAsset) *Registry {
-	r := makeReg(validMonsters(), sections)
+	r := combat2Reg()
+	r.Sections = sections
 	for _, it := range items {
 		r.Items[it.ID] = it
 	}
 	return r
 }
 
-// tierItems is a small item registry spanning tiers 1–3.
+// tierItems is a small item registry spanning tiers 1–3. The weapon
+// declares its moves explicitly (the explicit-spammable rule) with a
+// move the helper registries carry.
 func tierItems() []ItemAsset {
 	return []ItemAsset{
-		{ID: "sword", Name: "Sword", Slot: "weapon", BonusDMG: 5, Durability: 10, Tier: 1},
+		{ID: "sword", Name: "Sword", Slot: "weapon", BonusDMG: 5, Durability: 10, Tier: 1,
+			Moves: []string{"basic_attack"}},
 		{ID: "ring", Name: "Ring", Slot: "ring", BonusDEF: 1, Durability: -1, Tier: 1},
 		{ID: "crown", Name: "Crown", Slot: "helmet", BonusDEF: 9, Durability: 10, Tier: 2},
 		{ID: "dragon_mail", Name: "Dragon Mail", Slot: "body_armor", BonusDEF: 20, Durability: 10, Tier: 3},
@@ -342,7 +349,8 @@ func TestLoadDefaultsAbsentTierToOne(t *testing.T) {
 		{"id": "rat", "name": "Rat", "difficulty": 1, "hp": 10, "dmg": 1, "spd": 5}
 	]`)
 	write("items.json", `[
-		{"id": "sword", "slot": "weapon", "name": "Sword", "bonus_dmg": 5, "durability": 10},
+		{"id": "sword", "slot": "weapon", "name": "Sword", "bonus_dmg": 5, "durability": 10,
+		 "moves": ["basic_attack"]},
 		{"id": "crown", "slot": "helmet", "name": "Crown", "bonus_def": 9, "durability": 10, "tier": 2}
 	]`)
 	write("sections.json", `[
@@ -849,10 +857,12 @@ func TestLoadEmbeddedMovesAndStatuses(t *testing.T) {
 		t.Errorf("embedded MaxMoveTier = %d, want 4", got)
 	}
 
-	// Every shipped weapon's grant list, retiered so each weapon with
-	// moves carries a spammable (the spammable rule).
+	// Every shipped weapon's grant list: weapons declare their moves
+	// EXPLICITLY now — even the starter (the game owner's locked design:
+	// the wooden sword grants Basic Strike instead of keeping the
+	// fallback).
 	wantWeaponMoves := map[string][]string{
-		"wooden_sword":   nil, // starter: the Basic Strike fallback
+		"wooden_sword":   {"basic_attack"},
 		"iron_sword":     {"quick_stab"},
 		"steel_sword":    {"steel_flurry", "heavy_slash"},
 		"draconic_sword": {"assassins_strike", "dragons_might"},
@@ -867,11 +877,15 @@ func TestLoadEmbeddedMovesAndStatuses(t *testing.T) {
 		}
 	}
 
-	// Spammable-rule compliance for every shipped weapon: a weapon with a
-	// moves list must carry at least one cooldown-0 move (move-less
-	// weapons keep the Basic Strike fallback — spammable by definition).
+	// Spammable-rule compliance for every shipped weapon: every weapon
+	// declares moves (an absent/empty list is a content bug now) and the
+	// list carries at least one cooldown-0 move.
 	for id, item := range r.Items {
-		if item.Slot != "weapon" || len(item.Moves) == 0 {
+		if item.Slot != "weapon" {
+			continue
+		}
+		if len(item.Moves) == 0 {
+			t.Errorf("weapon %q declares no moves, want an explicit list (move-less weapons no longer load)", id)
 			continue
 		}
 		spammable := false
@@ -898,10 +912,13 @@ func TestLoadDefaultsAbsentMoveTierToOne(t *testing.T) {
 	write("monsters.json", `[
 		{"id": "rat", "name": "Rat", "difficulty": 1, "hp": 10, "dmg": 1, "spd": 5}
 	]`)
-	// A move-less weapon isolates the fixture from the embedded items
-	// (whose grants reference moves this registry does not carry).
+	// A weapon whose moves reference this registry's own moves isolates
+	// the fixture from the embedded items (whose grants reference moves
+	// this registry does not carry). Every weapon declares its moves
+	// explicitly (the explicit-spammable rule).
 	write("items.json", `[
-		{"id": "stick", "slot": "weapon", "name": "Stick", "bonus_dmg": 1, "durability": 5}
+		{"id": "stick", "slot": "weapon", "name": "Stick", "bonus_dmg": 1, "durability": 5,
+		 "moves": ["jab"]}
 	]`)
 	write("sections.json", `[
 		{"id": "s", "name": "S", "base_difficulty": 1, "min_floor": 1, "max_floor": -1,
@@ -1257,6 +1274,24 @@ func TestValidateCombat2Content(t *testing.T) {
 					Moves: []string{"quick_stab"}}
 			},
 			"",
+		},
+		// Every weapon declares its moves explicitly: an absent or empty
+		// grant list no longer keeps the basic_attack fallback — it is a
+		// content bug (BREAKING for move-less mods, intended).
+		{
+			"weapon with no moves list",
+			func(r *Registry) {
+				r.Items["sword"] = ItemAsset{ID: "sword", Name: "Sword", Slot: "weapon", Tier: 1}
+			},
+			"grants no moves",
+		},
+		{
+			"weapon with an empty moves list",
+			func(r *Registry) {
+				r.Items["sword"] = ItemAsset{ID: "sword", Name: "Sword", Slot: "weapon", Tier: 1,
+					Moves: []string{}}
+			},
+			"grants no moves",
 		},
 		// Section move_tiers.
 		{
