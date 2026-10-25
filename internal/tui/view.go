@@ -408,7 +408,7 @@ func (m Model) shrineDossier(move entities.Move, selected bool) string {
 		prefix, style = "▶ ", styleSelected
 	}
 	name := prefix + style.Render(truncateRunes(move.Name, mainColWidth-3))
-	tags := strings.TrimLeft(m.gridTags(move, false), " ")
+	tags := strings.TrimLeft(m.gridTags(move, false, glyphLearned), " ")
 	tier := truncateRunes(fmt.Sprintf("    tier %d · %s", move.Tier, tags), mainColWidth)
 	return name + "\n" + styleDim.Render(tier) + "\n"
 }
@@ -420,7 +420,7 @@ func (m Model) shrineForgetStep() string {
 	var b strings.Builder
 	if chosen := m.engine.ChosenMove; chosen != nil {
 		learning := truncateRunes("learning: "+chosen.Name, mainColWidth-2)
-		tags := strings.TrimLeft(m.gridTags(*chosen, false), " ")
+		tags := strings.TrimLeft(m.gridTags(*chosen, false, glyphLearned), " ")
 		tier := truncateRunes(fmt.Sprintf("    tier %d · %s", chosen.Tier, tags), mainColWidth)
 		b.WriteString("  " + stylePanelTitle.Render(learning) + "\n")
 		b.WriteString(styleDim.Render(tier) + "\n")
@@ -437,7 +437,7 @@ func (m Model) shrineForgetStep() string {
 	width = min(width, moveRowNameWidth)
 	selected := min(max(m.bagCursor, 0), len(learned)-1)
 	for i, mv := range learned {
-		rowTags := strings.TrimLeft(m.gridTags(mv, false), " ")
+		rowTags := strings.TrimLeft(m.gridTags(mv, false, glyphLearned), " ")
 		label := padRight(truncateRunes(mv.Name, moveRowNameWidth), width) + "  " + rowTags
 		label = truncateRunes(label, mainColWidth-3)
 		if i == selected {
@@ -573,6 +573,32 @@ func (m Model) moveGrid() string {
 	return strings.Join(rows, "\n")
 }
 
+// The move source glyphs: where a hero move comes from — the 2+2 split
+// (the 2-learned cap + the weapon's grants) made visible. Both render
+// single-width in the frame's glyph family (◈ ✦ ☠ ⬆ share it); ⚔ is
+// already the enemies' mark.
+const (
+	glyphLearned = "◆" // learned at a shrine
+	glyphWeapon  = "⚔" // granted by the equipped weapon
+)
+
+// moveSourceGlyph resolves a move's source glyph from the hero's
+// effective set — the clean engine seam (Hero.EffectiveMovesWithSource,
+// a Hero method the TUI reads directly): ◆ for the learned set, ⚔ for
+// weapon grants, "" for a move outside the set (the canonical
+// basic-attack fallback is neither).
+func (m Model) moveSourceGlyph(moveID string) string {
+	for _, s := range m.engine.Player.EffectiveMovesWithSource(m.engine.Player.Weapon) {
+		if s.Move.ID == moveID {
+			if s.Source == entities.SourceWeapon {
+				return glyphWeapon
+			}
+			return glyphLearned
+		}
+	}
+	return ""
+}
+
 // gridCell renders one cell's two lines (name, tags), padded to the
 // cell width so the two cells of a row align. The cursor's cell gets
 // the shared selection style — full-width background highlight; a
@@ -598,18 +624,23 @@ func (m Model) gridCell(moves []entities.Move, i int) (name, tags string) {
 		style = styleSelected
 	}
 	name = truncateRunes(name, gridCellWidth)
+	source := m.moveSourceGlyph(move.ID)
 	return style.Render(padRight(name, gridCellWidth)),
-		style.Render(padRight(truncateRunes(m.gridTags(move, cooling), gridCellWidth), gridCellWidth))
+		style.Render(padRight(truncateRunes(m.gridTags(move, cooling, source), gridCellWidth), gridCellWidth))
 }
 
-// gridTags is a cell's tag line: the move's damage modifier, its status
-// tag ("☠poison 60%" — the status ID; the move payload carries ids, not
-// names) and its crit bonus ("✦+20"). Shipped content never carries all
-// three on one move, so the line stays ≤ 2 short tags; a modded asset
-// that packs more truncates at the cell width (the guard, never slot()).
-// A cooling move shows ONLY the turns-left marker: the tags don't matter
-// while the move is unusable.
-func (m Model) gridTags(move entities.Move, cooling bool) string {
+// gridTags is a move's tag line: the damage modifier, the status tag
+// ("☠poison 60%" — the status ID; the move payload carries ids, not
+// names) and the crit bonus ("✦+20"), trailed by the move's SOURCE
+// glyph — the caller's knowledge: the hero-set lookup for grid cells,
+// the forced learned glyph for the shrine's offers and forget rows (a
+// shrine offer is by definition headed for the learned set). Shipped
+// content never carries all three tags on one move, so the line stays
+// ≤ 2 short tags + the glyph; a modded asset that packs more truncates
+// at the cell width (the guard, never slot()). A cooling move shows
+// ONLY the turns-left marker: the tags don't matter while the move is
+// unusable.
+func (m Model) gridTags(move entities.Move, cooling bool, source string) string {
 	if cooling {
 		return fmt.Sprintf("   (%d turns)", m.mirror.cooldownLeft(move.ID))
 	}
@@ -619,6 +650,9 @@ func (m Model) gridTags(move entities.Move, cooling bool) string {
 	}
 	if move.CritBonus != 0 {
 		tags = append(tags, fmt.Sprintf("✦%+d", move.CritBonus))
+	}
+	if source != "" {
+		tags = append(tags, source)
 	}
 	return "   " + strings.Join(tags, " ")
 }

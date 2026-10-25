@@ -586,6 +586,27 @@ func TestViewGridShowsPlaceholdersForMissingMoves(t *testing.T) {
 	}
 }
 
+// The 2+2 split made visible: every grid cell trails its move's source
+// glyph — ◆ for the learned set (shrine teaching), ⚔ for weapon
+// grants — resolved from the hero's effective set
+// (Hero.EffectiveMovesWithSource).
+func TestGridCellsTagTheMoveSource(t *testing.T) {
+	m := fourMoveModel(t) // two learned moves + two weapon-granted
+
+	grid := stripControls(stripANSI(m.moveGrid()))
+
+	for _, want := range []string{
+		"☠poison 100% ◆", // Envenom: learned
+		"100% ◆",         // Jab: learned
+		"90% ⚔",          // Stone Edge: weapon-granted
+		"110% ⚔",         // Wild Swing: weapon-granted
+	} {
+		if !strings.Contains(grid, want) {
+			t.Errorf("move grid missing the source tag %q:\n%s", want, grid)
+		}
+	}
+}
+
 // A hero with NO moves at all fights with the canonical basic attack —
 // the grid shows it as the single real cell.
 func TestViewGridShowsTheBasicAttackFallback(t *testing.T) {
@@ -595,6 +616,11 @@ func TestViewGridShowsTheBasicAttackFallback(t *testing.T) {
 
 	if !strings.Contains(view, "Basic Strike") || !strings.Contains(view, "100%") {
 		t.Errorf("the basic-attack fallback is missing from the grid:\n%s", view)
+	}
+	// The canonical fallback is neither learned nor weapon-granted: its
+	// cell carries no source tag.
+	if strings.Contains(view, "◆") || strings.Contains(view, "100% ⚔") {
+		t.Errorf("the basic-attack fallback grew a source tag:\n%s", view)
 	}
 }
 

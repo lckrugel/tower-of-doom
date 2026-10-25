@@ -1043,8 +1043,8 @@ func TestViewShrineChoosingStepShowsBothOffers(t *testing.T) {
 		"Power Slash",       // offer 1's dossier
 		"Venom Shot",        // offer 2's dossier
 		"tier 2",            // the dossier's tier line
-		"175%",              // Power Slash's modifier tag
-		"☠poison 60%",       // Venom Shot's status tag
+		"175% ◆",            // Power Slash's tags: modifier + learned glyph
+		"☠poison 60% ◆",     // Venom Shot's tags: status + learned glyph
 		"LEARN",             // the badge
 		"[L] Learn", "[N] Decline", "[Q] Quit",
 	} {
@@ -1074,9 +1074,11 @@ func TestViewShrineForgettingStepShowsTheLearning(t *testing.T) {
 		"◈ SHRINE",
 		"forget one to make room", // the step label
 		"learning: Power Slash",   // the chosen offer
+		"175% ◆",                  // the learning dossier's tags
 		"Guard Strike",            // the learned rows
 		"Heavy Slash",
-		"LEARN", // the badge
+		"100% ◆", // BOTH forget rows tag learned (the only forgettable moves)
+		"LEARN",  // the badge
 		"[F] Forget", "[N] Decline", "[Q] Quit",
 	} {
 		if !strings.Contains(view, want) {
