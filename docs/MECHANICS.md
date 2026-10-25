@@ -73,8 +73,8 @@ All combat randomness flows through the engine's injectable `rng` seam
 helpers are for non-engine use only (e.g. item durability).
 
 - **Attack resolution (per strike):** no hit/miss roll — every attack
-  lands. The strike is made with a MOVE (the hero picks one; monsters
-  fight the canonical basic attack until the monster AI lands):
+  lands. The strike is made with a MOVE (the hero picks one; the monster
+  picks by AI, below):
   1. Damage base: `round(effective DMG × dmg_modifier / 100)` — pure
      math, no rng (the modifier is a percent; 100 = neutral).
   2. Damage spread: `max(1, base − 1 + Intn(3))` (±1 around the base).
@@ -83,6 +83,12 @@ helpers are for non-engine use only (e.g. item durability).
      doubling the swung damage of that hit.
   - The Hero has a fixed 10% crit threshold; each monster has its own
     `crit` asset value (0 = never crits, validated in [0, 100]).
+- **Monster move AI (v1):** each monster turn, the engine filters the
+  monster's move set to the moves NOT on cooldown and picks ONE `Intn`
+  over the filtered total weight (the per-monster ref weights, resolved
+  at spawn). Filtering consumes no rng; when every move is locked the
+  monster falls back to the canonical basic attack WITHOUT a pick roll —
+  there is nothing left to pick.
 - **Move cooldowns:** using a move locks it for exactly its `cooldown`
   full rounds after the round of use (0 = spammable). Locks tick at
   round end and never survive the encounter. A fully-cooled hero turn

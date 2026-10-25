@@ -395,13 +395,40 @@ func (e *Engine) generateEncounter(floor int) (Encounter, error) {
 		}
 
 		def := weightedPick(e.rng, candidates, weights)
-		encounter.Monsters = append(encounter.Monsters, entities.NewMonsterFromAsset(def))
+		moves, err := e.monsterMoves(def)
+		if err != nil {
+			return Encounter{}, err
+		}
+		encounter.Monsters = append(encounter.Monsters, entities.NewMonsterFromAsset(def, moves...))
 		budget -= def.Difficulty
 	}
 	if len(encounter.Monsters) == 0 {
 		log.Printf("generated empty encounter for floor %v ", floor)
 	}
 	return encounter, nil
+}
+
+// monsterMoves resolves a monster asset's move refs into its runtime
+// move set: each ref's move is looked up in the registry and the REF's
+// weight OVERRIDES the move asset's default AI weight for that monster.
+// A monster without refs returns nil — NewMonsterFromAsset then equips
+// the canonical basic attack. Unknown refs are an error: a content bug
+// that load-time validation otherwise catches.
+func (e *Engine) monsterMoves(asset game.MonsterAsset) ([]entities.Move, error) {
+	if len(asset.Moves) == 0 {
+		return nil, nil
+	}
+	moves := make([]entities.Move, 0, len(asset.Moves))
+	for _, ref := range asset.Moves {
+		moveAsset, ok := e.reg.MoveByID(ref.ID)
+		if !ok {
+			return nil, fmt.Errorf("monster %v references unknown move %v", asset.ID, ref.ID)
+		}
+		m := entities.NewMoveFromAsset(moveAsset)
+		m.Weight = ref.Weight
+		moves = append(moves, m)
+	}
+	return moves, nil
 }
 
 // pickItem rolls a random item from the registry whose slot passes the

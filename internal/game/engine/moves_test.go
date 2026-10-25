@@ -11,9 +11,10 @@ import (
 // exercise (hand-built registry — content validation is not in play).
 func testMoves() map[string]game.MoveAsset {
 	return map[string]game.MoveAsset{
-		"basic_attack": {ID: "basic_attack", Name: "Basic Attack", Tier: 1, DmgModifier: 100, Weight: 100},
-		"heavy_slash":  {ID: "heavy_slash", Name: "Heavy Slash", Tier: 2, DmgModifier: 175, Cooldown: 2, Weight: 60},
-		"quick_stab":   {ID: "quick_stab", Name: "Quick Stab", Tier: 1, DmgModifier: 60, CritBonus: 20, Weight: 100},
+		"basic_attack":     {ID: "basic_attack", Name: "Basic Attack", Tier: 1, DmgModifier: 100, Weight: 100},
+		"heavy_slash":      {ID: "heavy_slash", Name: "Heavy Slash", Tier: 2, DmgModifier: 175, Cooldown: 2, Weight: 60},
+		"quick_stab":       {ID: "quick_stab", Name: "Quick Stab", Tier: 1, DmgModifier: 60, CritBonus: 20, Weight: 100},
+		"assassins_strike": {ID: "assassins_strike", Name: "Assassin's Strike", Tier: 3, DmgModifier: 110, CritBonus: 35, Cooldown: 3, Weight: 30},
 	}
 }
 
@@ -38,11 +39,28 @@ func learn(e *Engine, ids ...string) {
 	}
 }
 
+// monsterWithMoves builds a monster whose move set is resolved from the
+// registry like the engine does at spawn time: each ref's weight
+// OVERRIDES the move asset's default weight.
+func monsterWithMoves(asset game.MonsterAsset, refs ...game.MoveRef) entities.Monster {
+	moves := make([]entities.Move, 0, len(refs))
+	for _, ref := range refs {
+		moveAsset, ok := testMoves()[ref.ID]
+		if !ok {
+			panic("test fixture: unknown move " + ref.ID)
+		}
+		m := entities.NewMoveFromAsset(moveAsset)
+		m.Weight = ref.Weight // the ref's per-monster AI weight wins
+		moves = append(moves, m)
+	}
+	return entities.NewMonsterFromAsset(asset, moves...)
+}
+
 // The move's dmg_modifier scales the striker's DMG before the spread:
 // base = round(DMG × modifier / 100).
 func TestMoveDamageModifier(t *testing.T) {
 	// stub [1, 50] cycling: spread 1 → the base itself, crit roll 50 → no crit.
-	e := movesEngine(1, 50)
+	e := movesEngine(1, 50, 0, 1, 50)
 	heroWithDamage(e, 5)
 	learn(e, "heavy_slash") // 175% → round(5 × 1.75) = 9
 	startEncounter(e, monsterFromFixture("goblin"))
@@ -68,7 +86,7 @@ func TestMoveCritBonus(t *testing.T) {
 	t.Run("the bonus widens the crit window", func(t *testing.T) {
 		// quick_stab: 60% dmg, +20 crit → threshold 10 + 20 = 30.
 		// stub [1, 29]: spread 1 → base 3 (round(5 × 0.6)); roll 29 < 30 → crit.
-		e := movesEngine(1, 29)
+		e := movesEngine(1, 29, 0, 1, 50)
 		heroWithDamage(e, 5)
 		learn(e, "quick_stab")
 		startEncounter(e, monsterFromFixture("goblin"))
@@ -85,7 +103,7 @@ func TestMoveCritBonus(t *testing.T) {
 	})
 
 	t.Run("a roll at the boosted threshold is not a crit", func(t *testing.T) {
-		e := movesEngine(1, 30)
+		e := movesEngine(1, 30, 0, 1, 50)
 		heroWithDamage(e, 5)
 		learn(e, "quick_stab")
 		startEncounter(e, monsterFromFixture("goblin"))
@@ -102,7 +120,7 @@ func TestMoveCritBonus(t *testing.T) {
 // The effective crit threshold clamps to [0, 100] at use time.
 func TestMoveCritThresholdClamps(t *testing.T) {
 	t.Run("a huge bonus clamps at 100", func(t *testing.T) {
-		e := movesEngine(1, 99) // 99 < 100 → crit on every roll but 100
+		e := movesEngine(1, 99, 0, 1, 50) // 99 < 100 → crit on every roll but 100
 		e.reg.Moves["overkill"] = game.MoveAsset{ID: "overkill", Name: "Overkill", DmgModifier: 100, CritBonus: 200, Weight: 1}
 		heroWithDamage(e, 5)
 		learn(e, "overkill")
@@ -117,7 +135,7 @@ func TestMoveCritThresholdClamps(t *testing.T) {
 	})
 
 	t.Run("a negative bonus clamps at 0", func(t *testing.T) {
-		e := movesEngine(1, 0) // roll 0 with threshold 0 must not crit
+		e := movesEngine(1, 0, 0, 1, 50) // roll 0 with threshold 0 must not crit
 		e.reg.Moves["dull"] = game.MoveAsset{ID: "dull", Name: "Dull Blow", DmgModifier: 100, CritBonus: -50, Weight: 1}
 		heroWithDamage(e, 5)
 		learn(e, "dull")
@@ -135,7 +153,7 @@ func TestMoveCritThresholdClamps(t *testing.T) {
 func TestMoveCooldown(t *testing.T) {
 	t.Run("a used move is blocked on the very next turn", func(t *testing.T) {
 		// stub [1, 50]: heavy_slash round → 9 dealt, hero takes 2.
-		e := movesEngine(1, 50)
+		e := movesEngine(1, 50, 0, 1, 50)
 		heroWithDamage(e, 5)
 		learn(e, "heavy_slash", "quick_stab")
 		startEncounter(e, monsterFromFixture("goblin"))
@@ -168,7 +186,7 @@ func TestMoveCooldown(t *testing.T) {
 	})
 
 	t.Run("the lock lasts exactly its cooldown's rounds", func(t *testing.T) {
-		e := movesEngine(1, 50) // every strike: spread 1, no crit
+		e := movesEngine(1, 50, 0, 1, 50) // every strike: spread 1, no crit
 		heroWithDamage(e, 5)
 		learn(e, "heavy_slash", "quick_stab")
 		startEncounter(e, monsterFromFixture("goblin"))
@@ -197,7 +215,10 @@ func TestMoveCooldown(t *testing.T) {
 // never a soft-lock: the hero does not act, the enemy does, and the
 // round-end ticks run as usual.
 func TestFullyCooledHeroRecovers(t *testing.T) {
-	e := movesEngine(1, 50)
+	// Crafted per round — round 1 (hero strike + monster pick + strike):
+	// [1,50, 0, 1,50]; recover rounds (pick + monster strike):
+	// [0, 1,50]; round 4 (hero strike again): [1,50, 0, 1,50].
+	e := movesEngine(1, 50, 0, 1, 50, 0, 1, 50, 0, 1, 50, 1, 50, 0, 1, 50)
 	heroWithDamage(e, 5)
 	learn(e, "heavy_slash") // the ONLY move, cooldown 2
 	startEncounter(e, monsterFromFixture("goblin"))
@@ -250,7 +271,7 @@ func TestKillRoundLocksWithoutTicking(t *testing.T) {
 // Weapon-granted moves ride the equipped weapon: the engine resolves the
 // asset's move ids at item build time and the set reaches CombatMoves.
 func TestWeaponGrantedMovesAreUsable(t *testing.T) {
-	e := movesEngine(1, 50)
+	e := movesEngine(1, 50, 0, 1, 50)
 	heroWithDamage(e, 5)
 	weapon := e.itemFromAsset(game.ItemAsset{
 		ID: "fang_blade", Name: "Fang Blade", Slot: "weapon", BonusDMG: 3,
@@ -278,7 +299,7 @@ func TestWeaponGrantedMovesAreUsable(t *testing.T) {
 // the user and the move name, and the damage payloads grow the additive
 // "move" key.
 func TestMoveUsedEventPayload(t *testing.T) {
-	e := movesEngine(1, 50)
+	e := movesEngine(1, 50, 0, 1, 50)
 	heroWithDamage(e, 5)
 	learn(e, "heavy_slash")
 	startEncounter(e, monsterFromFixture("goblin"))
@@ -303,5 +324,168 @@ func TestMoveUsedEventPayload(t *testing.T) {
 	}
 	if user := events[2].Data["user"]; user != "Goblin" {
 		t.Errorf("enemy user = %v, want Goblin", user)
+	}
+}
+
+// Encounter generation resolves each spawned monster's move refs through
+// the registry, with the ref's weight OVERRIDING the move asset's
+// default AI weight for that monster.
+func TestGenerateEncounterResolvesMonsterMoves(t *testing.T) {
+	e := newTestEngine(0) // always the cheap goblin
+	e.reg.Moves = testMoves()
+	e.reg.Monsters["goblin"] = game.MonsterAsset{
+		ID: "goblin", Name: "Goblin", Difficulty: 3, HP: 30, Damage: 2, Speed: 10,
+		Moves: []game.MoveRef{
+			{ID: "heavy_slash", Weight: 7}, // asset weight 60 → overridden by 7
+			{ID: "quick_stab", Weight: 3},  // asset weight 100 → overridden by 3
+		},
+	}
+
+	encounter, err := e.generateEncounter(1)
+	if err != nil {
+		t.Fatalf("generateEncounter: %v", err)
+	}
+
+	moves := encounter.Monsters[0].Moves()
+	if len(moves) != 2 || moves[0].ID != "heavy_slash" || moves[1].ID != "quick_stab" {
+		t.Fatalf("resolved moves = %v, want [heavy_slash quick_stab] in ref order", moves)
+	}
+	if moves[0].Weight != 7 || moves[1].Weight != 3 {
+		t.Errorf("weights = %d/%d, want 7/3 (the ref weight overrides the asset's)", moves[0].Weight, moves[1].Weight)
+	}
+}
+
+// A monster referencing an unknown move id fails encounter generation —
+// a content bug that load-time validation otherwise catches.
+func TestGenerateEncounterRejectsUnknownMoveRef(t *testing.T) {
+	e := newTestEngine(0)
+	e.reg.Moves = testMoves()
+	e.reg.Monsters["goblin"] = game.MonsterAsset{
+		ID: "goblin", Name: "Goblin", Difficulty: 3, HP: 30, Damage: 2, Speed: 10,
+		Moves: []game.MoveRef{{ID: "no_such_move", Weight: 1}},
+	}
+
+	if _, err := e.generateEncounter(1); err == nil {
+		t.Error("generateEncounter accepted an unknown move ref")
+	}
+}
+
+// Monster AI v1: the monster picks by weight among its COOLDOWN-FILTERED
+// moves — ONE Intn over the filtered total weight, per turn.
+func TestMonsterPicksMovesByWeight(t *testing.T) {
+	// A fixed pair: heavy_slash (weight 60, cooldown 2) then quick_stab
+	// (weight 100) — total 160.
+	buildMonster := func() entities.Monster {
+		return monsterWithMoves(
+			game.MonsterAsset{ID: "brute", Name: "Brute", Difficulty: 3, HP: 60, Damage: 2, Speed: 10},
+			game.MoveRef{ID: "heavy_slash", Weight: 60},
+			game.MoveRef{ID: "quick_stab", Weight: 100},
+		)
+	}
+
+	t.Run("the pick is one Intn over the filtered total", func(t *testing.T) {
+		e := movesEngine(1, 50) // hero strike: spread 1, no crit
+		heroWithDamage(e, 5)
+		startEncounter(e, buildMonster())
+		e.Process(Command{Type: CmdFight})
+		stub := &stubRng{values: []int{0, 0, 0}}
+		e.rng = stub
+
+		events := e.Process(Command{Type: CmdMove, Index: 0}) // hero + monster turn
+
+		// rng 0 lands in the first bucket: heavy_slash.
+		if move := events[2].Data["move"]; move != "Heavy Slash" {
+			t.Errorf("monster move = %v, want Heavy Slash (rng 0 over weights [60, 100])", move)
+		}
+		// Hero spread + crit (2), the monster's ONE pick, then the
+		// monster strike's spread + crit (2).
+		if stub.calls != 5 {
+			t.Errorf("rng calls = %d, want 5 (the monster pick is one Intn)", stub.calls)
+		}
+	})
+
+	t.Run("a lock filters the pick without consuming rng", func(t *testing.T) {
+		e := movesEngine(1, 50)
+		heroWithDamage(e, 5)
+		startEncounter(e, buildMonster())
+		e.Process(Command{Type: CmdFight})
+		stub := &stubRng{values: []int{0, 0, 0, 0, 0}}
+		e.rng = stub
+
+		e.Process(Command{Type: CmdMove, Index: 0}) // monster uses heavy_slash (locks 2)
+
+		events := e.Process(Command{Type: CmdMove, Index: 0}) // heavy_slash filtered out
+
+		// The second pick runs over only quick_stab (total 100): rng 0 →
+		// Quick Stab — and NO extra roll was consumed by the filtering.
+		if move := events[2].Data["move"]; move != "Quick Stab" {
+			t.Errorf("monster move = %v, want Quick Stab (heavy_slash is locked)", move)
+		}
+	})
+}
+
+// When every monster move is locked the monster falls back to the
+// canonical basic attack WITHOUT consuming a pick roll — there is
+// nothing to pick.
+func TestMonsterAllMovesLockedUsesBasicAttackWithoutRng(t *testing.T) {
+	// One stub per resolved round: [spread, crit, pick, spread, crit].
+	e := movesEngine(1, 50, 0, 1, 50, 1, 50, 0, 1, 50)
+	heroWithDamage(e, 5)
+	startEncounter(e, monsterWithMoves(
+		game.MonsterAsset{ID: "brute", Name: "Brute", Difficulty: 3, HP: 900, Damage: 2, Speed: 10},
+		game.MoveRef{ID: "heavy_slash", Weight: 60},      // cooldown 2
+		game.MoveRef{ID: "assassins_strike", Weight: 30}, // cooldown 3
+	))
+	e.Process(Command{Type: CmdFight})
+
+	e.Process(Command{Type: CmdMove, Index: 0}) // monster uses heavy_slash (first bucket)
+	e.Process(Command{Type: CmdMove, Index: 0}) // monster uses assassins_strike (heavy_slash filtered)
+
+	stub := &stubRng{values: []int{0, 0}}
+	e.rng = stub
+	events := e.Process(Command{Type: CmdMove, Index: 0}) // everything locked
+
+	if got := eventTypes(events); !typesEqual(got, EventMoveUsed, EventCombatDamageDealt, EventMoveUsed, EventCombatDamageTaken) {
+		t.Fatalf("events = %v, want [move-used dealt move-used taken]", got)
+	}
+	if move := events[2].Data["move"]; move != "Basic Attack" {
+		t.Errorf("monster move = %v, want the basic_attack fallback", move)
+	}
+	// The fallback saves the PICK roll: two strikes' worth of rolls
+	// (spread + crit each) — one less than a picked turn would consume.
+	if stub.calls != 4 {
+		t.Errorf("rng calls = %d, want 4 (two strikes, no pick roll)", stub.calls)
+	}
+}
+
+// A locked fallback never traps the monster: cooldowns tick at round
+// end, so the locked moves free up again.
+func TestMonsterCooldownsRecover(t *testing.T) {
+	e := movesEngine(1, 50, 0, 1, 50)
+	heroWithDamage(e, 5)
+	startEncounter(e, monsterWithMoves(
+		game.MonsterAsset{ID: "brute", Name: "Brute", Difficulty: 3, HP: 900, Damage: 2, Speed: 10},
+		game.MoveRef{ID: "heavy_slash", Weight: 100}, // the only move, cooldown 2
+	))
+	e.Process(Command{Type: CmdFight})
+	e.Process(Command{Type: CmdMove, Index: 0}) // heavy_slash used → locked 2
+
+	if !e.enemyCombat.onCooldown("heavy_slash") {
+		t.Fatal("heavy_slash is not locked right after use")
+	}
+
+	// Two completed rounds tick the lock down (the monster falls back to
+	// the basic attack without a pick in the meantime)...
+	e.Process(Command{Type: CmdMove, Index: 0})
+	e.Process(Command{Type: CmdMove, Index: 0})
+	if e.enemyCombat.onCooldown("heavy_slash") {
+		t.Fatal("heavy_slash is still locked after two full rounds")
+	}
+
+	// ...and the move is picked again.
+	events := e.Process(Command{Type: CmdMove, Index: 0})
+
+	if move := events[2].Data["move"]; move != "Heavy Slash" {
+		t.Errorf("monster move after the cooldown = %v, want Heavy Slash again", move)
 	}
 }

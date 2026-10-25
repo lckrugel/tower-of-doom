@@ -134,12 +134,29 @@ func (e *Engine) heroStrike(move *entities.Move) []Event {
 	return events
 }
 
-// enemyTurnMove resolves the enemy's move for this turn. Until the
-// monster AI lands, every monster fights with the canonical basic
-// attack (cooldown 0 — never locked).
+// enemyTurnMove resolves the monster's move for this turn (AI v1): ONE
+// Intn over the cooldown-filtered move set's total weight — the rng
+// contract is a single pick roll per monster turn. Locked moves are
+// filtered out BEFORE the roll (filtering consumes no rng); when every
+// move is locked the monster falls back to the canonical basic attack
+// WITHOUT consuming a pick roll — there is nothing left to pick.
 func (e *Engine) enemyTurnMove() *entities.Move {
-	basic := entities.BasicAttack()
-	return &basic
+	moves := e.currentEnemy().Moves()
+	filtered := make([]entities.Move, 0, len(moves))
+	weights := make([]int, 0, len(moves))
+	for _, m := range moves {
+		if e.enemyCombat.onCooldown(m.ID) {
+			continue
+		}
+		filtered = append(filtered, m)
+		weights = append(weights, m.Weight)
+	}
+	if len(filtered) == 0 {
+		basic := entities.BasicAttack()
+		return &basic
+	}
+	picked := weightedPick(e.rng, filtered, weights)
+	return &picked
 }
 
 // enemyStrike performs the current enemy's attack against the Hero with

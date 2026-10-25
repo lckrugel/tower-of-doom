@@ -96,8 +96,9 @@ func TestFightEntersCombatWithoutResolvingARound(t *testing.T) {
 
 func TestMoveResolvesOneRoundPerCommand(t *testing.T) {
 	t.Run("tie on speed: hero acts first", func(t *testing.T) {
-		// stub [1, 50] = average spread (no crit) per strike, cycling.
-		e := newTestEngine(1, 50)
+		// stub [1, 50, 0, 1, 50]: hero strike (spread 1, no crit), the
+		// monster's pick, then the enemy strike (spread 1, no crit).
+		e := newTestEngine(1, 50, 0, 1, 50)
 		heroWithDamage(e, 5)
 		startEncounter(e, monsterFromFixture("goblin")) // SPD 10 == hero SPD 10
 		e.Process(Command{Type: CmdFight})
@@ -326,7 +327,7 @@ func TestSneak(t *testing.T) {
 
 	t.Run("failure starts combat with a free enemy turn", func(t *testing.T) {
 		// Intn(2) = 1 → failure; then the free strike rolls average spread, no crit.
-		e := newTestEngine(1, 1, 50)
+		e := newTestEngine(1, 0, 1, 50)
 		heroWithDamage(e, 5)
 		startEncounter(e, monsterFromFixture("goblin"))
 
@@ -397,7 +398,7 @@ func TestFlee(t *testing.T) {
 
 	t.Run("failure gives the enemy a free turn", func(t *testing.T) {
 		// Intn(100) = 99 → flee fails; then the free strike rolls average spread, no crit.
-		e := newTestEngine(99, 1, 50)
+		e := newTestEngine(99, 0, 1, 50)
 		heroWithDamage(e, 5)
 		startEncounter(e, monsterFromFixture("goblin"))
 		e.State = StateCombat
@@ -416,7 +417,7 @@ func TestFlee(t *testing.T) {
 	})
 
 	t.Run("a deadly free turn on failed flee ends the game", func(t *testing.T) {
-		e := newTestEngine(99) // failure
+		e := newTestEngine(99, 0, 1, 0) // failure
 		e.Player.CurrentHP = 1
 		startEncounter(e, monsterFromFixture("goblin"))
 		e.State = StateCombat
@@ -505,7 +506,7 @@ func TestEffectiveDamage(t *testing.T) {
 func TestDefenseMitigationInCombat(t *testing.T) {
 	t.Run("hero wearing armor takes less damage", func(t *testing.T) {
 		// stub [1, 50, 1, 50]: each strike rolls nothing special.
-		e := newTestEngine(1, 50, 1, 50)
+		e := newTestEngine(1, 50, 0, 1, 50)
 		heroWithDamage(e, 5)
 		helm := entities.NewItemFromAsset(game.ItemAsset{
 			ID: "helm", Name: "Helm", Slot: "helmet", BonusDEF: 5,
@@ -522,7 +523,7 @@ func TestDefenseMitigationInCombat(t *testing.T) {
 	})
 
 	t.Run("armored monsters take less damage", func(t *testing.T) {
-		e := newTestEngine(1, 50, 1, 50)
+		e := newTestEngine(1, 50, 0, 1, 50)
 		heroWithDamage(e, 5)
 		armored := entities.NewMonsterFromAsset(game.MonsterAsset{
 			ID: "armored", Name: "Armored Rat", Difficulty: 2, HP: 30, Damage: 2, Speed: 5, Defense: 5,
@@ -693,7 +694,7 @@ func TestRollDamageSpread(t *testing.T) {
 func TestHeroCritInCombat(t *testing.T) {
 	// hero strike: spread 1 → swing 5, crit roll 0 < 10 → 10 dealt;
 	// enemy strike: spread 1 → swing 2, crit roll 50 → no crit.
-	e := newTestEngine(1, 0, 1, 50)
+	e := newTestEngine(1, 0, 0, 1, 50)
 	heroWithDamage(e, 5)
 	startEncounter(e, monsterFromFixture("goblin"))
 
@@ -720,9 +721,9 @@ func TestHeroCritInCombat(t *testing.T) {
 // Monsters use their own crit attribute, from the spawn asset.
 func TestMonsterCritInCombat(t *testing.T) {
 	// hero strike: spread 1, crit 50 → plain 5 dealt;
-	// enemy strike: spread 1 → swing 2, crit roll 0 < 50 → 4 taken.
+	// monster pick, then enemy strike: spread 1 → swing 2, crit roll 0 < 50 → 4 taken.
 	e := newTestEngine()
-	e.rng = &stubRng{values: []int{1, 50, 1, 0}}
+	e.rng = &stubRng{values: []int{1, 50, 0, 1, 0}}
 	heroWithDamage(e, 5)
 	critter := entities.NewMonsterFromAsset(game.MonsterAsset{
 		ID: "critter", Name: "Critter", Difficulty: 2, HP: 30, Damage: 2, Speed: 5, Crit: 50,
@@ -747,7 +748,7 @@ func TestMonsterCritInCombat(t *testing.T) {
 // percentage keys, reflecting the defender's state AFTER the hit
 // (mitigation, clamp and mid-round death included).
 func TestDamageEventsCarryExactHP(t *testing.T) {
-	e := newTestEngine(1, 50) // average spread (no crit) per strike, cycling
+	e := newTestEngine(1, 50, 0, 1, 50) // average spread (no crit) per strike, pick between
 	heroWithDamage(e, 5)
 	startEncounter(e, monsterFromFixture("goblin")) // 30 HP, DEF 0
 
@@ -785,7 +786,7 @@ func TestDamageEventsCarryExactHP(t *testing.T) {
 func TestDamageEventsExactHPClampsAtZeroOnDeath(t *testing.T) {
 	// Hero strike: spread 1 → swing 5 (orc 50 HP survives);
 	// orc strike: spread 1 → swing 8, which exceeds the hero's 5 HP.
-	e := newTestEngine(1, 50, 1, 50)
+	e := newTestEngine(1, 50, 0, 1, 50)
 	heroWithDamage(e, 5)
 	e.Player.CurrentHP = 5
 	startEncounter(e, monsterFromFixture("orc")) // dmg 8, slower than hero
@@ -850,7 +851,7 @@ func TestKillsCounter(t *testing.T) {
 	})
 
 	t.Run("does not increment when the player loses", func(t *testing.T) {
-		e := newTestEngine(1, 50, 1, 50)
+		e := newTestEngine(1, 50, 0, 1, 50)
 		heroWithDamage(e, 5)
 		e.Player.CurrentHP = 1
 		startEncounter(e, monsterFromFixture("orc")) // dmg 8, slower than hero
