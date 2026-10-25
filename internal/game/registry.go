@@ -158,6 +158,10 @@ type EncounterTypeWeights struct {
 	// Absent/zero keeps every existing rng sequence identical: the
 	// merchant bucket only exists when the weight is positive.
 	Merchant int `json:"merchant"`
+	// Shrine weights the move-teaching encounter (StateLearn's forget
+	// prompt). APPENDED LAST in the roll order, mirroring the merchant:
+	// absent/zero keeps every pre-shrine rng sequence identical.
+	Shrine int `json:"shrine"`
 }
 
 // Define um asset para uma seção da torre.
@@ -548,7 +552,8 @@ func (r *Registry) Validate(topFloor int) error {
 		// Negativos distorceriam o sorteio do tipo de encontro. Pesos zerados
 		// (ou o campo ausente) são válidos: significam "apenas combate".
 		if s.EncounterTypes.Combat < 0 || s.EncounterTypes.Sanctuary < 0 ||
-			s.EncounterTypes.Chest < 0 || s.EncounterTypes.Merchant < 0 {
+			s.EncounterTypes.Chest < 0 || s.EncounterTypes.Merchant < 0 ||
+			s.EncounterTypes.Shrine < 0 {
 			return fmt.Errorf(
 				"content validation: section %q has a negative encounter type weight, want >= 0",
 				s.ID,

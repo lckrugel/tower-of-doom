@@ -20,6 +20,12 @@ const (
 	// APPENDED LAST in the kind roll on purpose — a zero/absent merchant
 	// weight keeps every pre-merchant rng sequence identical.
 	EncounterMerchant
+	// A shrine of the Combat 2.0 era: offers a random unlearned move.
+	// Under the learned cap it teaches on the spot; at the cap it opens
+	// StateLearn's forget prompt. APPENDED LAST in the kind roll
+	// (after the merchant) — a zero/absent shrine weight keeps every
+	// pre-shrine rng sequence identical.
+	EncounterShrine
 )
 
 func (t EncounterType) String() string {
@@ -32,6 +38,8 @@ func (t EncounterType) String() string {
 		return "Chest"
 	case EncounterMerchant:
 		return "Merchant"
+	case EncounterShrine:
+		return "Shrine"
 	default:
 		return "Unknown"
 	}
@@ -65,21 +73,22 @@ const goldPerDifficulty = 5
 
 // rollEncounterType sorteia o tipo do encontro a partir dos pesos da seção.
 //
-// A ordem dentro do sorteio é [combat, sanctuary, chest, merchant], o que
-// torna a sequência determinística sob um rng semeado — e é um contrato
-// de determinismo: o merchant foi ANEXADO por último, então um peso
-// zerado/ausente mantém intactas todas as sequências de rng anteriores
-// (os buckets anteriores não se deslocam). Toda a tabela zerada (ou
-// ausente no JSON) devolve combate sem consumir rng: assim as seções de
-// combate puro não deslocam a sequência usada pelos sorteios de monstros.
+// A ordem dentro do sorteio é [combat, sanctuary, chest, merchant, shrine],
+// o que torna a sequência determinística sob um rng semeado — e é um
+// contrato de determinismo: o merchant foi ANEXADO por último em seu dia e
+// o shrine o seguiu da mesma forma, então pesos zerados/ausentes mantêm
+// intactas todas as sequências de rng anteriores (os buckets anteriores
+// não se deslocam). Toda a tabela zerada (ou ausente no JSON) devolve
+// combate sem consumir rng: assim as seções de combate puro não deslocam a
+// sequência usada pelos sorteios de monstros.
 func (e *Engine) rollEncounterType(w game.EncounterTypeWeights) EncounterType {
-	if w.Combat <= 0 && w.Sanctuary <= 0 && w.Chest <= 0 && w.Merchant <= 0 {
+	if w.Combat <= 0 && w.Sanctuary <= 0 && w.Chest <= 0 && w.Merchant <= 0 && w.Shrine <= 0 {
 		return EncounterCombat
 	}
 	return weightedPick(
 		e.rng,
-		[]EncounterType{EncounterCombat, EncounterSanctuary, EncounterChest, EncounterMerchant},
-		[]int{w.Combat, w.Sanctuary, w.Chest, w.Merchant},
+		[]EncounterType{EncounterCombat, EncounterSanctuary, EncounterChest, EncounterMerchant, EncounterShrine},
+		[]int{w.Combat, w.Sanctuary, w.Chest, w.Merchant, w.Shrine},
 	)
 }
 
@@ -94,7 +103,9 @@ func (e *Engine) rollEncounterType(w game.EncounterTypeWeights) EncounterType {
 //   - A non-combat kind that would be the THIRD identical non-combat kind
 //     in a row is overridden to combat. The override is not a reroll: the
 //     original roll's single Intn stays the only rng consumed. Two
-//     identical non-combat kinds in a row remain possible.
+//     identical non-combat kinds in a row remain possible. Every
+//     non-combat kind is covered — sanctuaries, chests, merchants and
+//     shrines alike.
 //
 // Every resolved kind — combat included, the forced first one too — is
 // recorded into the two-slot history that feeds the streak rule, so an
@@ -172,6 +183,27 @@ func (e *Engine) resolveEncounter(encounter Encounter) []Event {
 		e.MerchantStock = stock
 		e.State = StateMerchant
 		return []Event{NewMerchantFound(len(stock))}
+	case EncounterShrine:
+		// EXPLORE draws the shrine's teaching (ONE rng roll — see
+		// rollShrineOffer). Under the learned cap the move is learned on
+		// the spot; at the cap the offer pends in PendingMove and
+		// StateLearn asks the player what to forget. Shrines never
+		// unlock ASCEND.
+		move := e.rollShrineOffer(e.currentSection())
+		if move == nil {
+			return []Event{NewMessage(shrineNothingNewMessage)}
+		}
+		if len(e.Player.LearnedMoves()) < entities.MaxLearnedMoves {
+			if _, learned := e.Player.LearnMove(*move); learned {
+				return []Event{NewMoveLearned(*move, nil)}
+			}
+			// Unreachable with a filtered pool (the offer is unlearned
+			// and there is room); refuse safely, never panic.
+			return []Event{NewMessage(shrineNothingNewMessage)}
+		}
+		e.PendingMove = move
+		e.State = StateLearn
+		return []Event{NewShrineFound(*move)}
 	default:
 		// Combat encounters are never resolved instantly; the caller must
 		// only send sanctuary/chest encounters through this path.
@@ -185,4 +217,40 @@ func (e *Engine) resolveEncounter(encounter Encounter) []Event {
 func (e *Engine) restAtSanctuary() int {
 	toHeal := e.Player.BaseMaxHP * sanctuaryHealPercent / 100
 	return e.Player.Heal(toHeal)
+}
+
+// shrineNothingNewMessage is the flavor for a shrine whose filtered offer
+// pool is empty (every move it could teach, the hero already knows).
+const shrineNothingNewMessage = "The shrine holds nothing new for you."
+
+// rollShrineOffer draws the shrine's teaching: ONE `Intn` over the
+// section's move-tier pool — `MovesForTiers(MoveTiers)` (sorted by id;
+// absent/empty move_tiers = unrestricted) filtered to the moves the hero
+// does NOT already know, where "known" covers both the learned set and
+// the equipped weapon's granted moves (dedup by id) — and minus the
+// canonical basic_attack, which is never offered: it is the move-less
+// fallback every combatant already fights with, and teaching it would
+// waste one of the two learned slots.
+//
+// Rng contract: the offer roll is the shrine's ONLY rng — an empty
+// filtered pool returns nil and consumes none; learning and forgetting
+// never consume rng.
+func (e *Engine) rollShrineOffer(section game.SectionAsset) *entities.Move {
+	known := make(map[string]bool, entities.MaxMoves)
+	for _, move := range e.Player.EffectiveMoves(e.Player.Weapon) {
+		known[move.ID] = true
+	}
+	pool := e.reg.MovesForTiers(section.MoveTiers)
+	candidates := make([]game.MoveAsset, 0, len(pool))
+	for _, move := range pool {
+		if move.ID == entities.BasicAttack().ID || known[move.ID] {
+			continue
+		}
+		candidates = append(candidates, move)
+	}
+	if len(candidates) == 0 {
+		return nil
+	}
+	move := entities.NewMoveFromAsset(candidates[e.rng.Intn(len(candidates))])
+	return &move
 }

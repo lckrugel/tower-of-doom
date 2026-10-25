@@ -37,7 +37,17 @@
     "dmg": 6,
     "spd": 10,
     "def": 3,
-    "crit": 10
+    "crit": 10,
+    "moves": [
+      {
+        "id": "heavy_slash",
+        "weight": 60
+      },
+      {
+        "id": "guard_strike",
+        "weight": 40
+      }
+    ]
   },
   {
     "id": "hobgoblin",
@@ -47,7 +57,17 @@
     "dmg": 5,
     "spd": 9,
     "def": 4,
-    "crit": 5
+    "crit": 5,
+    "moves": [
+      {
+        "id": "crushing_blow",
+        "weight": 50
+      },
+      {
+        "id": "heavy_slash",
+        "weight": 50
+      }
+    ]
   },
   {
     "id": "orc",
@@ -57,7 +77,13 @@
     "dmg": 8,
     "spd": 8,
     "def": 3,
-    "crit": 10
+    "crit": 10,
+    "moves": [
+      {
+        "id": "heavy_slash",
+        "weight": 100
+      }
+    ]
   },
   {
     "id": "orc_berserker",
@@ -67,7 +93,17 @@
     "dmg": 10,
     "spd": 10,
     "def": 0,
-    "crit": 20
+    "crit": 20,
+    "moves": [
+      {
+        "id": "quick_stab",
+        "weight": 70
+      },
+      {
+        "id": "heavy_slash",
+        "weight": 30
+      }
+    ]
   },
   {
     "id": "orc_warlord",
@@ -77,7 +113,21 @@
     "dmg": 12,
     "spd": 6,
     "def": 6,
-    "crit": 10
+    "crit": 10,
+    "moves": [
+      {
+        "id": "crushing_blow",
+        "weight": 50
+      },
+      {
+        "id": "heavy_slash",
+        "weight": 40
+      },
+      {
+        "id": "guard_strike",
+        "weight": 25
+      }
+    ]
   },
   {
     "id": "giant_rat",
@@ -107,7 +157,13 @@
     "dmg": 4,
     "spd": 10,
     "def": 1,
-    "crit": 15
+    "crit": 15,
+    "moves": [
+      {
+        "id": "venom_bite",
+        "weight": 100
+      }
+    ]
   },
   {
     "id": "skeleton",
@@ -117,7 +173,13 @@
     "dmg": 5,
     "spd": 9,
     "def": 3,
-    "crit": 5
+    "crit": 5,
+    "moves": [
+      {
+        "id": "heavy_slash",
+        "weight": 40
+      }
+    ]
   },
   {
     "id": "ghoul",
@@ -127,7 +189,17 @@
     "dmg": 6,
     "spd": 12,
     "def": 2,
-    "crit": 10
+    "crit": 10,
+    "moves": [
+      {
+        "id": "venom_bite",
+        "weight": 60
+      },
+      {
+        "id": "quick_stab",
+        "weight": 40
+      }
+    ]
   },
   {
     "id": "zombie",
@@ -137,7 +209,13 @@
     "dmg": 6,
     "spd": 2,
     "def": 2,
-    "crit": 0
+    "crit": 0,
+    "moves": [
+      {
+        "id": "venom_bite",
+        "weight": 70
+      }
+    ]
   },
   {
     "id": "gelatinous_cube",
@@ -147,7 +225,13 @@
     "dmg": 7,
     "spd": 2,
     "def": 8,
-    "crit": 0
+    "crit": 0,
+    "moves": [
+      {
+        "id": "venom_bite",
+        "weight": 100
+      }
+    ]
   },
   {
     "id": "mimic",
@@ -157,7 +241,17 @@
     "dmg": 9,
     "spd": 5,
     "def": 5,
-    "crit": 25
+    "crit": 25,
+    "moves": [
+      {
+        "id": "heavy_slash",
+        "weight": 60
+      },
+      {
+        "id": "assassins_strike",
+        "weight": 40
+      }
+    ]
   },
   {
     "id": "wraith",
@@ -167,7 +261,17 @@
     "dmg": 8,
     "spd": 13,
     "def": 4,
-    "crit": 15
+    "crit": 15,
+    "moves": [
+      {
+        "id": "soul_rot",
+        "weight": 60
+      },
+      {
+        "id": "frost_touch",
+        "weight": 40
+      }
+    ]
   },
   {
     "id": "gargoyle",
@@ -177,7 +281,17 @@
     "dmg": 9,
     "spd": 6,
     "def": 8,
-    "crit": 10
+    "crit": 10,
+    "moves": [
+      {
+        "id": "crushing_blow",
+        "weight": 60
+      },
+      {
+        "id": "heavy_slash",
+        "weight": 40
+      }
+    ]
   },
   {
     "id": "vampire_spawn",
@@ -187,7 +301,17 @@
     "dmg": 10,
     "spd": 12,
     "def": 4,
-    "crit": 15
+    "crit": 15,
+    "moves": [
+      {
+        "id": "assassins_strike",
+        "weight": 60
+      },
+      {
+        "id": "quick_stab",
+        "weight": 40
+      }
+    ]
   },
   {
     "id": "beholder",
@@ -197,7 +321,21 @@
     "dmg": 14,
     "spd": 7,
     "def": 5,
-    "crit": 20
+    "crit": 20,
+    "moves": [
+      {
+        "id": "soul_rot",
+        "weight": 40
+      },
+      {
+        "id": "frost_touch",
+        "weight": 30
+      },
+      {
+        "id": "skull_crusher",
+        "weight": 30
+      }
+    ]
   },
   {
     "id": "lich",
@@ -207,7 +345,17 @@
     "dmg": 16,
     "spd": 9,
     "def": 6,
-    "crit": 20
+    "crit": 20,
+    "moves": [
+      {
+        "id": "soul_rot",
+        "weight": 70
+      },
+      {
+        "id": "frost_touch",
+        "weight": 50
+      }
+    ]
   },
   {
     "id": "dragonling",
@@ -217,7 +365,17 @@
     "dmg": 12,
     "spd": 9,
     "def": 6,
-    "crit": 15
+    "crit": 15,
+    "moves": [
+      {
+        "id": "heavy_slash",
+        "weight": 50
+      },
+      {
+        "id": "skull_crusher",
+        "weight": 50
+      }
+    ]
   },
   {
     "id": "young_red_dragon",
@@ -227,7 +385,17 @@
     "dmg": 18,
     "spd": 8,
     "def": 8,
-    "crit": 15
+    "crit": 15,
+    "moves": [
+      {
+        "id": "skull_crusher",
+        "weight": 60
+      },
+      {
+        "id": "dragons_might",
+        "weight": 40
+      }
+    ]
   },
   {
     "id": "ancient_red_dragon",
@@ -237,6 +405,20 @@
     "dmg": 25,
     "spd": 7,
     "def": 10,
-    "crit": 20
+    "crit": 20,
+    "moves": [
+      {
+        "id": "dragons_might",
+        "weight": 70
+      },
+      {
+        "id": "skull_crusher",
+        "weight": 50
+      },
+      {
+        "id": "bloodletter",
+        "weight": 30
+      }
+    ]
   }
 ]

@@ -47,7 +47,12 @@ type Engine struct {
 	// offer; leaving discards them all; it is meaningful only while the
 	// shop is open.
 	MerchantStock []*entities.Item
-	reg           *game.Registry
+	// PendingMove is the move a shrine offered, waiting for the player's
+	// forget-or-decline decision in StateLearn (like PendingLoot for
+	// chests). It is set when the shrine is found and cleared on every
+	// resolution path; it is meaningful only while State == StateLearn.
+	PendingMove *entities.Move
+	reg         *game.Registry
 	// rng é a fonte de aleatoriedade para decisões do engine
 	// (geração de encontros hoje; combates no futuro).
 	// Testes injetam um rng determinístico.
@@ -124,6 +129,8 @@ func (e *Engine) Process(cmd Command) []Event {
 		return e.handleInventory(cmd)
 	case StateMerchant:
 		return e.handleMerchant(cmd)
+	case StateLearn:
+		return e.handleLearn(cmd)
 	case StateGameOver:
 		return e.handleGameOver(cmd)
 	default:
@@ -327,6 +334,37 @@ func (e *Engine) handleInventory(cmd Command) []Event {
 	case CmdClose:
 		e.State = StateExploring
 		return []Event{NewMessage("You close your bag.")}
+	default:
+		return []Event{NewMessage("Unhandled command")}
+	}
+}
+
+// handleLearn resolves the shrine's forget-or-decline decision
+// (StateLearn). Every branch consumes the pending offer (clears
+// PendingMove) and returns to exploring; learning and forgetting consume
+// no rng.
+func (e *Engine) handleLearn(cmd Command) []Event {
+	switch cmd.Type {
+	case CmdForget:
+		// The index was range-checked by isValidCommand against the
+		// learned set, so this indexes safely.
+		forgotten := e.Player.LearnedMoves()[cmd.Index]
+		offered := e.PendingMove
+		e.Player.ForgetMove(forgotten.ID)
+		// Unreachable failure: the offer was filtered to unlearned and a
+		// slot just freed. The safe fallback never strands the state.
+		if _, learned := e.Player.LearnMove(*offered); !learned {
+			e.PendingMove = nil
+			e.State = StateExploring
+			return []Event{NewMessage(shrineNothingNewMessage)}
+		}
+		e.PendingMove = nil
+		e.State = StateExploring
+		return []Event{NewMoveLearned(*offered, &forgotten)}
+	case CmdDecline:
+		e.PendingMove = nil
+		e.State = StateExploring
+		return []Event{NewMessage("You leave the shrine's teaching behind.")}
 	default:
 		return []Event{NewMessage("Unhandled command")}
 	}
@@ -554,6 +592,13 @@ func (e *Engine) isValidCommand(cmd Command) bool {
 	}
 	if cmd.Type == CmdBuy {
 		if cmd.Index < 0 || cmd.Index >= len(e.MerchantStock) {
+			return false
+		}
+	}
+	// CmdForget indexes the learned moves (the shrine's forget
+	// selection).
+	if cmd.Type == CmdForget {
+		if cmd.Index < 0 || cmd.Index >= len(e.Player.LearnedMoves()) {
 			return false
 		}
 	}

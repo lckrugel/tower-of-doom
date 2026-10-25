@@ -68,6 +68,10 @@ func eventText(ev engine.Event) string {
 		return boughtText(ev.Data)
 	case engine.EventItemSold:
 		return soldText(ev.Data)
+	case engine.EventShrineFound:
+		return shrineFoundText(ev.Data)
+	case engine.EventMoveLearned:
+		return moveLearnedText(ev.Data)
 	case engine.EventMoveUsed:
 		return moveUsedText(ev.Data)
 	case engine.EventStatusApplied:
@@ -246,6 +250,36 @@ func soldText(data map[string]any) string {
 		return fmt.Sprintf("The merchant pays %d gold for the wares.", price)
 	}
 	return fmt.Sprintf("The merchant pays %d gold for the %v%v.", price, item.Name, itemBonusList(item))
+}
+
+// moveOf reads an event's move payload (a runtime move by value),
+// reporting ok=false when the key is missing or mistyped.
+func moveOf(data map[string]any) (entities.Move, bool) {
+	move, ok := data["move"].(entities.Move)
+	return move, ok
+}
+
+// shrineFoundText renders the shrine's offer, held pending the StateLearn
+// decision. A shrine without a move payload is just silent stone.
+func shrineFoundText(data map[string]any) string {
+	move, ok := moveOf(data)
+	if !ok {
+		return "A shrine stirs, but its teaching is lost."
+	}
+	return fmt.Sprintf("A shrine offers to teach you %s.", move.Name)
+}
+
+// moveLearnedText renders the shrine's teaching. The forgotten move is
+// optional — the key is absent when the set was under the cap.
+func moveLearnedText(data map[string]any) string {
+	move, ok := moveOf(data)
+	if !ok {
+		return "You learn something, but its name escapes you."
+	}
+	if forgotten, ok := data["forgotten"].(entities.Move); ok {
+		return fmt.Sprintf("You forget %s and learn %s!", forgotten.Name, move.Name)
+	}
+	return fmt.Sprintf("You learned %s!", move.Name)
 }
 
 // itemBonusList renders an item's bonuses, e.g. " (+5 HP, +5 DEF)".

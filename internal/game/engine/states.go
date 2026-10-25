@@ -20,6 +20,10 @@ const (
 	// A merchant is shopped at: Engine.MerchantStock holds the offers;
 	// the player buys, sells or leaves.
 	StateMerchant
+	// A shrine offered a move at the learned cap: Engine.PendingMove
+	// holds the offer and the player forgets one learned move or
+	// declines it.
+	StateLearn
 )
 
 func (s GameState) String() string {
@@ -38,6 +42,8 @@ func (s GameState) String() string {
 		return "Inventory"
 	case StateMerchant:
 		return "Merchant"
+	case StateLearn:
+		return "Learn"
 	default:
 		return "Unknown"
 	}
@@ -58,6 +64,8 @@ func AllowedCommands(s GameState) []CommandType {
 		return []CommandType{CmdWear, CmdDrop, CmdClose, CmdQuit}
 	case StateMerchant:
 		return []CommandType{CmdBuy, CmdSell, CmdLeave, CmdQuit}
+	case StateLearn:
+		return []CommandType{CmdForget, CmdDecline, CmdQuit}
 	case StateGameOver:
 		return []CommandType{CmdQuit}
 	default:

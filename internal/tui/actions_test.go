@@ -69,6 +69,7 @@ func TestActionsPerState(t *testing.T) {
 		{"loot", engine.StateLoot, false, false, []string{"w", "b", "d", "q"}},
 		{"inventory", engine.StateInventory, true, false, []string{"w", "x", "c", "q"}},
 		{"merchant", engine.StateMerchant, true, true, []string{"p", "v", "l", "q"}},
+		{"learn", engine.StateLearn, false, false, []string{"t", "n", "q"}},
 		{"game over", engine.StateGameOver, false, false, []string{"q"}},
 	}
 	for _, tt := range tests {
@@ -150,7 +151,7 @@ func TestShortcutsAreGloballyUnique(t *testing.T) {
 	byKey := make(map[string]engine.CommandType)
 	states := []engine.GameState{
 		engine.StateExploring, engine.StateEncounter, engine.StateCombat, engine.StateGameOver,
-		engine.StateLoot, engine.StateInventory, engine.StateMerchant,
+		engine.StateLoot, engine.StateInventory, engine.StateMerchant, engine.StateLearn,
 	}
 	for _, state := range states {
 		e := testEngine()
@@ -199,7 +200,7 @@ func TestIndexedCommandsUseTheRowCursor(t *testing.T) {
 		for _, a := range actionsFor(e) {
 			want := a.cmd == engine.CmdWear || a.cmd == engine.CmdDrop ||
 				a.cmd == engine.CmdBuy || a.cmd == engine.CmdSell ||
-				a.cmd == engine.CmdMove
+				a.cmd == engine.CmdForget || a.cmd == engine.CmdMove
 			if a.usesIndex != want {
 				t.Errorf("state %v: action %q usesIndex = %v, want %v", state, a.key, a.usesIndex, want)
 			}

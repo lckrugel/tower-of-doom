@@ -9,9 +9,13 @@
     "encounter_types": {
       "combat": 100,
       "sanctuary": 40,
-      "merchant": 10
+      "merchant": 10,
+      "shrine": 20
     },
     "item_tiers": [
+      1
+    ],
+    "move_tiers": [
       1
     ],
     "boss": {
@@ -81,9 +85,14 @@
       "combat": 100,
       "sanctuary": 30,
       "chest": 10,
-      "merchant": 15
+      "merchant": 15,
+      "shrine": 20
     },
     "item_tiers": [
+      1,
+      2
+    ],
+    "move_tiers": [
       1,
       2
     ],
@@ -141,10 +150,15 @@
       "combat": 100,
       "sanctuary": 10,
       "chest": 20,
-      "merchant": 15
+      "merchant": 15,
+      "shrine": 18
     },
     "item_tiers": [
       2
+    ],
+    "move_tiers": [
+      2,
+      3
     ],
     "boss": {
       "monsters": [
@@ -200,11 +214,16 @@
       "combat": 100,
       "sanctuary": 30,
       "chest": 10,
-      "merchant": 20
+      "merchant": 20,
+      "shrine": 20
     },
     "item_tiers": [
       2,
       3
+    ],
+    "move_tiers": [
+      3,
+      4
     ],
     "boss": {
       "monsters": [
@@ -248,9 +267,14 @@
       "combat": 120,
       "sanctuary": 10,
       "chest": 30,
-      "merchant": 15
+      "merchant": 15,
+      "shrine": 25
     },
     "item_tiers": [
+      3,
+      4
+    ],
+    "move_tiers": [
       3,
       4
     ]

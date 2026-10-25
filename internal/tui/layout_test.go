@@ -127,6 +127,22 @@ func viewModels() map[string]Model {
 	bossCombat := encounter(engine.StateCombat)
 	bossCombat.engine.CurrentEncounter.Boss = true
 
+	// The shrine's forget prompt (StateLearn): the offer pends over the
+	// hero's two learned moves. Two fixtures — the dossier screen with
+	// the forget selection on the first row, and one with the selection
+	// walked to the second row (the forget prompt fully engaged).
+	shrineAt := func(cursor int) Model {
+		e := testEngine()
+		learnTestMove(e, "guard_strike", "Guard Strike", 2)
+		learnTestMove(e, "heavy_slash", "Heavy Slash", 2)
+		offered := entities.Move{ID: "power_slash", Name: "Power Slash", Tier: 2, DmgModifier: 175, Weight: 10}
+		e.PendingMove = &offered
+		e.State = engine.StateLearn
+		m := New(e)
+		m.bagCursor = cursor
+		return m
+	}
+
 	return map[string]Model{
 		"exploring":     New(testEngine()),
 		"geared":        geared(),
@@ -136,12 +152,33 @@ func viewModels() map[string]Model {
 		"loot":          loot(),
 		"inventory":     inventory(),
 		"merchant":      merchant(),
+		"learn":         learnModel(),
 		"game over":     gameOver(),
 		"full queue":    fullQueue(),
 		"long log":      longLog(),
 		"boss unlocked": bossUnlocked(),
 		"boss combat":   bossCombat,
+		"shrine":        shrineAt(0),
+		"forget prompt": shrineAt(1),
 	}
+}
+
+// learnModel is the shrine screen's under-curve case the frame must
+// survive: the offer pends while the hero's learned set has drifted out
+// of the ordinary (three rows would exceed the cap — the state guards
+// it, the panel guards the rendering).
+func learnModel() Model {
+	e := testEngine()
+	learnTestMove(e, "guard_strike", "Guard Strike", 2)
+	learnTestMove(e, "heavy_slash", "Heavy Slash", 2)
+	offered := entities.Move{
+		ID: "super_calibrating_excalibur_strike", Name: "Super Calibrating Excalibur Strike",
+		Tier: 3, DmgModifier: 300, CritBonus: 25, Cooldown: 4, Weight: 10,
+		Status: entities.MoveStatus{ID: "poison", Chance: 60, Target: entities.TargetEnemy},
+	}
+	e.PendingMove = &offered
+	e.State = engine.StateLearn
+	return New(e)
 }
 
 // fullGrid is the combat screen's worst case: a 4-move set with the
@@ -252,6 +289,27 @@ func TestViewFullGridShowsEveryElement(t *testing.T) {
 	} {
 		if !strings.Contains(view, want) {
 			t.Errorf("full-grid view missing %q:\n%s", want, view)
+		}
+	}
+}
+
+// The shrine panel always fits the body slot — never leaning on slot()
+// to clip. Worst case: the dossier over the two forget rows, with a
+// modded move name wider than any shipped one ("learn" fixture).
+func TestShrineBodyFitsTheBodySlot(t *testing.T) {
+	for _, name := range []string{"shrine", "forget prompt", "learn"} {
+		m := viewModels()[name]
+
+		lines := viewLines(m.shrinePanel())
+
+		if len(lines) > bodyHeight {
+			t.Errorf("%s: shrine body has %d lines, want at most %d", name, len(lines), bodyHeight)
+		}
+		for i, line := range lines {
+			if w := ansiLen(line); w > mainColWidth {
+				t.Errorf("%s: shrine body line %d is %d wide, overflows the %d-col column:\n%q",
+					name, i, w, mainColWidth, line)
+			}
 		}
 	}
 }

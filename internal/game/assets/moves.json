@@ -90,5 +90,74 @@
     "crit_bonus": 35,
     "cooldown": 3,
     "weight": 30
+  },
+  {
+    "id": "venomous_blade",
+    "name": "Venomous Blade",
+    "tier": 2,
+    "dmg_modifier": 85,
+    "crit_bonus": 0,
+    "cooldown": 2,
+    "status": {
+      "id": "poison",
+      "chance": 75,
+      "target": "enemy"
+    },
+    "weight": 50
+  },
+  {
+    "id": "shield_wall",
+    "name": "Shield Wall",
+    "tier": 2,
+    "dmg_modifier": 90,
+    "crit_bonus": 0,
+    "cooldown": 3,
+    "status": {
+      "id": "guard",
+      "chance": 100,
+      "target": "self"
+    },
+    "weight": 30
+  },
+  {
+    "id": "soul_rot",
+    "name": "Soul Rot",
+    "tier": 3,
+    "dmg_modifier": 70,
+    "crit_bonus": 0,
+    "cooldown": 3,
+    "status": {
+      "id": "weaken",
+      "chance": 90,
+      "target": "enemy"
+    },
+    "weight": 40
+  },
+  {
+    "id": "skull_crusher",
+    "name": "Skull Crusher",
+    "tier": 4,
+    "dmg_modifier": 200,
+    "crit_bonus": 0,
+    "cooldown": 3,
+    "weight": 25
+  },
+  {
+    "id": "bloodletter",
+    "name": "Bloodletter",
+    "tier": 4,
+    "dmg_modifier": 130,
+    "crit_bonus": 25,
+    "cooldown": 3,
+    "weight": 25
+  },
+  {
+    "id": "dragons_might",
+    "name": "Dragon's Might",
+    "tier": 4,
+    "dmg_modifier": 250,
+    "crit_bonus": 0,
+    "cooldown": 4,
+    "weight": 15
   }
 ]

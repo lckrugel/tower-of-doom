@@ -465,6 +465,37 @@ func TestEventText(t *testing.T) {
 			nil,
 		},
 		{
+			"shrine found names the offer",
+			engine.NewShrineFound(entities.Move{ID: "power_slash", Name: "Power Slash", Tier: 2}),
+			"A shrine offers to teach you Power Slash.",
+			nil,
+		},
+		{
+			"shrine found without a move payload",
+			engine.Event{Type: engine.EventShrineFound, Data: map[string]any{}},
+			"A shrine stirs, but its teaching is lost.",
+			nil,
+		},
+		{
+			"move learned",
+			engine.NewMoveLearned(entities.Move{ID: "power_slash", Name: "Power Slash"}, nil),
+			"You learned Power Slash!",
+			nil,
+		},
+		{
+			"move learned with a forgotten move",
+			engine.NewMoveLearned(entities.Move{ID: "power_slash", Name: "Power Slash"},
+				&entities.Move{ID: "guard_strike", Name: "Guard Strike"}),
+			"You forget Guard Strike and learn Power Slash!",
+			nil,
+		},
+		{
+			"move learned without a move payload",
+			engine.Event{Type: engine.EventMoveLearned, Data: map[string]any{}},
+			"You learn something, but its name escapes you.",
+			nil,
+		},
+		{
 			"message",
 			engine.NewMessage("Cannot ascend yet"),
 			"Cannot ascend yet",

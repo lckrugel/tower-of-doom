@@ -86,13 +86,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // even out of the quit confirmation. While the confirmation is armed
 // every key but y cancels back to the normal bar. Otherwise esc quits —
 // except where it means something closer (it closes the bag; while a
-// chest loot is pending, the merchant is open or a fight is on it does
-// nothing: the first two are explicit-only decisions, and in combat the
-// arrows are the move grid's navigation — esc there would be one stray
-// finger from ending the run). Arrows move the action-bar cursor — or
-// the state's row cursor while the bag or the shop list is open, or the
-// move grid's cell cursor in combat —, Enter dispatches the selection
-// (the highlighted grid cell during combat), and single-letter
+// chest loot is pending, the merchant is open, a fight is on or the
+// shrine's forget prompt waits it does nothing: those are explicit-only
+// decisions, and in combat the arrows are the move grid's navigation —
+// esc there would be one stray finger from ending the run). Arrows move
+// the action-bar cursor — or the state's row cursor while the bag, the
+// shop list or the shrine's forget rows are open, or the move grid's
+// cell cursor in combat —, Enter dispatches the selection (the
+// highlighted grid cell during combat), and single-letter
 // shortcuts dispatch their action directly (case-insensitive); the
 // digits 1-4 jump-dispatch grid cells in combat. The Quit action goes
 // through the confirmation everywhere but game over.
@@ -115,7 +116,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		switch m.engine.State {
 		case engine.StateInventory:
 			return m.dispatch(closeAction())
-		case engine.StateLoot, engine.StateMerchant, engine.StateCombat:
+		case engine.StateLoot, engine.StateMerchant, engine.StateCombat, engine.StateLearn:
 			return m, nil
 		}
 		return m.dispatch(quitAction())
@@ -261,13 +262,17 @@ func (m Model) selectableRows() int {
 		return len(m.engine.Player.Bag())
 	case engine.StateMerchant:
 		return len(m.engine.MerchantStock) + len(m.engine.Player.Bag())
+	case engine.StateLearn:
+		// The forget selection: the learned moves are the rows.
+		return len(m.engine.Player.LearnedMoves())
 	default:
 		return 0
 	}
 }
 
 // indexFor resolves the row an index-carrying command acts on. The
-// bag commands (WEAR/DROP) take the bag cursor directly; at the
+// bag commands (WEAR/DROP) take the bag cursor directly, as does the
+// shrine's FORGET (the selected learned move's row); at the
 // merchant the same cursor walks the combined stock-then-bag list, so
 // BUY takes it as-is (stock rows come first) and SELL subtracts the
 // stock size to reach the bag row. (CmdMove does not come through

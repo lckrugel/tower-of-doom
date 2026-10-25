@@ -68,6 +68,16 @@ const (
 	// sneak step, no encounter-kind roll. While locked it is a blocked
 	// action: a message, state intact (like a locked ASCEND).
 	CmdChallengeBoss
+	// Forgets the learned move at `Index` to make room for the shrine's
+	// pending offer (StateLearn): the offer is learned in the forgotten
+	// move's place (EventMoveLearned with the additive `forgotten` key)
+	// and exploring continues. The index points into `LearnedMoves()`;
+	// an out-of-range index is a generic invalid command with no state
+	// change — never a panic.
+	CmdForget
+	// Declines the shrine's pending offer (StateLearn): both learned
+	// moves are kept and exploring continues.
+	CmdDecline
 )
 
 // `Command` is an action taken.
@@ -77,7 +87,8 @@ type Command struct {
 	// index into the hero's combat move set for CmdMove (StateCombat);
 	// the bag index for the bag commands (CmdWear and CmdDrop in
 	// StateInventory) and for selling (CmdSell in StateMerchant takes a
-	// bag index); the stock index into Engine.MerchantStock for CmdBuy.
+	// bag index); the stock index into Engine.MerchantStock for CmdBuy;
+	// the learned-move index for the shrine's CmdForget (StateLearn).
 	// Every other command ignores it. An out-of-range/negative index is
 	// rejected as a generic invalid command (EventMessage) with no state
 	// change — never a panic.

@@ -76,6 +76,14 @@ const (
 	// The boss challenge was accepted: the predefined boss group is
 	// engaged, straight into StateCombat (no FIGHT/SNEAK step).
 	EventBossChallenge
+	// A shrine offered a move at the learned cap: the offer is held in
+	// Engine.PendingMove and the player must forget a learned move or
+	// decline (StateLearn).
+	EventShrineFound
+	// The hero learned a move (a shrine's teaching): the optional
+	// additive `forgotten` key carries the move displaced from the
+	// learned set when it was at the cap.
+	EventMoveLearned
 )
 
 // `Event` é o que o jogo envia após processar um `Command`.
@@ -556,4 +564,36 @@ func NewItemSold(item *entities.Item, price int) Event {
 			"price": price,
 		},
 	}
+}
+
+// NewShrineFound reports a shrine offering a move at the learned cap: the
+// offer is held in Engine.PendingMove while the player decides in
+// StateLearn (forget a learned move or decline) — nothing is learned yet.
+//
+// Payload:
+//   - "move": the offered move.
+func NewShrineFound(move entities.Move) Event {
+	return Event{
+		Type: EventShrineFound,
+		Data: map[string]any{
+			"move": move,
+		},
+	}
+}
+
+// NewMoveLearned reports a move the hero learned (a shrine's teaching).
+//
+// Payload:
+//   - "move": the learned move.
+//   - "forgotten": ADDITIVE optional key — the learned move it displaced
+//     (present only when the set was at the cap and the player chose to
+//     forget one). Consumers predating the key keep working.
+func NewMoveLearned(move entities.Move, forgotten *entities.Move) Event {
+	data := map[string]any{
+		"move": move,
+	}
+	if forgotten != nil {
+		data["forgotten"] = *forgotten
+	}
+	return Event{Type: EventMoveLearned, Data: data}
 }
