@@ -8,12 +8,17 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 )
 
 // Arquivos .json na pasta `assets/` serão compilados juntamente do executável da aplicação.
 //
 //go:embed assets/*.json
 var embeddedAssets embed.FS
+
+// weaponSlot is the only equipment slot allowed to grant Combat 2.0
+// moves (the entities package owns the typed slot constants).
+const weaponSlot = "weapon"
 
 // Define um asset para item.
 //
@@ -31,6 +36,11 @@ type ItemAsset struct {
 	BonusDEF   int `json:"bonus_def"`
 	BonusSPD   int `json:"bonus_spd"`
 	Durability int `json:"durability"`
+
+	// Moves lists the ids of the Combat 2.0 moves this item grants while
+	// equipped. Only weapons may grant moves (validated), at most
+	// MaxWeaponMoves per weapon, and every id must exist.
+	Moves []string `json:"moves"`
 }
 
 // Definição de um asset para monstro.
@@ -46,6 +56,87 @@ type MonsterAsset struct {
 	Defense    int    `json:"def"`
 	// Critical hit chance as a percentage; 0 means the monster never crits.
 	Crit int `json:"crit"`
+
+	// Moves lists the monster's Combat 2.0 moves with their AI weights.
+	// Absent/empty falls back to the canonical basic_attack, so older
+	// assets/mods keep working. Validated: known ids, at most MaxMoves
+	// entries, weights >= 1.
+	Moves []MoveRef `json:"moves"`
+}
+
+// Combat 2.0 move-set caps, enforced at load time (content bugs fail at
+// startup) and shared with the entities package (the runtime side).
+const (
+	// MaxMoves is the cap on every combatant's move set.
+	MaxMoves = 4
+	// MaxWeaponMoves is how many moves a single weapon may grant.
+	MaxWeaponMoves = 2
+)
+
+// MoveRef references a move in a monster's move list. The weight is the
+// MONSTER's own AI weight for that move — it overrides the move asset's
+// default weight when the engine resolves the set.
+type MoveRef struct {
+	ID     string `json:"id"`
+	Weight int    `json:"weight"`
+}
+
+// MoveStatusAsset is the optional status a move applies on hit.
+type MoveStatusAsset struct {
+	// ID references a status asset (unknown ids are a content bug).
+	ID string `json:"id"`
+	// Chance is the application chance, in percent ([0, 100]).
+	Chance int `json:"chance"`
+	// Target receives the status: "enemy" (the hit target) or "self"
+	// (the striker).
+	Target string `json:"target"`
+}
+
+// MoveAsset defines a Combat 2.0 move (an entry of moves.json). Only the
+// tier has an absent-field default (0 → 1, mirroring items): every other
+// field is required as listed and validated at startup.
+type MoveAsset struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	// Tier places the move on the progression ladder (1 = earliest).
+	Tier int `json:"tier"`
+	// DmgModifier scales the striker's DMG, in percent (100 = neutral).
+	DmgModifier int `json:"dmg_modifier"`
+	// CritBonus adds percentage points to the striker's crit threshold
+	// for this move (may be negative; clamped to [0, 100] at use time).
+	CritBonus int `json:"crit_bonus"`
+	// Cooldown is how many turns the move stays locked after use
+	// (0 = spammable).
+	Cooldown int `json:"cooldown"`
+	// Status is the optional status the move applies on hit.
+	Status *MoveStatusAsset `json:"status,omitempty"`
+	// Weight is the move's default AI weight (monster picks); a monster's
+	// move refs carry their own overriding weight.
+	Weight int `json:"weight"`
+}
+
+// StatusEffectAsset is what a status does on each of its turns: either a
+// DoT (damage per turn) or a stat modifier.
+type StatusEffectAsset struct {
+	// Type is "dot" or "stat".
+	Type string `json:"type"`
+	// Stat names the modified stat ("dmg", "def" or "spd") — for type
+	// "stat" only.
+	Stat string `json:"stat"`
+	// Amount is the DoT damage per turn (>= 1) or the stat modifier (!= 0)
+	// — matching the type.
+	Amount int `json:"amount"`
+}
+
+// StatusAsset defines a Combat 2.0 status effect (an entry of
+// statuses.json). Every field is required — statuses have no
+// absent-field defaults.
+type StatusAsset struct {
+	ID       string            `json:"id"`
+	Name     string            `json:"name"`
+	Kind     string            `json:"kind"` // "buff" or "debuff"
+	Effect   StatusEffectAsset `json:"effect"`
+	Duration int               `json:"duration"`
 }
 
 // Define o mostro e seu peso para spawnar em uma seção.
@@ -86,6 +177,10 @@ type SectionAsset struct {
 	// rewards or merchant stock. Absent/empty means NO restriction, so
 	// older sections/mods keep rolling the whole registry.
 	ItemTiers []int `json:"item_tiers"`
+	// MoveTiers restricts which move tiers this section can offer (the
+	// shrine draws, phase 4). Same contract as item_tiers: absent/empty
+	// means NO restriction.
+	MoveTiers []int `json:"move_tiers"`
 }
 
 // Registro de todos os assets carregados em memória.
@@ -95,6 +190,9 @@ type Registry struct {
 	Monsters map[string]MonsterAsset
 	Items    map[string]ItemAsset
 	Sections []SectionAsset
+	// Combat 2.0 content: moves and the statuses they apply.
+	Moves    map[string]MoveAsset
+	Statuses map[string]StatusAsset
 }
 
 // Busca a seção à qual este andar pertence.
@@ -138,6 +236,49 @@ func (r *Registry) MaxItemTier() int {
 	return maxTier
 }
 
+// MoveByID looks up a move asset by id.
+func (r *Registry) MoveByID(id string) (MoveAsset, bool) {
+	m, ok := r.Moves[id]
+	return m, ok
+}
+
+// StatusByID looks up a status asset by id.
+func (r *Registry) StatusByID(id string) (StatusAsset, bool) {
+	s, ok := r.Statuses[id]
+	return s, ok
+}
+
+// MovesForTiers returns every registry move whose tier is one of `tiers`,
+// sorted by id (assets, not just ids — moves carry their own display data
+// and AI weight). Empty/nil `tiers` lifts the restriction: every move is
+// returned. A pool with no matches comes back empty — never an error; the
+// caller decides what an empty pool means. Mirrors ItemIDsForTiers.
+func (r *Registry) MovesForTiers(tiers []int) []MoveAsset {
+	restricted := len(tiers) > 0
+	allowed := make(map[int]bool, len(tiers))
+	for _, tier := range tiers {
+		allowed[tier] = true
+	}
+	moves := make([]MoveAsset, 0, len(r.Moves))
+	for _, move := range r.Moves {
+		if !restricted || allowed[move.Tier] {
+			moves = append(moves, move)
+		}
+	}
+	slices.SortFunc(moves, func(a, b MoveAsset) int { return strings.Compare(a.ID, b.ID) })
+	return moves
+}
+
+// MaxMoveTier reports the highest move tier in the registry (0 when the
+// registry holds no moves).
+func (r *Registry) MaxMoveTier() int {
+	maxTier := 0
+	for _, move := range r.Moves {
+		maxTier = max(maxTier, move.Tier)
+	}
+	return maxTier
+}
+
 // Calcula a dificuldade para o andar com base na seção atual.
 func (s SectionAsset) FloorDifficulty(floor int) int {
 	// O quão avançado se está dentro desta seção.
@@ -162,6 +303,14 @@ func Load(externalDir string) (*Registry, error) {
 	if err != nil {
 		return nil, fmt.Errorf("loading sections: %w", err)
 	}
+	moves, err := loadJSON[MoveAsset](externalDir, "moves.json")
+	if err != nil {
+		return nil, fmt.Errorf("loading moves: %w", err)
+	}
+	statuses, err := loadJSON[StatusAsset](externalDir, "statuses.json")
+	if err != nil {
+		return nil, fmt.Errorf("loading statuses: %w", err)
+	}
 
 	monstersMap, err := indexBy(monsters, func(m MonsterAsset) string { return m.ID })
 	if err != nil {
@@ -171,12 +320,23 @@ func Load(externalDir string) (*Registry, error) {
 	if err != nil {
 		return nil, fmt.Errorf("loading items: %w", err)
 	}
+	movesMap, err := indexBy(moves, func(m MoveAsset) string { return m.ID })
+	if err != nil {
+		return nil, fmt.Errorf("loading moves: %w", err)
+	}
+	statusesMap, err := indexBy(statuses, func(s StatusAsset) string { return s.ID })
+	if err != nil {
+		return nil, fmt.Errorf("loading statuses: %w", err)
+	}
 	defaultAbsentItemTiers(itemsMap)
+	defaultAbsentMoveTiers(movesMap)
 
 	r := &Registry{
 		Monsters: monstersMap,
 		Items:    itemsMap,
 		Sections: sections,
+		Moves:    movesMap,
+		Statuses: statusesMap,
 	}
 	return r, nil
 
@@ -197,6 +357,153 @@ func (r *Registry) Validate(topFloor int) error {
 				"content validation: item %q has tier %d, want >= 1 (absent/0 defaults to tier 1)",
 				item.ID, item.Tier,
 			)
+		}
+	}
+
+	// Combat 2.0: statuses are checked before moves (moves reference
+	// them), and moves before monsters/weapons (those reference moves).
+	for _, st := range r.Statuses {
+		if st.Kind != "buff" && st.Kind != "debuff" {
+			return fmt.Errorf(
+				"content validation: status %q has kind %q, want \"buff\" or \"debuff\"",
+				st.ID, st.Kind,
+			)
+		}
+		if st.Duration < 1 {
+			return fmt.Errorf(
+				"content validation: status %q has duration %d, want >= 1",
+				st.ID, st.Duration,
+			)
+		}
+		switch st.Effect.Type {
+		case "dot":
+			if st.Effect.Amount < 1 {
+				return fmt.Errorf(
+					"content validation: status %q has dot amount %d, want >= 1",
+					st.ID, st.Effect.Amount,
+				)
+			}
+		case "stat":
+			if !slices.Contains([]string{"dmg", "def", "spd"}, st.Effect.Stat) {
+				return fmt.Errorf(
+					"content validation: status %q modifies unknown stat %q, want one of dmg, def, spd",
+					st.ID, st.Effect.Stat,
+				)
+			}
+			if st.Effect.Amount == 0 {
+				return fmt.Errorf(
+					"content validation: status %q has a zero stat amount, want a non-zero modifier",
+					st.ID,
+				)
+			}
+		default:
+			return fmt.Errorf(
+				"content validation: status %q has effect type %q, want \"dot\" or \"stat\"",
+				st.ID, st.Effect.Type,
+			)
+		}
+	}
+
+	for _, mv := range r.Moves {
+		// Load defaults the absent tier to 1, so a non-positive tier here
+		// is a content bug, not a missing field.
+		if mv.Tier < 1 {
+			return fmt.Errorf(
+				"content validation: move %q has tier %d, want >= 1 (absent/0 defaults to tier 1)",
+				mv.ID, mv.Tier,
+			)
+		}
+		if mv.DmgModifier < 50 || mv.DmgModifier > 300 {
+			return fmt.Errorf(
+				"content validation: move %q has dmg_modifier %d, want within [50, 300] (percent, 100 = neutral)",
+				mv.ID, mv.DmgModifier,
+			)
+		}
+		if mv.Cooldown < 0 {
+			return fmt.Errorf(
+				"content validation: move %q has cooldown %d, want >= 0 (0 = spammable)",
+				mv.ID, mv.Cooldown,
+			)
+		}
+		if mv.Weight < 1 {
+			return fmt.Errorf(
+				"content validation: move %q has weight %d, want >= 1 (AI pick weight)",
+				mv.ID, mv.Weight,
+			)
+		}
+		if mv.Status == nil {
+			continue
+		}
+		if mv.Status.Chance < 0 || mv.Status.Chance > 100 {
+			return fmt.Errorf(
+				"content validation: move %q has status chance %d, want within [0, 100] (percentage)",
+				mv.ID, mv.Status.Chance,
+			)
+		}
+		if mv.Status.Target != "enemy" && mv.Status.Target != "self" {
+			return fmt.Errorf(
+				"content validation: move %q has status target %q, want \"enemy\" or \"self\"",
+				mv.ID, mv.Status.Target,
+			)
+		}
+		if _, ok := r.StatusByID(mv.Status.ID); !ok {
+			return fmt.Errorf(
+				"content validation: move %q references unknown status %q",
+				mv.ID, mv.Status.ID,
+			)
+		}
+	}
+
+	// Move references on monsters are checked registry-wide (a monster
+	// absent from every spawn table still cannot carry broken moves).
+	for _, m := range r.Monsters {
+		if len(m.Moves) > MaxMoves {
+			return fmt.Errorf(
+				"content validation: monster %q has %d moves, want at most %d (MAX_MOVES)",
+				m.ID, len(m.Moves), MaxMoves,
+			)
+		}
+		for _, ref := range m.Moves {
+			if ref.Weight < 1 {
+				return fmt.Errorf(
+					"content validation: monster %q move %q has weight %d, want >= 1 (AI pick weight)",
+					m.ID, ref.ID, ref.Weight,
+				)
+			}
+			if _, ok := r.MoveByID(ref.ID); !ok {
+				return fmt.Errorf(
+					"content validation: monster %q references unknown move %q",
+					m.ID, ref.ID,
+				)
+			}
+		}
+	}
+
+	// Only weapons may grant moves, at most MaxWeaponMoves each, and
+	// every granted id must exist.
+	for _, item := range r.Items {
+		if len(item.Moves) == 0 {
+			continue
+		}
+		if item.Slot != weaponSlot {
+			return fmt.Errorf(
+				"content validation: item %q (slot %q) grants moves, but only weapons may",
+				item.ID, item.Slot,
+			)
+		}
+		if len(item.Moves) > MaxWeaponMoves {
+			return fmt.Errorf(
+				"content validation: weapon %q grants %d moves, want at most %d",
+				item.ID, len(item.Moves), MaxWeaponMoves,
+			)
+		}
+		for _, moveID := range item.Moves {
+			if _, ok := r.MoveByID(moveID); !ok {
+				return fmt.Errorf(
+					"content validation: weapon %q references unknown move %q",
+					item.ID, moveID,
+				)
+			}
 		}
 	}
 
@@ -230,6 +537,27 @@ func (r *Registry) Validate(topFloor int) error {
 			if len(r.ItemIDsForTiers([]int{tier})) == 0 {
 				return fmt.Errorf(
 					"content validation: section %q allows item tier %d, but the registry has no items of that tier",
+					s.ID, tier,
+				)
+			}
+		}
+		// move_tiers: the same contract as item_tiers — every listed
+		// value must be a real tier with at least one registry move
+		// (typo protection). Absent/empty = unrestricted.
+		listedMoves := make(map[int]bool, len(s.MoveTiers))
+		for _, tier := range s.MoveTiers {
+			if tier < 1 {
+				return fmt.Errorf(
+					"content validation: section %q has move_tiers value %d, want >= 1",
+					s.ID, tier,
+				)
+			}
+			listedMoves[tier] = true
+		}
+		for tier := range listedMoves {
+			if len(r.MovesForTiers([]int{tier})) == 0 {
+				return fmt.Errorf(
+					"content validation: section %q allows move tier %d, but the registry has no moves of that tier",
 					s.ID, tier,
 				)
 			}
@@ -387,6 +715,19 @@ func defaultAbsentItemTiers(items map[string]ItemAsset) {
 		if asset.Tier == 0 {
 			asset.Tier = 1
 			items[id] = asset
+		}
+	}
+}
+
+// defaultAbsentMoveTiers applies the move tier default in place (same
+// rule as items: JSON cannot tell "tier": 0 from an absent field, and
+// both mean tier 1). Every other move field has no default — it is
+// required as authored and validated at startup.
+func defaultAbsentMoveTiers(moves map[string]MoveAsset) {
+	for id, move := range moves {
+		if move.Tier == 0 {
+			move.Tier = 1
+			moves[id] = move
 		}
 	}
 }

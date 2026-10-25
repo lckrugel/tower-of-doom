@@ -37,6 +37,8 @@ func makeReg(monsters []MonsterAsset, sections []SectionAsset) *Registry {
 	r := &Registry{
 		Monsters: make(map[string]MonsterAsset, len(monsters)),
 		Items:    make(map[string]ItemAsset),
+		Moves:    make(map[string]MoveAsset),
+		Statuses: make(map[string]StatusAsset),
 		Sections: sections,
 	}
 	for _, m := range monsters {
@@ -437,5 +439,462 @@ func TestLoadJSONBrokenExternalFileIsError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "parsing") {
 		t.Errorf("error = %v, want a parse error mentioning the file", err)
+	}
+}
+
+// ---- Combat 2.0 data layer: moves & statuses ----
+
+// validMoves is a small move registry spanning tiers 1–3, the canonical
+// basic_attack included. Status wiring mirrors the embedded content.
+func validMoves() []MoveAsset {
+	return []MoveAsset{
+		{ID: "basic_attack", Name: "Basic Attack", Tier: 1, DmgModifier: 100, Weight: 100},
+		{ID: "quick_stab", Name: "Quick Stab", Tier: 1, DmgModifier: 60, CritBonus: 20, Weight: 100},
+		{ID: "guard_strike", Name: "Guard Strike", Tier: 1, DmgModifier: 75, Cooldown: 2, Weight: 50,
+			Status: &MoveStatusAsset{ID: "guard", Chance: 100, Target: "self"}},
+		{ID: "venom_bite", Name: "Venom Bite", Tier: 1, DmgModifier: 80, Cooldown: 2, Weight: 60,
+			Status: &MoveStatusAsset{ID: "poison", Chance: 60, Target: "enemy"}},
+		{ID: "heavy_slash", Name: "Heavy Slash", Tier: 2, DmgModifier: 175, Cooldown: 2, Weight: 60},
+		{ID: "crushing_blow", Name: "Crushing Blow", Tier: 2, DmgModifier: 120, Cooldown: 3, Weight: 40,
+			Status: &MoveStatusAsset{ID: "weaken", Chance: 75, Target: "enemy"}},
+		{ID: "frost_touch", Name: "Frost Touch", Tier: 3, DmgModifier: 90, Cooldown: 3, Weight: 40,
+			Status: &MoveStatusAsset{ID: "slow", Chance: 80, Target: "enemy"}},
+	}
+}
+
+// validStatuses is the four starter statuses.
+func validStatuses() []StatusAsset {
+	return []StatusAsset{
+		{ID: "poison", Name: "Poison", Kind: "debuff",
+			Effect:   StatusEffectAsset{Type: "dot", Amount: 3},
+			Duration: 3},
+		{ID: "weaken", Name: "Weaken", Kind: "debuff",
+			Effect:   StatusEffectAsset{Type: "stat", Stat: "dmg", Amount: -3},
+			Duration: 3},
+		{ID: "slow", Name: "Slow", Kind: "debuff",
+			Effect:   StatusEffectAsset{Type: "stat", Stat: "spd", Amount: -3},
+			Duration: 3},
+		{ID: "guard", Name: "Guard", Kind: "buff",
+			Effect:   StatusEffectAsset{Type: "stat", Stat: "def", Amount: 5},
+			Duration: 2},
+	}
+}
+
+// combat2Reg returns a registry pre-filled with the move/status helpers;
+// tests mutate it to break one rule at a time.
+func combat2Reg() *Registry {
+	r := makeReg(validMonsters(), validSections())
+	for _, m := range validMoves() {
+		r.Moves[m.ID] = m
+	}
+	for _, s := range validStatuses() {
+		r.Statuses[s.ID] = s
+	}
+	return r
+}
+
+// MovesForTiers mirrors ItemIDsForTiers for moves: assets sorted by id,
+// unrestricted when no tier is listed, empty (never an error) pool when
+// nothing matches.
+func TestMovesForTiers(t *testing.T) {
+	r := combat2Reg()
+
+	ids := func(assets []MoveAsset) []string {
+		out := make([]string, len(assets))
+		for i, a := range assets {
+			out[i] = a.ID
+		}
+		return out
+	}
+
+	tests := []struct {
+		name  string
+		tiers []int
+		want  []string
+	}{
+		{"nil tiers is unrestricted", nil,
+			[]string{"basic_attack", "crushing_blow", "frost_touch", "guard_strike", "heavy_slash", "quick_stab", "venom_bite"}},
+		{"empty tiers is unrestricted", []int{},
+			[]string{"basic_attack", "crushing_blow", "frost_touch", "guard_strike", "heavy_slash", "quick_stab", "venom_bite"}},
+		{"single tier", []int{1}, []string{"basic_attack", "guard_strike", "quick_stab", "venom_bite"}},
+		{"union of tiers, sorted", []int{3, 1},
+			[]string{"basic_attack", "frost_touch", "guard_strike", "quick_stab", "venom_bite"}},
+		{"unmatched tier is an empty pool", []int{9}, []string{}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ids(r.MovesForTiers(tt.tiers))
+			if !slices.Equal(got, tt.want) {
+				t.Errorf("MovesForTiers(%v) = %v, want %v", tt.tiers, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestMaxMoveTier(t *testing.T) {
+	if got := combat2Reg().MaxMoveTier(); got != 3 {
+		t.Errorf("MaxMoveTier = %d, want 3", got)
+	}
+	empty := makeReg(validMonsters(), validSections())
+	if got := empty.MaxMoveTier(); got != 0 {
+		t.Errorf("MaxMoveTier on a move-less registry = %d, want 0", got)
+	}
+}
+
+func TestMoveByIDAndStatusByID(t *testing.T) {
+	r := combat2Reg()
+
+	if m, ok := r.MoveByID("heavy_slash"); !ok || m.Name != "Heavy Slash" {
+		t.Errorf("MoveByID(heavy_slash) = (%+v, %v), want the move", m, ok)
+	}
+	if _, ok := r.MoveByID("nope"); ok {
+		t.Error("MoveByID(unknown) reported success")
+	}
+	if s, ok := r.StatusByID("poison"); !ok || s.Effect.Amount != 3 {
+		t.Errorf("StatusByID(poison) = (%+v, %v), want the status", s, ok)
+	}
+	if _, ok := r.StatusByID("nope"); ok {
+		t.Error("StatusByID(unknown) reported success")
+	}
+}
+
+// The embedded assets ship the canonical basic attack and the four
+// starter statuses; this locks their core values.
+func TestLoadEmbeddedMovesAndStatuses(t *testing.T) {
+	r, err := Load("")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	basic, ok := r.MoveByID("basic_attack")
+	if !ok {
+		t.Fatal("the canonical basic_attack move is missing from the embedded assets")
+	}
+	if basic.Tier != 1 || basic.DmgModifier != 100 || basic.CritBonus != 0 ||
+		basic.Cooldown != 0 || basic.Weight != 100 || basic.Status != nil {
+		t.Errorf("basic_attack drifted: %+v", basic)
+	}
+
+	poison, ok := r.StatusByID("poison")
+	if !ok {
+		t.Fatal("the starter poison status is missing from the embedded assets")
+	}
+	if poison.Kind != "debuff" || poison.Effect.Type != "dot" ||
+		poison.Effect.Amount != 3 || poison.Duration != 3 {
+		t.Errorf("poison drifted: %+v", poison)
+	}
+
+	guard, ok := r.StatusByID("guard")
+	if !ok {
+		t.Fatal("the starter guard status is missing from the embedded assets")
+	}
+	if guard.Kind != "buff" || guard.Effect.Stat != "def" ||
+		guard.Effect.Amount != 5 || guard.Duration != 2 {
+		t.Errorf("guard drifted: %+v", guard)
+	}
+
+	if got, want := len(r.Moves), 8; got != want {
+		t.Errorf("embedded moves = %d, want %d (basic attack + 7 starters)", got, want)
+	}
+	if got, want := len(r.Statuses), 4; got != want {
+		t.Errorf("embedded statuses = %d, want %d (the starter set)", got, want)
+	}
+	if got := r.MaxMoveTier(); got != 3 {
+		t.Errorf("embedded MaxMoveTier = %d, want 3", got)
+	}
+}
+
+// A move without a tier field defaults to tier 1 after Load, mirroring
+// items — tier-less moves in mods keep working.
+func TestLoadDefaultsAbsentMoveTierToOne(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, content string) {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("monsters.json", `[
+		{"id": "rat", "name": "Rat", "difficulty": 1, "hp": 10, "dmg": 1, "spd": 5}
+	]`)
+	write("sections.json", `[
+		{"id": "s", "name": "S", "base_difficulty": 1, "min_floor": 1, "max_floor": -1,
+		 "spawns": [{"monster_id": "rat", "weight": 1}]}
+	]`)
+	write("moves.json", `[
+		{"id": "jab", "name": "Jab", "dmg_modifier": 100, "weight": 1},
+		{"id": "hook", "name": "Hook", "tier": 2, "dmg_modifier": 150, "cooldown": 1, "weight": 1}
+	]`)
+
+	r, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if err := r.Validate(100); err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+	if got := r.Moves["jab"].Tier; got != 1 {
+		t.Errorf("tier-less move loaded with tier %d, want 1 (absent = first tier)", got)
+	}
+	if got := r.Moves["hook"].Tier; got != 2 {
+		t.Errorf("explicit tier loaded as %d, want 2", got)
+	}
+}
+
+// Duplicate ids in the new asset files fail at Load (indexBy pattern),
+// never silently hiding content.
+func TestLoadRejectsDuplicateMoveAndStatusIDs(t *testing.T) {
+	t.Run("duplicate move ids", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "moves.json")
+		content := `[
+			{"id": "jab", "name": "Jab", "dmg_modifier": 100, "weight": 1},
+			{"id": "jab", "name": "Jab Again", "dmg_modifier": 120, "weight": 1}
+		]`
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+
+		_, err := Load(dir)
+		if err == nil || !strings.Contains(err.Error(), "duplicate") {
+			t.Errorf("Load(duplicate moves) = %v, want a duplicate id error", err)
+		}
+	})
+
+	t.Run("duplicate status ids", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "statuses.json")
+		content := `[
+			{"id": "poison", "name": "Poison", "kind": "debuff",
+			 "effect": {"type": "dot", "amount": 3}, "duration": 3},
+			{"id": "poison", "name": "Poison II", "kind": "debuff",
+			 "effect": {"type": "dot", "amount": 9}, "duration": 5}
+		]`
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+
+		_, err := Load(dir)
+		if err == nil || !strings.Contains(err.Error(), "duplicate") {
+			t.Errorf("Load(duplicate statuses) = %v, want a duplicate id error", err)
+		}
+	})
+}
+
+// ---- Combat 2.0 content validation ----
+
+// Combat 2.0 validation: content bugs fail at startup. Each case breaks
+// exactly one rule against an otherwise-valid registry; wantErr "" means
+// the mutation is legal and must validate.
+func TestValidateCombat2Content(t *testing.T) {
+	moveRef := func(id string, weight int) MoveRef { return MoveRef{ID: id, Weight: weight} }
+	tests := []struct {
+		name    string
+		mutate  func(r *Registry)
+		wantErr string
+	}{
+		// Move fields.
+		{
+			"move tier below 1",
+			func(r *Registry) { m := r.Moves["heavy_slash"]; m.Tier = 0; r.Moves["heavy_slash"] = m },
+			"tier",
+		},
+		{
+			"move dmg_modifier below range",
+			func(r *Registry) { m := r.Moves["quick_stab"]; m.DmgModifier = 49; r.Moves["quick_stab"] = m },
+			"dmg_modifier",
+		},
+		{
+			"move dmg_modifier above range",
+			func(r *Registry) { m := r.Moves["quick_stab"]; m.DmgModifier = 301; r.Moves["quick_stab"] = m },
+			"dmg_modifier",
+		},
+		{
+			"negative move cooldown",
+			func(r *Registry) { m := r.Moves["heavy_slash"]; m.Cooldown = -1; r.Moves["heavy_slash"] = m },
+			"cooldown",
+		},
+		{
+			"move weight below 1",
+			func(r *Registry) { m := r.Moves["quick_stab"]; m.Weight = 0; r.Moves["quick_stab"] = m },
+			"weight",
+		},
+		// Move status wiring.
+		{
+			"move status chance over 100",
+			func(r *Registry) {
+				m := r.Moves["venom_bite"]
+				m.Status.Chance = 101
+				r.Moves["venom_bite"] = m
+			},
+			"chance",
+		},
+		{
+			"move status negative chance",
+			func(r *Registry) {
+				m := r.Moves["venom_bite"]
+				m.Status.Chance = -1
+				r.Moves["venom_bite"] = m
+			},
+			"chance",
+		},
+		{
+			"move status unknown target",
+			func(r *Registry) {
+				m := r.Moves["guard_strike"]
+				m.Status.Target = "foe"
+				r.Moves["guard_strike"] = m
+			},
+			"target",
+		},
+		{
+			"move referencing unknown status",
+			func(r *Registry) {
+				m := r.Moves["venom_bite"]
+				m.Status.ID = "nope"
+				r.Moves["venom_bite"] = m
+			},
+			"unknown status",
+		},
+		// Status assets.
+		{
+			"status unknown kind",
+			func(r *Registry) { s := r.Statuses["guard"]; s.Kind = "curse"; r.Statuses["guard"] = s },
+			"kind",
+		},
+		{
+			"status duration below 1",
+			func(r *Registry) { s := r.Statuses["poison"]; s.Duration = 0; r.Statuses["poison"] = s },
+			"duration",
+		},
+		{
+			"status unknown effect type",
+			func(r *Registry) { s := r.Statuses["poison"]; s.Effect.Type = "aura"; r.Statuses["poison"] = s },
+			"effect type",
+		},
+		{
+			"dot amount below 1",
+			func(r *Registry) { s := r.Statuses["poison"]; s.Effect.Amount = 0; r.Statuses["poison"] = s },
+			"dot amount",
+		},
+		{
+			"stat amount zero",
+			func(r *Registry) { s := r.Statuses["weaken"]; s.Effect.Amount = 0; r.Statuses["weaken"] = s },
+			"zero stat amount",
+		},
+		{
+			"status unknown stat",
+			func(r *Registry) { s := r.Statuses["slow"]; s.Effect.Stat = "chi"; r.Statuses["slow"] = s },
+			"unknown stat",
+		},
+		// Monster move references.
+		{
+			"monster referencing unknown move",
+			func(r *Registry) {
+				m := r.Monsters["rat"]
+				m.Moves = []MoveRef{moveRef("nope", 1)}
+				r.Monsters["rat"] = m
+			},
+			"unknown move",
+		},
+		{
+			"monster with more than 4 moves",
+			func(r *Registry) {
+				m := r.Monsters["rat"]
+				m.Moves = []MoveRef{
+					moveRef("basic_attack", 1), moveRef("quick_stab", 1), moveRef("heavy_slash", 1),
+					moveRef("frost_touch", 1), moveRef("crushing_blow", 1),
+				}
+				r.Monsters["rat"] = m
+			},
+			"at most 4",
+		},
+		{
+			"monster move ref weight below 1",
+			func(r *Registry) {
+				m := r.Monsters["rat"]
+				m.Moves = []MoveRef{moveRef("basic_attack", 0)}
+				r.Monsters["rat"] = m
+			},
+			"weight",
+		},
+		// Weapon-granted moves.
+		{
+			"weapon referencing unknown move",
+			func(r *Registry) {
+				r.Items["sword"] = ItemAsset{ID: "sword", Name: "Sword", Slot: "weapon", Tier: 1, Moves: []string{"nope"}}
+			},
+			"unknown move",
+		},
+		{
+			"weapon with more than 2 moves",
+			func(r *Registry) {
+				r.Items["sword"] = ItemAsset{ID: "sword", Name: "Sword", Slot: "weapon", Tier: 1,
+					Moves: []string{"basic_attack", "quick_stab", "heavy_slash"}}
+			},
+			"at most 2",
+		},
+		{
+			"non-weapon slot carrying moves",
+			func(r *Registry) {
+				r.Items["helm"] = ItemAsset{ID: "helm", Name: "Helm", Slot: "helmet", Tier: 1,
+					Moves: []string{"heavy_slash"}}
+			},
+			"only weapons",
+		},
+		// Section move_tiers.
+		{
+			"move_tiers value below 1",
+			func(r *Registry) { r.Sections[0].MoveTiers = []int{1, 0} },
+			"move_tiers",
+		},
+		{
+			"move_tiers referencing an empty tier (typo)",
+			func(r *Registry) { r.Sections[0].MoveTiers = []int{1, 9} },
+			"no moves of that tier",
+		},
+		// Legal content.
+		{
+			"monster with a valid move list",
+			func(r *Registry) {
+				m := r.Monsters["rat"]
+				m.Moves = []MoveRef{moveRef("basic_attack", 100), moveRef("venom_bite", 40)}
+				r.Monsters["rat"] = m
+			},
+			"",
+		},
+		{
+			"weapon with valid granted moves",
+			func(r *Registry) {
+				r.Items["sword"] = ItemAsset{ID: "sword", Name: "Sword", Slot: "weapon", Tier: 1,
+					Moves: []string{"heavy_slash", "quick_stab"}}
+			},
+			"",
+		},
+		{
+			"section with populated move_tiers",
+			func(r *Registry) { r.Sections[0].MoveTiers = []int{1, 2} },
+			"",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := combat2Reg()
+			tt.mutate(r)
+			err := r.Validate(10)
+
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Errorf("Validate = %v, want nil (legal content)", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("Validate = nil, want error containing %q", tt.wantErr)
+			}
+			if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Errorf("error = %v, want it to contain %q", err, tt.wantErr)
+			}
+		})
 	}
 }
