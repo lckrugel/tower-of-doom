@@ -6,6 +6,8 @@
 - Game starts (StateExploring)
 - Player can EXPLORE, ASCEND or INVENTORY
     - ASCEND starts blocked
+    - While the BOSS CHALLENGE is unlocked (see "Bosses"), the player
+      can also CHALLENGE the section's boss
 - EXPLORE generates an encounter
     - The FIRST EXPLORE of a run is always COMBAT: the kind roll is
       skipped entirely (no rng consumed), so a run can never open with
@@ -61,13 +63,18 @@
       "Kill XP")
     - every defeat also pays `5 × enemy difficulty` gold (no rng)
 - When all enemies die, the encounter ends with a victory for the player
-    - Unlocks climbing: ASCEND to the next floor
+    - On a NORMAL floor: unlocks climbing — ASCEND to the next floor
+    - On a section's FINAL floor (a section with a boss): unlocks the
+      BOSS CHALLENGE instead — the gate opens only when the boss falls
+      (see "Bosses")
     - Ascending also rolls a random armor piece (helmet/body/boots) from
       the registry, restricted to the section's `item_tiers`, and opens
       the SAME loot decision as a chest: WEAR / STASH / DISCARD — see
       "Items" (gold and item tiers: see "Gold & prices" / "Item tiers")
 - After combat games goes to StateExploring again
-    - If combat was won, ASCEND is now permitted
+    - If combat was won, ASCEND is now permitted — EXCEPT on the final
+      floor of a section with a boss, where the challenge unlocks and
+      ASCEND stays locked until the boss falls (the two-regime rule)
 - From StateExploring the bag can be opened (StateInventory): WEAR /
   DROP / CLOSE — see "Items"; no bag access mid-combat
 - If the Hero's HP reachs zero, it dies
@@ -339,29 +346,74 @@ Only a combat victory clears the floor path and unlocks ASCEND.
 Moves, statuses and the combat flow below are IMPLEMENTED (phases 1-2
 of the plan at the end are shipped; the stopgap TUI ships with them and
 the game-loop/combat sections above describe the implemented reality).
-**Bosses** and **shrines** are decided but NOT YET IMPLEMENTED — their
-sections below are the design they will ship with.
+**Bosses** are IMPLEMENTED too (the gate flow, the asset block, the
+embedded groups and the TUI) — their section below documents the shipped
+behavior. **Shrines** are decided but NOT YET IMPLEMENTED — their
+section below is the design they will ship with.
 
-### Bosses (NOT YET IMPLEMENTED)
+### Bosses (IMPLEMENTED)
 
-- ONE Boss Encounter per section, fought at the END of the section (the
-  section's `max_floor`): the goblin pits' boss on floor 3, the
-  outskirts' boss on floor 13, the underdark's on 33, wraithfall's on 59.
-- Boss groups are PREDEFINED in the section assets: fixed monster
-  lists — no weights, no difficulty budget.
-- Progression:
+- ONE Boss Encounter per section, fought at the END of the section: the
+  floor where `Registry.IsSectionEnd(floor)` holds (`max_floor == floor`
+  of the section covering the floor). Sections resolve FIRST-MATCH
+  (`SectionForFloor`): a floor two sections claim belongs to the
+  EARLIER one — the embedded content's floor 3 is the goblin pits' end
+  (its boss is the pits'), not the outskirts' first floor.
+- Boss groups are PREDEFINED in the section assets (`"boss": {monsters,
+  gold}`): fixed monster lists — no weights, no difficulty budget —
+  fought in the authored order, each monster's move refs resolved
+  exactly like a regular spawn's. A group of 1-3 monsters referencing
+  existing ids; content validation rejects an empty list, an unknown
+  monster id and a negative gold bonus (absent/0 = no bonus).
+- Progression (the two-regime rule):
     - On any normal floor, winning a combat unlocks ASCEND (unchanged).
     - On a section's final floor, winning a normal combat unlocks the
-      BOSS CHALLENGE (a dedicated command) instead of ASCEND; killing
-      the boss is what unlocks ASCEND into the next section.
-- Boss fights cannot be SNEAKED: the challenge goes straight to combat.
-- FLEEING the boss re-locks the challenge (another normal-combat victory
-  re-unlocks it) and never unlocks ASCEND.
-- Boss loot: an item from tier+1 vs the section (capped at the
-  registry's max tier) plus a gold bonus, presented as the standard
-  loot decision (WEAR / STASH / DISCARD).
-- The infinite dragon_hoard tail (`max_floor: -1`) has NO boss gate.
-- Boss challenges skip every encounter-kind roll (zero rng consumed).
+      BOSS CHALLENGE (`Engine.BossUnlocked`, `event-boss-unlocked`)
+      instead of ASCEND — the flag stays locked there; killing the boss
+      is what unlocks ASCEND into the next section.
+- The challenge: `CmdChallengeBoss` (StateExploring, only while
+  `BossUnlocked` — otherwise a blocking message, state intact, like a
+  locked ASCEND). It goes STRAIGHT to StateCombat: no StateEncounter, no
+  SNEAK step (`Encounter.Boss` flags the encounter for the TUI's styling
+  and the no-sneak guarantee). Consumes ZERO rng — no kind roll, no
+  budget — and feeds nothing into the kind history (a challenge is not
+  an explore; the forced-combat opener and the streak override are
+  untouched).
+- FLEEING the boss uses the unchanged flee formula (the boss's SPD
+  applies): success returns to exploring and RE-LOCKS the challenge —
+  another normal-combat victory on that floor re-unlocks it — and never
+  unlocks ASCEND. Fleeing a NORMAL combat never touches the unlock;
+  ascending resets it with the floor change.
+- Boss victory (the last boss monster dies): the NORMAL per-kill flow
+  first (kill XP; bosses pay `5 × difficulty` gold like anything else;
+  mid-combat level ups included), then the boss's own rewards, in this
+  rng/event order:
+    1. the loot roll — ONE `Intn` over the tier+1 pool: every registry
+       item (any slot) of the section's top allowed tier + 1, CAPPED at
+       the registry's max tier (a section without `item_tiers` counts
+       its top tier as the max, so the cap lands there too). An empty
+       pool skips the item AND the rng — the gold is kept either way.
+       A rolled item is held as `PendingLoot` and opens StateLoot (the
+       chest decision: WEAR / STASH / DISCARD).
+    2. the gold bonus (`boss.gold`, no rng) —
+       `event-gold-gained{amount, source: "boss"}`; skipped when 0.
+    3. `event-victory` — the ASCEND unlock finally holds
+       (`CanAscend = true`, `BossUnlocked` consumed). With a pending
+       item the engine stays in StateLoot; without one, back to
+       exploring.
+- Embedded groups (tuned as a considerable challenge for the section's
+  LATE floors; gold ≈ 3-5× the boss floor's gold): goblin pits floor 3
+  — goblin chief + hobgoblin, 250 gold; outskirts floor 13 — orc
+  warlord + berserker + orc, 1000; underdark floor 33 — lich +
+  vampire spawn + wraith, 2500; wraithfall floor 59 — beholder + two
+  wraiths, 5000.
+- Sections WITHOUT a boss block keep the old behavior on their final
+  floor (normal victory → ASCEND): mod compatibility. The infinite
+  dragon_hoard tail (`max_floor: -1`) has NO final floor — no boss
+  gate, ever.
+- Known consequence: a re-unlocked challenge can be re-fought (nothing
+  latches "boss defeated") — the unlock follows the same
+  lock/unlock/re-lock lifecycle as `CanAscend`.
 
 ### Moves
 
@@ -525,8 +577,9 @@ runtime `Move.Weight` carries the ref's per-monster AI weight.
    stopgap UI~~ (shipped: the engine flow plus the stopgap move-chip
    bar and status log lines; the rng contracts live in
    "Combat calculations → RNG")
-3. TUI combat redesign — 2×2 move grid, status chips, cooldown display
-   (the stopgap bar above holds the slot until then)
-4. Bosses & shrines — gate flow, move learning, content, balance retune
-   (NOT YET IMPLEMENTED; the embedded assets carry no move sets yet —
-   the content pass lands here)
+3. ~~TUI combat redesign — 2×2 move grid, status chips, cooldown
+   display~~ (shipped)
+4. ~~Bosses — the gate flow, the asset block, the embedded groups~~
+   (shipped; the groups reference existing monsters — a dedicated boss
+   content/balance pass may still retune them) & shrines — move
+   learning (NOT YET IMPLEMENTED)
