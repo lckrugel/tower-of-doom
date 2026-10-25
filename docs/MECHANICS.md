@@ -52,8 +52,9 @@
     - On success exits combat with no reward
     - On fail current enemy gets a free turn
 - MOVE uses the hero move at the chosen index of the hero's combat move
-    set (learned moves, then weapon-granted; a move-less hero fights
-    with the canonical basic_attack)
+    set (the pre-learned Punch first in a fresh run's learned order,
+    then weapon-granted; a hero with no weapon and no learned moves
+    fights with the canonical basic_attack — the depth-only fallback)
     - A move on cooldown is a blocked action: a message, no state
       change; when EVERY move is locked the turn resolves as an
       automatic RECOVER round (never a soft-lock)
@@ -434,7 +435,8 @@ below documents the shipped behavior.
 
 ### Moves
 
-- A Move is a new asset (`moves.json`): `id`, `name`, `tier`,
+- A Move is a new asset (`moves.json`): `id`, `name`, `type`
+  (`weapon`, `creature` or `both` — see "Move types" below), `tier`,
   `dmg_modifier` (percent; 100 = neutral — DMG-only scaling),
   `crit_bonus` (percentage points), `cooldown` (turns; 0 = spammable),
   optional `status {id, chance, target: enemy|self}`, and `weight`
@@ -445,24 +447,56 @@ below documents the shipped behavior.
   weight; an all-locked set falls back to the canonical `basic_attack`
   WITHOUT consuming a pick roll. A monster without a `moves` field uses
   `basic_attack` (cooldown 0), so older assets/mods keep working.
+- **Move types** (content validation, startup-fatal): every move asset
+  carries `type`, one of three words with no absent-field default:
+    - `weapon` — the move reaches a hero ONLY through a weapon's grant
+      list; a monster kit can never carry it and a shrine never offers
+      it (the offer pool filters to creature/both).
+    - `creature` — the move rides a creature's kit only: monster move
+      sets and the hero's LEARNED set (the canonical `punch` is the
+      shape case). A weapon can never grant it.
+    - `both` — any consumer.
+  Validation enforces the consumer contract: a weapon grant list must
+  hold weapon/both moves only; a monster's move set must hold
+  creature/both moves only. (`entities.Move` carries the type and the
+  `UsableByWeapons()` / `UsableByCreatures()` pair.)
 - Hero moves: up to 2 LEARNED (shrine teaching — see "Shrines") plus up
   to 2 granted by the equipped weapon (a `moves` field on weapon assets,
-  resolved by the engine when the item is built).
+  resolved by the engine when the item is built). A fresh hero starts
+  with the **Punch pre-learned** (learned slot 1 of 2 — see "The punch
+  start" below), so the opening set is Punch (◆) + the starter's
+  grants.
 - **The spammable rule** (content validation, startup-fatal): a weapon
   that grants moves REPLACES the `basic_attack` fallback, so its grant
   list must carry at least one `cooldown == 0` move — a weapon whose
-  every move is locked could otherwise never act. A weapon with NO
-  `moves` list keeps the fallback (spammable by definition), and
-  non-weapon slots still may not carry moves. The canonical fallback
-  move's NAME is **Basic Strike** (its id stays `basic_attack`). With
-  the rule in place every reachable hero turn has a ready move, so the
-  automatic RECOVER round below is content-unreachable — kept as
-  defense in depth (a mod could still ship it; validation would catch
-  it at startup).
+  every move is locked could otherwise never act. **Every weapon
+  declares its moves explicitly: an absent or EMPTY `moves` list on a
+  weapon is a validation error** (BREAKING for mods — move-less weapons
+  no longer load; they no longer keep the fallback). Non-weapon slots
+  still may not carry moves. The canonical fallback move's NAME is
+  **Basic Strike** (its id stays `basic_attack`). With the rule in place
+  every reachable hero turn has a ready move, so the automatic RECOVER
+  round below is content-unreachable — kept as defense in depth (a mod
+  could still ship it; validation would catch it at startup).
+- **The `basic_attack` fallback, exactly two cases**: a MONSTER whose
+  asset lists no moves (the older-assets/mods rule above), and a HERO
+  with NO equipped weapon and an empty learned set (the depth
+  guarantee). With the punch pre-learned the fresh hero's set is never
+  empty, so the hero-side fallback is content-unreachable — it stays as
+  depth.
 - `CmdMove(index)` replaces ATTACK: every combat turn is a move choice,
   indexing the hero's combat move set (CombatMoves: the effective set,
   or the canonical `basic_attack` when that set is empty — a move-less
   hero must still be able to act).
+- **The punch start**: `NewPlayer` pre-learns the canonical `punch`
+  (name **Punch** — 60% damage, no crit bonus, cooldown 0, creature
+  type) into learned slot 1 of `MaxLearnedMoves` = 2. The punch is
+  learned like any other move: a late shrine can replace it through the
+  forget flow. It is creature-typed, so it is type-correct for the
+  shrine pool (creature) and never weapon-grantable; being learned, the
+  existing known-move filter already keeps it out of the offers. Full
+  build at the caps: Punch + 1 more learned move + 2 weapon moves =
+  `MAX_MOVES` (4).
 - A move on cooldown is locked for exactly its cooldown's FULL rounds
   after the round of use (the lock is set after the round-end tick, so
   the round of use doesn't eat one turn of it). Cooldowns tick at round
@@ -470,9 +504,10 @@ below documents the shipped behavior.
   another is ready is a blocked action (a message, no state change); a
   FULLY-cooled hero turn resolves as an automatic RECOVER round (a
   message, the enemy acts, the ticks run) — never a soft-lock. With the
-  spammable rule validated, every shipped weapon set is content-able to
-  always have a ready move, so the RECOVER path is now
-  content-unreachable — it stays as depth for hand-built states.
+  spammable rule validated and the punch pre-learned, every shipped
+  weapon set is content-able to always have a ready move, so the
+  RECOVER path is now content-unreachable — it stays as depth for
+  hand-built states.
 - Damage: `base = round(effective DMG × dmg_modifier / 100)`, then the
   usual spread and crit math; the crit check gains the move's
   `crit_bonus`.
@@ -547,10 +582,12 @@ below documents the shipped behavior.
   forgetting and declining consume NO rng. Shrines remain covered by
   the no-triple override (below) and never unlock ASCEND.
 - The offer pool/filter contract (the DATA layer):
-  `MovesForTiers(move_tiers)` (sorted by id) filtered through
-  `entities.FilterUnknownMoves(pool, known)` — the moves the hero does
-  NOT already know, where `known` is the hero's effective set (learned
-  AND weapon-granted alike, dedup by id), and minus the canonical
+  `MovesForTiers(move_tiers)` (sorted by id; ALREADY type-filtered to
+  creature/both — a weapon-only move is never offerable) filtered
+  through `entities.FilterUnknownMoves(pool, known)` — the moves the
+  hero does NOT already know, where `known` is the hero's effective set
+  (learned AND weapon-granted alike, dedup by id; the pre-learned punch
+  filters out through the same rule), and minus the canonical
   `basic_attack`, which is NEVER offerable: it is the move-less
   fallback every combatant already fights with, and teaching it would
   waste one of the two learned slots. The filter is pure and
@@ -594,6 +631,10 @@ The schemas below are the DATA LAYER of this design (shipped in phase
 field is required as authored and validated at startup:
 
 - `id`, `name` — identity.
+- `type` — which consumers may carry the move: `weapon` (grant lists
+  only), `creature` (monster kits and hero learning only) or `both`.
+  Required — there is NO absent-field default; a missing or unknown
+  word fails validation (startup-fatal; BREAKING for untyped mod moves).
 - `tier` — progression ladder (1 = earliest); absent/0 → 1.
 - `dmg_modifier` — percent scaling of the striker's DMG (100 = neutral);
   validated to [50, 300].
@@ -620,84 +661,129 @@ have no absent-field defaults:
 **Where moves attach:**
 
 - `MonsterAsset.moves` — a list of `{id, weight}` refs: at most 4
-  entries, weights ≥ 1, ids must exist. The ref's weight is the
-  MONSTER's own AI weight for that move — it overrides the move asset's
-  `weight` when the engine resolves the set. ABSENT or empty → the
-  monster fights with the canonical `basic_attack`, so older assets and
-  mods keep working unchanged.
+  entries, weights ≥ 1, ids must exist, and every referenced move must
+  be creature- or both-typed (a weapon-only move on a monster is a
+  validation error). The ref's weight is the MONSTER's own AI weight
+  for that move — it overrides the move asset's `weight` when the
+  engine resolves the set. ABSENT or empty → the monster fights with
+  the canonical `basic_attack` (the monster-side fallback rule, the
+  only one left for monsters), so older assets and mods keep working
+  unchanged.
 - `ItemAsset.moves` — a list of move ids. ONLY weapons may grant moves;
-  at most 2 per weapon (`MaxWeaponMoves`); every id must exist; and the
-  list must carry at least one `cooldown == 0` move (the spammable rule:
-  grants replace the `basic_attack` fallback, so the weapon must always
-  have a ready move). The engine resolves the ids into runtime moves
-  when the item is built, so the hero's set is always computed from the
-  EQUIPPED weapon (unwearing it removes the grants).
+  **every weapon must declare them: an absent or empty list is a
+  validation error now** (BREAKING for mods — the old "move-less weapon
+  keeps the fallback" rule is gone; the weapon must grant its own
+  spammable, and the starter sword grants `basic_attack` explicitly).
+  At most 2 per weapon (`MaxWeaponMoves`); every id must exist and must
+  be weapon- or both-typed (a creature-only move can never be granted);
+  and the list must carry at least one `cooldown == 0` move (the
+  spammable rule: grants replace the `basic_attack` fallback, so the
+  weapon must always have a ready move). The engine resolves the ids
+  into runtime moves when the item is built, so the hero's set is
+  always computed from the EQUIPPED weapon (unwearing it removes the
+  grants).
 - `SectionAsset.move_tiers` — the exact `item_tiers` pattern: it gates
   which move tiers the section can offer (the shrine draws). Absent or
   empty = unrestricted; every listed tier must have at least one
-  registry move (typo protection).
+  shrine-offerable (creature/both) registry move (typo protection).
 
 **Registry queries** (mirroring the item ones): `MovesForTiers(tiers)`
-(move assets sorted by id; unrestricted when no tiers are listed; an
-empty pool is never an error), `MoveByID`, `StatusByID`, `MaxMoveTier`,
-and `AllStatuses` (every status asset, sorted by id, as a fresh slice —
-the read-only surface for lore/UI consumers the engine exposes without
-sharing the unexported map).
+— the SHRINE's pool query: creature- or both-typed moves only (the type
+rule lives IN the query, so the engine's offer draw cannot forget it) —
+whose tier is one of `tiers`, sorted by id; unrestricted when no tiers
+are listed; an empty pool is never an error. Plus `MoveByID`,
+`StatusByID`, `MaxMoveTier`, and `AllStatuses` (every status asset,
+sorted by id, as a fresh slice — the read-only surface for lore/UI
+consumers the engine exposes without sharing the unexported map).
 
 **Hero move set** — `Hero.EffectiveMoves(weapon)`: the LEARNED moves
-first (learning order, capped at 2 — `MaxLearnedMoves`), then the
-equipped weapon's granted moves, deduplicated by id (the learned copy
-wins), capped at 4 (`MaxMoves`) — weapon moves beyond the cap are
-dropped, so the set never exceeds 4. The canonical `basic_attack` is
-NOT implicitly added to the hero SET — the integration decided what an
-empty set means instead: `Engine.CombatMoves` resolves an empty
-effective set to the canonical `basic_attack` — the **Basic Strike**
-(a move-less hero must still be able to act, mirroring the
-monster-side fallback, so move-less mods and starter gear keep
-working). Learning: `LearnMove` refuses at the cap (learning never
-displaces a move on its own — the caller drives `ForgetMove(moveID)`
-and retries); learning an already-known id is a refused no-op. For
-UI source tagging, `Hero.EffectiveMovesWithSource(weapon)` returns the
-same set as `[]entities.SourcedMove` (`Move` + `Source`:
-`SourceLearned` / `SourceWeapon`) — the learned-vs-weapon "2+2" split
-the move grid renders; a move known via both channels reports as
-learned (the learned copy wins the dedup). The shrine offer pool is
-the same set viewed from the other side:
+first (learning order, capped at 2 — `MaxLearnedMoves`; **a fresh hero
+starts with the Punch pre-learned in slot 1**), then the equipped
+weapon's granted moves, deduplicated by id (the learned copy wins),
+capped at 4 (`MaxMoves`) — weapon moves beyond the cap are dropped, so
+the set never exceeds 4. The canonical `basic_attack` is NOT implicitly
+added to the hero SET — the integration decided what an empty set means
+instead: `Engine.CombatMoves` resolves an empty effective set to the
+canonical `basic_attack` — the **Basic Strike**. That fallback is
+depth-only for shipped content: with the punch pre-learned a fresh
+hero's set is never empty, and every weapon declares its own moves —
+the fallback covers a hero with NO weapon and NO learned moves (the
+weaponless-depth guarantee) and hand-built states. Learning:
+`LearnMove` refuses at the cap (learning never displaces a move on its
+own — the caller drives `ForgetMove(moveID)` and retries); learning an
+already-known id is a refused no-op. For UI source tagging,
+`Hero.EffectiveMovesWithSource(weapon)` returns the same set as
+`[]entities.SourcedMove` (`Move` + `Source`: `SourceLearned` /
+`SourceWeapon`) — the learned-vs-weapon "2+2" split the move grid
+renders; a move known via both channels reports as learned (the
+learned copy wins the dedup). The shrine offer pool is the same set
+viewed from the other side:
 `entities.FilterUnknownMoves(pool, hero.EffectiveMoves(weapon))` —
 see "Shrines".
+
+**The hero's opening move set** (as shipped): Punch (◆, pre-learned,
+60%) + Basic Strike (⚔, the starter wooden sword's explicit grant) —
+two cells of the 2×2 grid on floor 1. The full build at the caps is
+Punch + 1 more learned move (shrines) + 2 weapon moves = 4.
 
 **Monster move set** — built by the engine from the asset's refs at
 spawn time (`NewMonsterFromAsset(asset, moves...)`; no moves passed =
 the canonical basic attack, matching the asset-level fallback). The
 runtime `Move.Weight` carries the ref's per-monster AI weight.
 
-**Embedded weapons** (the spammable rule applied — each weapon with
-moves carries its spammable first):
+**Embedded moves and their types** (the consumer contract applied):
+
+| Type | Moves |
+| --- | --- |
+| `creature` | Venom Bite, Crushing Blow (ogre smash), Frost Touch, Soul Rot, Skull Crusher, Bloodletter, Punch |
+| `both` | Basic Strike, Quick Stab, Guard Strike, Heavy Slash, Assassin's Strike, Venomous Blade, Shield Wall, Dragon's Might |
+| `weapon` | Steel Flurry |
+
+Typing notes: Quick Stab, Heavy Slash and Assassin's Strike are
+`both` on purpose — each is granted by a shipped sword AND referenced
+by shipped monster kits (ghoul/vampire/orc-berserker stabs, the orc
+line's slashes, the mimic/vampire's strikes), so a single type keeps
+every existing kit and grant coherent with no content edit. Steel
+Flurry is the one weapon-only move (no monster fights with it);
+Venomous Blade is `both` so the shrines can still offer it.
+
+**Embedded weapons** (every weapon declares its moves explicitly —
+each list carries its spammable first):
 
 | Weapon (tier) | Grants | Spammable |
 | --- | --- | --- |
-| Espada de Madeira (1) | — | Basic Strike (the fallback) |
+| Espada de Madeira (1) | Basic Strike (explicit) | Basic Strike (100%) |
 | Espada de Ferro (2) | Quick Stab | Quick Stab (60%, +20 crit) |
 | Espada de Aço (3) | Steel Flurry, Heavy Slash | Steel Flurry (110%) |
 | Espada Dracônica (4) | Assassin's Strike, Dragon's Might | Assassin's Strike (110%, +35 crit) |
 
-The drake blade's spammable is the retuned Assassin's Strike (tier 3→4,
-cooldown 3→0); the two monster kits referencing it keep a weighted
-second move, so the spam stays a weighted choice on both sides.
+The starter's explicit `basic_attack` grant is the game owner's locked
+design (a previously reverted experiment): the fresh hero's second cell
+is a WEAPON-tagged Basic Strike, not the implicit fallback. The drake
+blade's spammable is the retuned Assassin's Strike (tier 3→4, cooldown
+3→0); the two monster kits referencing it keep a weighted second move,
+so the spam stays a weighted choice on both sides.
 
 **Load-time validation** (content bugs fail at startup, house style):
 
-- move: tier < 1 (absent/0 defaults to 1 at Load); `dmg_modifier`
-  outside [50, 300]; cooldown < 0; weight < 1; a `status` with chance
-  outside [0, 100], an unknown `target` word, or an unknown status id.
+- move: tier < 1 (absent/0 defaults to 1 at Load); `type` missing or
+  not one of weapon/creature/both (no default — untyped mod moves stop
+  loading); `dmg_modifier` outside [50, 300]; cooldown < 0; weight < 1;
+  a `status` with chance outside [0, 100], an unknown `target` word, or
+  an unknown status id.
 - status: kind not buff/debuff; effect type not dot/stat; dot amount
   < 1; stat amount = 0 or an unknown stat word; duration < 1.
-- monster: more than 4 moves, an unknown move id, a ref weight < 1.
-- weapon: more than 2 moves, an unknown move id, or no `cooldown == 0`
-  move in the grant list (the spammable rule — grants replace the
-  fallback); any non-weapon slot carrying moves.
-- section: `move_tiers` values < 1, or a listed tier with zero registry
-  moves of that tier.
+- monster: more than 4 moves, an unknown move id, a ref weight < 1, or
+  a referenced move that is weapon-typed (kits take creature/only
+  moves).
+- weapon: an absent or EMPTY moves list (every weapon declares its
+  moves — move-less weapons no longer load; BREAKING), more than 2
+  moves, an unknown move id, a granted move that is creature-typed
+  (grants take weapon/only moves), or no `cooldown == 0` move in the
+  grant list (the spammable rule — grants replace the fallback); any
+  non-weapon slot carrying moves.
+- section: `move_tiers` values < 1, or a listed tier with zero
+  shrine-offerable (creature/both) registry moves of that tier.
 - duplicate ids in moves.json / statuses.json fail at Load (indexBy).
 
 ### Implementation phases

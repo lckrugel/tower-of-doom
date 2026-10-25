@@ -2,6 +2,7 @@
   {
     "id": "basic_attack",
     "name": "Basic Strike",
+    "type": "both",
     "tier": 1,
     "dmg_modifier": 100,
     "crit_bonus": 0,
@@ -9,8 +10,19 @@
     "weight": 100
   },
   {
+    "id": "punch",
+    "name": "Punch",
+    "type": "creature",
+    "tier": 1,
+    "dmg_modifier": 60,
+    "crit_bonus": 0,
+    "cooldown": 0,
+    "weight": 50
+  },
+  {
     "id": "quick_stab",
     "name": "Quick Stab",
+    "type": "both",
     "tier": 1,
     "dmg_modifier": 60,
     "crit_bonus": 20,
@@ -20,6 +32,7 @@
   {
     "id": "guard_strike",
     "name": "Guard Strike",
+    "type": "both",
     "tier": 1,
     "dmg_modifier": 75,
     "crit_bonus": 0,
@@ -34,6 +47,7 @@
   {
     "id": "venom_bite",
     "name": "Venom Bite",
+    "type": "creature",
     "tier": 1,
     "dmg_modifier": 80,
     "crit_bonus": 0,
@@ -48,6 +62,7 @@
   {
     "id": "heavy_slash",
     "name": "Heavy Slash",
+    "type": "both",
     "tier": 2,
     "dmg_modifier": 175,
     "crit_bonus": 0,
@@ -57,6 +72,7 @@
   {
     "id": "crushing_blow",
     "name": "Crushing Blow",
+    "type": "creature",
     "tier": 2,
     "dmg_modifier": 120,
     "crit_bonus": 0,
@@ -71,6 +87,7 @@
   {
     "id": "frost_touch",
     "name": "Frost Touch",
+    "type": "creature",
     "tier": 3,
     "dmg_modifier": 90,
     "crit_bonus": 0,
@@ -85,6 +102,7 @@
   {
     "id": "steel_flurry",
     "name": "Steel Flurry",
+    "type": "weapon",
     "tier": 3,
     "dmg_modifier": 110,
     "crit_bonus": 0,
@@ -94,6 +112,7 @@
   {
     "id": "assassins_strike",
     "name": "Assassin's Strike",
+    "type": "both",
     "tier": 4,
     "dmg_modifier": 110,
     "crit_bonus": 35,
@@ -103,6 +122,7 @@
   {
     "id": "venomous_blade",
     "name": "Venomous Blade",
+    "type": "both",
     "tier": 2,
     "dmg_modifier": 85,
     "crit_bonus": 0,
@@ -117,6 +137,7 @@
   {
     "id": "shield_wall",
     "name": "Shield Wall",
+    "type": "both",
     "tier": 2,
     "dmg_modifier": 90,
     "crit_bonus": 0,
@@ -131,6 +152,7 @@
   {
     "id": "soul_rot",
     "name": "Soul Rot",
+    "type": "creature",
     "tier": 3,
     "dmg_modifier": 70,
     "crit_bonus": 0,
@@ -145,6 +167,7 @@
   {
     "id": "skull_crusher",
     "name": "Skull Crusher",
+    "type": "creature",
     "tier": 4,
     "dmg_modifier": 200,
     "crit_bonus": 0,
@@ -154,6 +177,7 @@
   {
     "id": "bloodletter",
     "name": "Bloodletter",
+    "type": "creature",
     "tier": 4,
     "dmg_modifier": 130,
     "crit_bonus": 25,
@@ -163,6 +187,7 @@
   {
     "id": "dragons_might",
     "name": "Dragon's Might",
+    "type": "both",
     "tier": 4,
     "dmg_modifier": 250,
     "crit_bonus": 0,

@@ -20,6 +20,24 @@ const (
 	TargetSelf  MoveTarget = "self"
 )
 
+// MoveType says which consumers may carry a move: a weapon's grant
+// list, a creature's move kit (a monster's set or the hero's learned
+// set), or both. Mirrors the validated asset word (moves.json "type").
+type MoveType string
+
+const (
+	// MoveTypeWeapon marks a weapon-only move: it reaches a hero through
+	// the equipped weapon's grants, and a monster's kit can never carry
+	// it (nor can it be learned — the shrine pool filters it out).
+	MoveTypeWeapon MoveType = "weapon"
+	// MoveTypeCreature marks a creature-only move: monsters fight with
+	// it natively and heroes learn it at shrines; a weapon can never
+	// grant it.
+	MoveTypeCreature MoveType = "creature"
+	// MoveTypeBoth marks a move any consumer may carry.
+	MoveTypeBoth MoveType = "both"
+)
+
 // MoveStatus is the optional status a move applies on hit. The zero
 // value means "no status" — check HasStatus instead of comparing ids.
 type MoveStatus struct {
@@ -37,6 +55,12 @@ type MoveStatus struct {
 type Move struct {
 	ID   string
 	Name string
+	// Type says which consumers may carry the move (a weapon's grant
+	// list, a creature's kit, or both — see MoveType). The zero value is
+	// untyped: the usability pair reports false for it. Runtime moves
+	// always come from validated assets, so the zero value only ever
+	// appears in hand-built values.
+	Type MoveType
 	// Tier places the move on the progression ladder (1 = earliest).
 	Tier int
 	// DmgModifier scales the striker's DMG, in percent (100 = neutral).
@@ -60,6 +84,21 @@ type Move struct {
 // HasStatus reports whether the move applies a status effect on hit.
 func (m Move) HasStatus() bool { return m.Status.ID != "" }
 
+// UsableByWeapons reports whether a WEAPON's grant list may carry the
+// move (weapon- or both-typed). A creature-only move is learned or
+// monster-fought — never granted.
+func (m Move) UsableByWeapons() bool {
+	return m.Type == MoveTypeWeapon || m.Type == MoveTypeBoth
+}
+
+// UsableByCreatures reports whether a CREATURE's move kit — a monster's
+// set or the hero's learned set — may carry the move (creature- or
+// both-typed). A weapon-only move reaches the hero through the equipped
+// weapon, never through learning.
+func (m Move) UsableByCreatures() bool {
+	return m.Type == MoveTypeCreature || m.Type == MoveTypeBoth
+}
+
 // TargetSelf reports whether the move's status targets the striker
 // instead of the hit target. Always false for status-less moves.
 func (m Move) TargetSelf() bool {
@@ -73,6 +112,7 @@ func NewMoveFromAsset(asset game.MoveAsset) Move {
 	m := Move{
 		ID:          asset.ID,
 		Name:        asset.Name,
+		Type:        MoveType(asset.Type),
 		Tier:        max(1, asset.Tier),
 		DmgModifier: asset.DmgModifier,
 		CritBonus:   asset.CritBonus,
@@ -206,10 +246,31 @@ func BasicAttack() Move {
 	return Move{
 		ID:          "basic_attack",
 		Name:        "Basic Strike",
+		Type:        MoveTypeBoth,
 		Tier:        1,
 		DmgModifier: 100,
 		CritBonus:   0,
 		Cooldown:    0,
 		Weight:      100,
+	}
+}
+
+// Punch returns the canonical opening move (asset id "punch"): a weak,
+// spammable, creature-only strike — the move every hero is BORN knowing
+// (NewPlayer pre-learns it into learned slot 1). Creature-typed on
+// purpose: a fist is no weapon grant, so no weapon can ever carry it,
+// and it is exactly what a shrine offers a hero who forgot it. A
+// function (not a package variable) so callers can never mutate a
+// shared value; the embedded moves.json ships the same move as an asset.
+func Punch() Move {
+	return Move{
+		ID:          "punch",
+		Name:        "Punch",
+		Type:        MoveTypeCreature,
+		Tier:        1,
+		DmgModifier: 60,
+		CritBonus:   0,
+		Cooldown:    0,
+		Weight:      50,
 	}
 }

@@ -34,7 +34,7 @@ var statusAssets = map[string]game.StatusAsset{
 // so status-carrying runtime moves resolve at strike time. The section's
 // budget spawns four goblins — a deep enough queue for kill rounds.
 func combatEngine() *engine.Engine {
-	return engine.NewEngine(&game.Registry{
+	e := engine.NewEngine(&game.Registry{
 		Monsters: map[string]game.MonsterAsset{
 			"goblin": {ID: "goblin", Name: "Goblin", Difficulty: 3, HP: 30, Damage: 2, Speed: 10, Crit: 5},
 		},
@@ -46,6 +46,10 @@ func combatEngine() *engine.Engine {
 			Spawns: []game.SpawnEntry{{MonsterID: "goblin", Weight: 1}},
 		}},
 	})
+	// The punch start (NewPlayer pre-learns it) would eat the learned
+	// slot every fixture below assumes — the fixture hero is bare.
+	e.Player.ForgetMove(entities.Punch().ID)
+	return e
 }
 
 // envenom is a deterministic status move: 100% poison on the enemy.
@@ -614,7 +618,9 @@ func TestGridCellsTagTheMoveSource(t *testing.T) {
 }
 
 // A hero with NO moves at all fights with the canonical basic attack —
-// the grid shows it as the single real cell.
+// the grid shows it as the single real cell. Depth-only today (the
+// punch start means a fresh hero's set is never empty); kept as the
+// combat-integration guarantee for hand-built states.
 func TestViewGridShowsTheBasicAttackFallback(t *testing.T) {
 	m := enterCombat(t, combatEngine())
 
@@ -627,6 +633,44 @@ func TestViewGridShowsTheBasicAttackFallback(t *testing.T) {
 	// cell carries no source tag.
 	if strings.Contains(view, "◆") || strings.Contains(view, "100% ⚔") {
 		t.Errorf("the basic-attack fallback grew a source tag:\n%s", view)
+	}
+}
+
+// A fresh hero's combat grid IS the punch start: the pre-learned Punch
+// as a ◆ cell (learned slot 1) over the starter sword's explicitly
+// granted Basic Strike as a ⚔ cell.
+func TestViewFreshHeroGridShowsThePunchStart(t *testing.T) {
+	e := engine.NewEngine(&game.Registry{
+		Monsters: map[string]game.MonsterAsset{
+			"goblin": {ID: "goblin", Name: "Goblin", Difficulty: 3, HP: 30, Damage: 2, Speed: 10, Crit: 5},
+		},
+		Items: map[string]game.ItemAsset{
+			"wooden_sword": {ID: "wooden_sword", Name: "Espada de Madeira", Slot: "weapon",
+				BonusDMG: 5, Durability: 50, Moves: []string{"basic_attack"}},
+		},
+		Moves: map[string]game.MoveAsset{
+			"basic_attack": {ID: "basic_attack", Name: "Basic Strike", Tier: 1,
+				DmgModifier: 100, Weight: 100, Type: "both"},
+		},
+		Sections: []game.SectionAsset{{
+			ID: "pits", Name: "Goblin Pits", MinFloor: 1, MaxFloor: -1,
+			BaseDifficulty: 12, DifficultyPerFloor: 3,
+			Spawns: []game.SpawnEntry{{MonsterID: "goblin", Weight: 1}},
+		}},
+	})
+	m := enterCombat(t, e)
+
+	grid := stripControls(stripANSI(m.moveGrid()))
+
+	for _, want := range []string{
+		"Punch", // learned slot 1: the punch start
+		"60% ◆", // the punch's tags: modifier + learned glyph
+		"Basic Strike",
+		"100% ⚔", // the starter's explicit grant, weapon-tagged
+	} {
+		if !strings.Contains(grid, want) {
+			t.Errorf("fresh-hero move grid missing %q:\n%s", want, grid)
+		}
 	}
 }
 

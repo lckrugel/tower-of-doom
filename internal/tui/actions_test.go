@@ -10,7 +10,7 @@ import (
 )
 
 func testEngine() *engine.Engine {
-	return engine.NewEngine(&game.Registry{
+	e := engine.NewEngine(&game.Registry{
 		Monsters: map[string]game.MonsterAsset{
 			"goblin": {ID: "goblin", Name: "Goblin", Difficulty: 3, HP: 30, Damage: 2, Speed: 10, Crit: 5},
 		},
@@ -26,6 +26,11 @@ func testEngine() *engine.Engine {
 			Spawns: []game.SpawnEntry{{MonsterID: "goblin", Weight: 1}},
 		}},
 	})
+	// The punch start (NewPlayer pre-learns it) would eat the learned
+	// slot every fixture below assumes — the fixture hero is bare; the
+	// punch start renders in TestViewFreshHeroGridShowsThePunchStart.
+	e.Player.ForgetMove(entities.Punch().ID)
+	return e
 }
 
 func keysOf(actions []action) []string {

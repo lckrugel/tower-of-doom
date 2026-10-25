@@ -222,19 +222,26 @@ func TestFloorDifficulty(t *testing.T) {
 	}
 }
 
-// regWithItems fills the registry's item index (makeReg leaves it empty).
+// regWithItems fills the registry's item index on top of the Combat 2.0
+// move/status helpers (combat2Reg) — the weapon rules (explicit
+// spammables, grant types) need every grant resolvable for Validate to
+// pass.
 func regWithItems(items []ItemAsset, sections []SectionAsset) *Registry {
-	r := makeReg(validMonsters(), sections)
+	r := combat2Reg()
+	r.Sections = sections
 	for _, it := range items {
 		r.Items[it.ID] = it
 	}
 	return r
 }
 
-// tierItems is a small item registry spanning tiers 1–3.
+// tierItems is a small item registry spanning tiers 1–3. The weapon
+// declares its moves explicitly (the explicit-spammable rule) with a
+// move the helper registries carry.
 func tierItems() []ItemAsset {
 	return []ItemAsset{
-		{ID: "sword", Name: "Sword", Slot: "weapon", BonusDMG: 5, Durability: 10, Tier: 1},
+		{ID: "sword", Name: "Sword", Slot: "weapon", BonusDMG: 5, Durability: 10, Tier: 1,
+			Moves: []string{"basic_attack"}},
 		{ID: "ring", Name: "Ring", Slot: "ring", BonusDEF: 1, Durability: -1, Tier: 1},
 		{ID: "crown", Name: "Crown", Slot: "helmet", BonusDEF: 9, Durability: 10, Tier: 2},
 		{ID: "dragon_mail", Name: "Dragon Mail", Slot: "body_armor", BonusDEF: 20, Durability: 10, Tier: 3},
@@ -342,7 +349,8 @@ func TestLoadDefaultsAbsentTierToOne(t *testing.T) {
 		{"id": "rat", "name": "Rat", "difficulty": 1, "hp": 10, "dmg": 1, "spd": 5}
 	]`)
 	write("items.json", `[
-		{"id": "sword", "slot": "weapon", "name": "Sword", "bonus_dmg": 5, "durability": 10},
+		{"id": "sword", "slot": "weapon", "name": "Sword", "bonus_dmg": 5, "durability": 10,
+		 "moves": ["basic_attack"]},
 		{"id": "crown", "slot": "helmet", "name": "Crown", "bonus_def": 9, "durability": 10, "tier": 2}
 	]`)
 	write("sections.json", `[
@@ -558,19 +566,22 @@ func TestIsSectionEnd(t *testing.T) {
 // ---- Combat 2.0 data layer: moves & statuses ----
 
 // validMoves is a small move registry spanning tiers 1–3, the canonical
-// basic_attack included. Status wiring mirrors the embedded content.
+// basic_attack included. Status wiring and move TYPES mirror the
+// embedded content — including one weapon-only move (steel_flurry), so
+// the shrine-pool filter has something to exclude.
 func validMoves() []MoveAsset {
 	return []MoveAsset{
-		{ID: "basic_attack", Name: "Basic Attack", Tier: 1, DmgModifier: 100, Weight: 100},
-		{ID: "quick_stab", Name: "Quick Stab", Tier: 1, DmgModifier: 60, CritBonus: 20, Weight: 100},
-		{ID: "guard_strike", Name: "Guard Strike", Tier: 1, DmgModifier: 75, Cooldown: 2, Weight: 50,
+		{ID: "basic_attack", Name: "Basic Attack", Tier: 1, DmgModifier: 100, Weight: 100, Type: "both"},
+		{ID: "quick_stab", Name: "Quick Stab", Tier: 1, DmgModifier: 60, CritBonus: 20, Weight: 100, Type: "both"},
+		{ID: "guard_strike", Name: "Guard Strike", Tier: 1, DmgModifier: 75, Cooldown: 2, Weight: 50, Type: "both",
 			Status: &MoveStatusAsset{ID: "guard", Chance: 100, Target: "self"}},
-		{ID: "venom_bite", Name: "Venom Bite", Tier: 1, DmgModifier: 80, Cooldown: 2, Weight: 60,
+		{ID: "venom_bite", Name: "Venom Bite", Tier: 1, DmgModifier: 80, Cooldown: 2, Weight: 60, Type: "creature",
 			Status: &MoveStatusAsset{ID: "poison", Chance: 60, Target: "enemy"}},
-		{ID: "heavy_slash", Name: "Heavy Slash", Tier: 2, DmgModifier: 175, Cooldown: 2, Weight: 60},
-		{ID: "crushing_blow", Name: "Crushing Blow", Tier: 2, DmgModifier: 120, Cooldown: 3, Weight: 40,
+		{ID: "heavy_slash", Name: "Heavy Slash", Tier: 2, DmgModifier: 175, Cooldown: 2, Weight: 60, Type: "both"},
+		{ID: "crushing_blow", Name: "Crushing Blow", Tier: 2, DmgModifier: 120, Cooldown: 3, Weight: 40, Type: "creature",
 			Status: &MoveStatusAsset{ID: "weaken", Chance: 75, Target: "enemy"}},
-		{ID: "frost_touch", Name: "Frost Touch", Tier: 3, DmgModifier: 90, Cooldown: 3, Weight: 40,
+		{ID: "steel_flurry", Name: "Steel Flurry", Tier: 3, DmgModifier: 110, Cooldown: 0, Weight: 70, Type: "weapon"},
+		{ID: "frost_touch", Name: "Frost Touch", Tier: 3, DmgModifier: 90, Cooldown: 3, Weight: 40, Type: "creature",
 			Status: &MoveStatusAsset{ID: "slow", Chance: 80, Target: "enemy"}},
 	}
 }
@@ -608,7 +619,9 @@ func combat2Reg() *Registry {
 
 // MovesForTiers mirrors ItemIDsForTiers for moves: assets sorted by id,
 // unrestricted when no tier is listed, empty (never an error) pool when
-// nothing matches.
+// nothing matches. It is the SHRINE's pool query, so it is also
+// type-filtered: creature- or both-typed moves only — a weapon-only
+// move (steel_flurry) never enters the pool a shrine could draw from.
 func TestMovesForTiers(t *testing.T) {
 	r := combat2Reg()
 
@@ -625,13 +638,14 @@ func TestMovesForTiers(t *testing.T) {
 		tiers []int
 		want  []string
 	}{
-		{"nil tiers is unrestricted", nil,
+		{"nil tiers is unrestricted (minus weapon-only moves)", nil,
 			[]string{"basic_attack", "crushing_blow", "frost_touch", "guard_strike", "heavy_slash", "quick_stab", "venom_bite"}},
 		{"empty tiers is unrestricted", []int{},
 			[]string{"basic_attack", "crushing_blow", "frost_touch", "guard_strike", "heavy_slash", "quick_stab", "venom_bite"}},
 		{"single tier", []int{1}, []string{"basic_attack", "guard_strike", "quick_stab", "venom_bite"}},
 		{"union of tiers, sorted", []int{3, 1},
 			[]string{"basic_attack", "frost_touch", "guard_strike", "quick_stab", "venom_bite"}},
+		{"a weapon-only move never enters the pool", []int{3}, []string{"frost_touch"}},
 		{"unmatched tier is an empty pool", []int{9}, []string{}},
 	}
 	for _, tt := range tests {
@@ -770,6 +784,30 @@ func TestLoadEmbeddedMovesAndStatuses(t *testing.T) {
 		basic.CritBonus != 0 || basic.Cooldown != 0 || basic.Weight != 100 || basic.Status != nil {
 		t.Errorf("basic_attack drifted: %+v", basic)
 	}
+	if basic.Type != "both" {
+		t.Errorf("basic_attack type = %q, want \"both\" (every combatant's fallback)", basic.Type)
+	}
+
+	// Every embedded move's type — the consumer contract (weapon =
+	// grant lists only, creature = monster kits/learning only, both =
+	// anywhere). The punch is creature-only: the hero's opening move,
+	// never weapon-grantable.
+	wantTypes := map[string]string{
+		"basic_attack": "both", "punch": "creature", "quick_stab": "both",
+		"guard_strike": "both", "venom_bite": "creature", "heavy_slash": "both",
+		"crushing_blow": "creature", "steel_flurry": "weapon", "assassins_strike": "both",
+		"venomous_blade": "both", "shield_wall": "both", "soul_rot": "creature",
+		"skull_crusher": "creature", "bloodletter": "creature", "dragons_might": "both",
+	}
+	for id, wantType := range wantTypes {
+		move, ok := r.MoveByID(id)
+		if !ok {
+			t.Fatalf("move %q is missing from the embedded assets", id)
+		}
+		if move.Type != wantType {
+			t.Errorf("move %q type = %q, want %q", id, move.Type, wantType)
+		}
+	}
 
 	// The spammable the steel sword grants (a tier-3, cooldown-0 strike).
 	flurry, ok := r.MoveByID("steel_flurry")
@@ -791,6 +829,17 @@ func TestLoadEmbeddedMovesAndStatuses(t *testing.T) {
 		t.Errorf("assassins_strike drifted: %+v, want tier 4 cooldown 0 (the draconic sword's spammable)", assassins)
 	}
 
+	// The punch: the hero's opening move (NewPlayer pre-learns it) —
+	// weak, spammable, creature-only.
+	punch, ok := r.MoveByID("punch")
+	if !ok {
+		t.Fatal("the punch move is missing from the embedded assets")
+	}
+	if punch.Name != "Punch" || punch.Tier != 1 || punch.DmgModifier != 60 ||
+		punch.CritBonus != 0 || punch.Cooldown != 0 || punch.Weight != 50 || punch.Status != nil {
+		t.Errorf("punch drifted: %+v", punch)
+	}
+
 	poison, ok := r.StatusByID("poison")
 	if !ok {
 		t.Fatal("the starter poison status is missing from the embedded assets")
@@ -809,8 +858,8 @@ func TestLoadEmbeddedMovesAndStatuses(t *testing.T) {
 		t.Errorf("guard drifted: %+v", guard)
 	}
 
-	if got, want := len(r.Moves), 15; got != want {
-		t.Errorf("embedded moves = %d, want %d (basic attack + the tier 1-4 set + steel_flurry)", got, want)
+	if got, want := len(r.Moves), 16; got != want {
+		t.Errorf("embedded moves = %d, want %d (basic attack + punch + the tier 1-4 set + steel_flurry)", got, want)
 	}
 	if got, want := len(r.Statuses), 4; got != want {
 		t.Errorf("embedded statuses = %d, want %d (the starter set)", got, want)
@@ -819,10 +868,12 @@ func TestLoadEmbeddedMovesAndStatuses(t *testing.T) {
 		t.Errorf("embedded MaxMoveTier = %d, want 4", got)
 	}
 
-	// Every shipped weapon's grant list, retiered so each weapon with
-	// moves carries a spammable (the spammable rule).
+	// Every shipped weapon's grant list: weapons declare their moves
+	// EXPLICITLY now — even the starter (the game owner's locked design:
+	// the wooden sword grants Basic Strike instead of keeping the
+	// fallback).
 	wantWeaponMoves := map[string][]string{
-		"wooden_sword":   nil, // starter: the Basic Strike fallback
+		"wooden_sword":   {"basic_attack"},
 		"iron_sword":     {"quick_stab"},
 		"steel_sword":    {"steel_flurry", "heavy_slash"},
 		"draconic_sword": {"assassins_strike", "dragons_might"},
@@ -837,11 +888,15 @@ func TestLoadEmbeddedMovesAndStatuses(t *testing.T) {
 		}
 	}
 
-	// Spammable-rule compliance for every shipped weapon: a weapon with a
-	// moves list must carry at least one cooldown-0 move (move-less
-	// weapons keep the Basic Strike fallback — spammable by definition).
+	// Spammable-rule compliance for every shipped weapon: every weapon
+	// declares moves (an absent/empty list is a content bug now) and the
+	// list carries at least one cooldown-0 move.
 	for id, item := range r.Items {
-		if item.Slot != "weapon" || len(item.Moves) == 0 {
+		if item.Slot != "weapon" {
+			continue
+		}
+		if len(item.Moves) == 0 {
+			t.Errorf("weapon %q declares no moves, want an explicit list (move-less weapons no longer load)", id)
 			continue
 		}
 		spammable := false
@@ -868,18 +923,21 @@ func TestLoadDefaultsAbsentMoveTierToOne(t *testing.T) {
 	write("monsters.json", `[
 		{"id": "rat", "name": "Rat", "difficulty": 1, "hp": 10, "dmg": 1, "spd": 5}
 	]`)
-	// A move-less weapon isolates the fixture from the embedded items
-	// (whose grants reference moves this registry does not carry).
+	// A weapon whose moves reference this registry's own moves isolates
+	// the fixture from the embedded items (whose grants reference moves
+	// this registry does not carry). Every weapon declares its moves
+	// explicitly (the explicit-spammable rule).
 	write("items.json", `[
-		{"id": "stick", "slot": "weapon", "name": "Stick", "bonus_dmg": 1, "durability": 5}
+		{"id": "stick", "slot": "weapon", "name": "Stick", "bonus_dmg": 1, "durability": 5,
+		 "moves": ["jab"]}
 	]`)
 	write("sections.json", `[
 		{"id": "s", "name": "S", "base_difficulty": 1, "min_floor": 1, "max_floor": -1,
 		 "spawns": [{"monster_id": "rat", "weight": 1}]}
 	]`)
 	write("moves.json", `[
-		{"id": "jab", "name": "Jab", "dmg_modifier": 100, "weight": 1},
-		{"id": "hook", "name": "Hook", "tier": 2, "dmg_modifier": 150, "cooldown": 1, "weight": 1}
+		{"id": "jab", "name": "Jab", "type": "both", "dmg_modifier": 100, "weight": 1},
+		{"id": "hook", "name": "Hook", "type": "creature", "tier": 2, "dmg_modifier": 150, "cooldown": 1, "weight": 1}
 	]`)
 
 	r, err := Load(dir)
@@ -1049,6 +1107,35 @@ func TestValidateCombat2Content(t *testing.T) {
 			func(r *Registry) { m := r.Moves["quick_stab"]; m.Weight = 0; r.Moves["quick_stab"] = m },
 			"weight",
 		},
+		// Move types: the word is required (no absent-field default) and
+		// gates which consumer may carry the move.
+		{
+			"move with a missing type",
+			func(r *Registry) { m := r.Moves["heavy_slash"]; m.Type = ""; r.Moves["heavy_slash"] = m },
+			"has type",
+		},
+		{
+			"move with an unknown type",
+			func(r *Registry) { m := r.Moves["heavy_slash"]; m.Type = "psychic"; r.Moves["heavy_slash"] = m },
+			"has type",
+		},
+		{
+			"weapon granting a creature-only move",
+			func(r *Registry) {
+				r.Items["sword"] = ItemAsset{ID: "sword", Name: "Sword", Slot: "weapon", Tier: 1,
+					Moves: []string{"venom_bite"}}
+			},
+			"weapon or both",
+		},
+		{
+			"monster referencing a weapon-only move",
+			func(r *Registry) {
+				m := r.Monsters["rat"]
+				m.Moves = []MoveRef{moveRef("steel_flurry", 1)}
+				r.Monsters["rat"] = m
+			},
+			"creature or both",
+		},
 		// Move status wiring.
 		{
 			"move status chance over 100",
@@ -1198,6 +1285,24 @@ func TestValidateCombat2Content(t *testing.T) {
 					Moves: []string{"quick_stab"}}
 			},
 			"",
+		},
+		// Every weapon declares its moves explicitly: an absent or empty
+		// grant list no longer keeps the basic_attack fallback — it is a
+		// content bug (BREAKING for move-less mods, intended).
+		{
+			"weapon with no moves list",
+			func(r *Registry) {
+				r.Items["sword"] = ItemAsset{ID: "sword", Name: "Sword", Slot: "weapon", Tier: 1}
+			},
+			"grants no moves",
+		},
+		{
+			"weapon with an empty moves list",
+			func(r *Registry) {
+				r.Items["sword"] = ItemAsset{ID: "sword", Name: "Sword", Slot: "weapon", Tier: 1,
+					Moves: []string{}}
+			},
+			"grants no moves",
 		},
 		// Section move_tiers.
 		{

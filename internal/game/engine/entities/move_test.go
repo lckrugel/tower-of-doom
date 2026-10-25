@@ -18,17 +18,20 @@ func newTestWeapon(granted ...Move) *Item {
 
 // NewMoveFromAsset maps every asset field onto the runtime move,
 // including the optional status (pointer in the asset, value in the
-// runtime type).
+// runtime type) and the validated type word (typed constant).
 func TestNewMoveFromAsset(t *testing.T) {
 	m := NewMoveFromAsset(game.MoveAsset{
 		ID: "venom_bite", Name: "Venom Bite", Tier: 1,
-		DmgModifier: 80, CritBonus: 5, Cooldown: 2, Weight: 60,
+		DmgModifier: 80, CritBonus: 5, Cooldown: 2, Weight: 60, Type: "creature",
 		Status: &game.MoveStatusAsset{ID: "poison", Chance: 60, Target: "enemy"},
 	})
 
 	if m.ID != "venom_bite" || m.Name != "Venom Bite" || m.Tier != 1 ||
 		m.DmgModifier != 80 || m.CritBonus != 5 || m.Cooldown != 2 || m.Weight != 60 {
 		t.Errorf("move mapping wrong: %+v", m)
+	}
+	if m.Type != MoveTypeCreature {
+		t.Errorf("Type = %q, want %q", m.Type, MoveTypeCreature)
 	}
 	if !m.HasStatus() {
 		t.Fatal("HasStatus = false, want true (asset carries a status)")
@@ -119,8 +122,62 @@ func TestBasicAttack(t *testing.T) {
 		basic.Cooldown != 0 || basic.Weight != 100 {
 		t.Errorf("canonical basic attack drifted: %+v", basic)
 	}
+	if basic.Type != MoveTypeBoth {
+		t.Errorf("basic attack type = %q, want %q (every combatant's fallback)", basic.Type, MoveTypeBoth)
+	}
 	if basic.HasStatus() {
 		t.Error("basic attack carries a status, want none")
+	}
+}
+
+// The usability pair says which CONSUMER may carry a move: a weapon's
+// grant list (weapon or both) or a creature's move kit — a monster's
+// set or the hero's learned set (creature or both).
+func TestMoveUsabilityByType(t *testing.T) {
+	tests := []struct {
+		name          string
+		move          Move
+		wantByWeapons bool
+		wantByCreats  bool
+	}{
+		{"weapon-only", Move{ID: "w", Type: MoveTypeWeapon}, true, false},
+		{"creature-only", Move{ID: "c", Type: MoveTypeCreature}, false, true},
+		{"both", Move{ID: "b", Type: MoveTypeBoth}, true, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.move.UsableByWeapons(); got != tt.wantByWeapons {
+				t.Errorf("UsableByWeapons = %v, want %v", got, tt.wantByWeapons)
+			}
+			if got := tt.move.UsableByCreatures(); got != tt.wantByCreats {
+				t.Errorf("UsableByCreatures = %v, want %v", got, tt.wantByCreats)
+			}
+		})
+	}
+}
+
+// The canonical punch: the hero's opening move — a weak, spammable,
+// creature-only strike. Both the constructor and the embedded asset ship
+// these values; they must never drift apart.
+func TestPunch(t *testing.T) {
+	punch := Punch()
+
+	if punch.ID != "punch" || punch.Name != "Punch" ||
+		punch.Tier != 1 || punch.DmgModifier != 60 || punch.CritBonus != 0 ||
+		punch.Cooldown != 0 || punch.Weight != 50 {
+		t.Errorf("canonical punch drifted: %+v", punch)
+	}
+	if punch.Type != MoveTypeCreature {
+		t.Errorf("punch type = %q, want %q (a fist is no weapon grant)", punch.Type, MoveTypeCreature)
+	}
+	if punch.UsableByWeapons() {
+		t.Error("the punch is weapon-grantable, want creature-only")
+	}
+	if !punch.UsableByCreatures() {
+		t.Error("the punch is not usable by creatures, want true (shrine-correct)")
+	}
+	if punch.HasStatus() {
+		t.Error("the punch carries a status, want none")
 	}
 }
 
@@ -181,6 +238,20 @@ func TestFilterUnknownMoves(t *testing.T) {
 
 		if len(got) != 3 {
 			t.Errorf("FilterUnknownMoves = %+v, want 3 moves (basic_attack still dropped)", got)
+		}
+	})
+
+	t.Run("the pre-learned punch filters out once learned", func(t *testing.T) {
+		// The fresh hero KNOWS the punch; a shrine pool carrying it must
+		// drop it like any other known move.
+		withPunch := []game.MoveAsset{
+			{ID: "punch", Name: "Punch", Tier: 1, DmgModifier: 60, Weight: 50, Type: "creature"},
+			{ID: "heavy_slash", Name: "Heavy Slash", Tier: 2, DmgModifier: 175, Cooldown: 2, Weight: 60, Type: "both"},
+		}
+		got := FilterUnknownMoves(withPunch, []Move{Punch()})
+
+		if len(got) != 1 || got[0].ID != "heavy_slash" {
+			t.Errorf("FilterUnknownMoves = %+v, want [heavy_slash] (the learned punch never re-offered)", got)
 		}
 	})
 

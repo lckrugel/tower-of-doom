@@ -9,12 +9,14 @@ import (
 
 // testMoves mirrors the shipped moves.json entries the combat tests
 // exercise (hand-built registry — content validation is not in play).
+// Types mirror the embedded content too (all four are creature- or
+// both-typed: monster kits and shrine pools can carry them).
 func testMoves() map[string]game.MoveAsset {
 	return map[string]game.MoveAsset{
-		"basic_attack":     {ID: "basic_attack", Name: "Basic Attack", Tier: 1, DmgModifier: 100, Weight: 100},
-		"heavy_slash":      {ID: "heavy_slash", Name: "Heavy Slash", Tier: 2, DmgModifier: 175, Cooldown: 2, Weight: 60},
-		"quick_stab":       {ID: "quick_stab", Name: "Quick Stab", Tier: 1, DmgModifier: 60, CritBonus: 20, Weight: 100},
-		"assassins_strike": {ID: "assassins_strike", Name: "Assassin's Strike", Tier: 3, DmgModifier: 110, CritBonus: 35, Cooldown: 3, Weight: 30},
+		"basic_attack":     {ID: "basic_attack", Name: "Basic Attack", Tier: 1, DmgModifier: 100, Weight: 100, Type: "both"},
+		"heavy_slash":      {ID: "heavy_slash", Name: "Heavy Slash", Tier: 2, DmgModifier: 175, Cooldown: 2, Weight: 60, Type: "both"},
+		"quick_stab":       {ID: "quick_stab", Name: "Quick Stab", Tier: 1, DmgModifier: 60, CritBonus: 20, Weight: 100, Type: "both"},
+		"assassins_strike": {ID: "assassins_strike", Name: "Assassin's Strike", Tier: 3, DmgModifier: 110, CritBonus: 35, Cooldown: 3, Weight: 30, Type: "both"},
 	}
 }
 
@@ -266,6 +268,61 @@ func TestKillRoundLocksWithoutTicking(t *testing.T) {
 	if got := eventTypes(events); !typesEqual(got, EventMessage) {
 		t.Errorf("events = %v, want [message] — heavy_slash must still be locked", got)
 	}
+}
+
+// The hero's opening move set: Punch PRE-LEARNED (learned slot 1 of 2)
+// plus the starter sword's explicit Basic Strike grant. With the punch
+// in the learned set the effective set is never empty for a fresh hero —
+// the basic_attack fallback below stays depth-only.
+func TestFreshHeroStartsWithThePunch(t *testing.T) {
+	// starterEngine builds an engine whose registry carries the starter
+	// sword (equipped by id) and the move its grant references.
+	starterEngine := func() *Engine {
+		return NewEngine(&game.Registry{
+			Monsters: testMonsters(),
+			Items: map[string]game.ItemAsset{
+				starterItemID: {
+					ID: "wooden_sword", Name: "Espada de Madeira", Slot: "weapon",
+					BonusDMG: 5, Durability: 50, Moves: []string{"basic_attack"},
+				},
+			},
+			Moves: map[string]game.MoveAsset{
+				"basic_attack": {ID: "basic_attack", Name: "Basic Strike", Tier: 1,
+					DmgModifier: 100, Weight: 100, Type: "both"},
+			},
+			Sections: testSections(),
+		})
+	}
+
+	t.Run("the engine hero's learned set is exactly [Punch]", func(t *testing.T) {
+		got := starterEngine().Player.LearnedMoves()
+
+		if len(got) != 1 || got[0].ID != entities.Punch().ID {
+			t.Errorf("learned set = %+v, want [Punch] (pre-learned)", got)
+		}
+	})
+
+	t.Run("effective set with the starter = [Punch, Basic Strike]", func(t *testing.T) {
+		moves := starterEngine().CombatMoves()
+
+		if len(moves) != 2 || moves[0].ID != entities.Punch().ID || moves[1].ID != "basic_attack" {
+			t.Errorf("combat moves = %+v, want [Punch Basic Strike] (learned first, weapon grant after)", moves)
+		}
+	})
+
+	t.Run("a weaponless fresh hero still has the punch — the fallback never fires", func(t *testing.T) {
+		// No starter item in the registry: the hero fights bare-fisted.
+		e := NewEngine(&game.Registry{
+			Monsters: testMonsters(),
+			Items:    map[string]game.ItemAsset{},
+			Sections: testSections(),
+		})
+
+		moves := e.CombatMoves()
+		if len(moves) != 1 || moves[0].ID != entities.Punch().ID {
+			t.Errorf("combat moves = %+v, want [Punch] (the set is never empty)", moves)
+		}
+	})
 }
 
 // Weapon-granted moves ride the equipped weapon: the engine resolves the
