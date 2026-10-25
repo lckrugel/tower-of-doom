@@ -424,9 +424,12 @@ func TestIndexByRejectsDuplicateIDs(t *testing.T) {
 // loadJSON: arquivo externo ausente cai para os assets embutidos;
 // arquivo externo quebrado deve ser erro real.
 func TestLoadJSONFallsBackToEmbedded(t *testing.T) {
-	items, err := loadJSON[MonsterAsset](t.TempDir(), "monsters.json")
+	items, source, err := loadJSON[MonsterAsset](t.TempDir(), "monsters.json")
 	if err != nil {
 		t.Fatalf("loadJSON: %v", err)
+	}
+	if source != "embedded" {
+		t.Errorf("loadJSON source = %q, want \"embedded\"", source)
 	}
 	if len(items) == 0 {
 		t.Fatal("loadJSON returned empty list, want embedded monsters")
@@ -440,7 +443,7 @@ func TestLoadJSONBrokenExternalFileIsError(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err := loadJSON[MonsterAsset](dir, "monsters.json")
+	_, _, err := loadJSON[MonsterAsset](dir, "monsters.json")
 
 	if err == nil {
 		t.Fatal("broken external file silently fell back to embedded assets")
@@ -934,6 +937,80 @@ func TestLoadRejectsDuplicateMoveAndStatusIDs(t *testing.T) {
 	})
 }
 
+// ---- Asset provenance: where each loaded file came from ----
+
+// Load records WHERE each asset file came from — "embedded" or
+// "external (<dir>)" — per file, respecting the per-file fallback
+// rules: an existing external file wins, a missing one falls back to
+// the compiled-in assets. Provenance() hands that record out read-only.
+func TestLoadProvenance(t *testing.T) {
+	files := []string{"monsters.json", "items.json", "moves.json", "statuses.json", "sections.json"}
+
+	t.Run("no external dir: everything is embedded", func(t *testing.T) {
+		r, err := Load("")
+		if err != nil {
+			t.Fatalf("Load: %v", err)
+		}
+
+		prov := r.Provenance()
+		if len(prov) != len(files) {
+			t.Errorf("Provenance has %d entries, want %d: %v", len(prov), len(files), prov)
+		}
+		for _, file := range files {
+			if got := prov[file]; got != "embedded" {
+				t.Errorf("provenance[%q] = %q, want \"embedded\"", file, got)
+			}
+		}
+	})
+
+	t.Run("a mixed mod dir: external files win, missing fall back", func(t *testing.T) {
+		dir := t.TempDir()
+		write := func(name, content string) {
+			if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		write("monsters.json", `[
+			{"id": "rat", "name": "Rat", "difficulty": 1, "hp": 10, "dmg": 1, "spd": 5}
+		]`)
+		write("sections.json", `[
+			{"id": "s", "name": "S", "base_difficulty": 1, "min_floor": 1, "max_floor": -1,
+			 "spawns": [{"monster_id": "rat", "weight": 1}]}
+		]`)
+
+		r, err := Load(dir)
+		if err != nil {
+			t.Fatalf("Load: %v", err)
+		}
+
+		prov := r.Provenance()
+		for _, file := range []string{"monsters.json", "sections.json"} {
+			if got := prov[file]; got != "external ("+dir+")" {
+				t.Errorf("provenance[%q] = %q, want \"external (%s)\"", file, got, dir)
+			}
+		}
+		for _, file := range []string{"items.json", "moves.json", "statuses.json"} {
+			if got := prov[file]; got != "embedded" {
+				t.Errorf("provenance[%q] = %q, want \"embedded\" (file missing from the dir)", file, got)
+			}
+		}
+	})
+
+	t.Run("the returned map is a copy, not an alias", func(t *testing.T) {
+		r, err := Load("")
+		if err != nil {
+			t.Fatalf("Load: %v", err)
+		}
+
+		prov := r.Provenance()
+		prov["items.json"] = "tampered"
+
+		if again := r.Provenance(); again["items.json"] != "embedded" {
+			t.Errorf("mutating the returned map changed the registry: provenance[items.json] = %q", again["items.json"])
+		}
+	})
+}
+
 // ---- Combat 2.0 content validation ----
 
 // Combat 2.0 validation: content bugs fail at startup. Each case breaks
@@ -1177,5 +1254,75 @@ func TestValidateCombat2Content(t *testing.T) {
 				t.Errorf("error = %v, want it to contain %q", err, tt.wantErr)
 			}
 		})
+	}
+}
+
+// Validate collects every fault in one pass instead of stopping at the
+// first one: a multi-fault registry reports ALL of them, one per line,
+// in a deterministic order (assets walked by id, sections in slice
+// order, floors ascending). Every category appears — asset schema,
+// references, section rules, floor coverage — and every instance of a
+// category (two broken sections yield two lines, not one).
+func TestValidateCollectsEveryError(t *testing.T) {
+	r := combat2Reg()
+
+	// Two faults on the SAME status asset, plus one fault per remaining
+	// category: moves (×2, sorted order pinned), monsters, items,
+	// sections (×2, one per section) and floor coverage.
+	poison := r.Statuses["poison"]
+	poison.Kind = "curse"
+	poison.Duration = 0
+	r.Statuses["poison"] = poison
+
+	stab := r.Moves["quick_stab"]
+	stab.DmgModifier = 10
+	r.Moves["quick_stab"] = stab
+
+	bite := r.Moves["venom_bite"]
+	bite.Status.ID = "nope"
+	r.Moves["venom_bite"] = bite
+
+	rat := r.Monsters["rat"]
+	rat.Moves = []MoveRef{{ID: "ghost_move", Weight: 1}}
+	r.Monsters["rat"] = rat
+
+	r.Items["charm"] = ItemAsset{ID: "charm", Name: "Charm", Slot: "ring", Tier: 1, Moves: []string{"heavy_slash"}}
+
+	r.Sections[0].ItemTiers = []int{9}
+	r.Sections[0].BaseDifficulty = 0 // floor 1's budget drops below the rat
+	r.Sections[1].ItemTiers = []int{7}
+
+	err := r.Validate(10)
+	if err == nil {
+		t.Fatal("Validate = nil, want the collected fault report")
+	}
+
+	want := []string{
+		`status "poison" has kind "curse"`,
+		`status "poison" has duration 0`,
+		`move "quick_stab" has dmg_modifier 10`,
+		`move "venom_bite" references unknown status "nope"`,
+		`monster "rat" references unknown move "ghost_move"`,
+		`item "charm" (slot "ring") grants moves, but only weapons may`,
+		`section "cellar" allows item tier 9`,
+		`section "depths" allows item tier 7`,
+		`floor 1 (section "cellar") has difficulty budget 0`,
+	}
+
+	lines := strings.Split(err.Error(), "\n")
+	if len(lines) != len(want) {
+		t.Fatalf("the report has %d lines, want %d:\n%s", len(lines), len(want), err.Error())
+	}
+	for i, wantLine := range want {
+		if !strings.Contains(lines[i], wantLine) {
+			t.Errorf("report line %d = %q, want it to contain %q", i, lines[i], wantLine)
+		}
+	}
+
+	// The order is stable: Validate only reads, so a second pass over
+	// the same registry produces the same report.
+	again := r.Validate(10)
+	if again == nil || again.Error() != err.Error() {
+		t.Errorf("Validate is not deterministic:\nfirst:  %v\nsecond: %v", err, again)
 	}
 }

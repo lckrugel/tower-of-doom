@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -215,6 +216,11 @@ type Registry struct {
 	// Combat 2.0 content: moves and the statuses they apply.
 	Moves    map[string]MoveAsset
 	Statuses map[string]StatusAsset
+
+	// provenance records where each asset file came from, keyed by file
+	// name (see Provenance). Filled by Load; a hand-built Registry has
+	// none.
+	provenance map[string]string
 }
 
 // Busca a seção à qual este andar pertence.
@@ -343,23 +349,23 @@ func (s SectionAsset) FloorDifficulty(floor int) int {
 // Se `externalDir` estiver definido e contem arquivos correspondetes, ele terá precedência
 // sobre os valores pré-compilados do jogo.
 func Load(externalDir string) (*Registry, error) {
-	monsters, err := loadJSON[MonsterAsset](externalDir, "monsters.json")
+	monsters, monstersSrc, err := loadJSON[MonsterAsset](externalDir, "monsters.json")
 	if err != nil {
 		return nil, fmt.Errorf("loading monsters: %w", err)
 	}
-	items, err := loadJSON[ItemAsset](externalDir, "items.json")
+	items, itemsSrc, err := loadJSON[ItemAsset](externalDir, "items.json")
 	if err != nil {
 		return nil, fmt.Errorf("loading items: %w", err)
 	}
-	sections, err := loadJSON[SectionAsset](externalDir, "sections.json")
+	sections, sectionsSrc, err := loadJSON[SectionAsset](externalDir, "sections.json")
 	if err != nil {
 		return nil, fmt.Errorf("loading sections: %w", err)
 	}
-	moves, err := loadJSON[MoveAsset](externalDir, "moves.json")
+	moves, movesSrc, err := loadJSON[MoveAsset](externalDir, "moves.json")
 	if err != nil {
 		return nil, fmt.Errorf("loading moves: %w", err)
 	}
-	statuses, err := loadJSON[StatusAsset](externalDir, "statuses.json")
+	statuses, statusesSrc, err := loadJSON[StatusAsset](externalDir, "statuses.json")
 	if err != nil {
 		return nil, fmt.Errorf("loading statuses: %w", err)
 	}
@@ -389,173 +395,181 @@ func Load(externalDir string) (*Registry, error) {
 		Sections: sections,
 		Moves:    movesMap,
 		Statuses: statusesMap,
+		provenance: map[string]string{
+			"monsters.json": monstersSrc,
+			"items.json":    itemsSrc,
+			"moves.json":    movesSrc,
+			"statuses.json": statusesSrc,
+			"sections.json": sectionsSrc,
+		},
 	}
 	return r, nil
 
 }
 
-// Validate checks that the loaded content is internally consistent —
-// every floor up to topFloor is covered by some section, and every
-// section's spawn table only references monsters that actually exist.
+// Provenance reports where each asset file was loaded from, keyed by
+// file name ("monsters.json", "items.json", "moves.json",
+// "statuses.json", "sections.json"). The value is "embedded" when the
+// compiled-in assets were used, or "external (<dir>)" when the mod
+// directory's file won the per-file fallback. Diagnostics surface —
+// e.g. the validate command's digest prints one line per file.
+//
+// The returned map is a copy: mutating it never reaches the registry.
+// A Registry not built by Load (hand-assembled in tests) has an empty
+// provenance.
+func (r *Registry) Provenance() map[string]string {
+	out := make(map[string]string, len(r.provenance))
+	for file, source := range r.provenance {
+		out[file] = source
+	}
+	return out
+}
+
+// Validate checks that the loaded content is internally consistent and
+// COLLECTS every fault it finds instead of stopping at the first one:
+// asset schema rules (tiers, damage modifiers, cooldowns, status
+// effects, weapon slot/cap rules, the spammable rule), reference rules
+// (unknown monster/move/status ids), duplicate ids (caught by Load),
+// section rules (spawn tables, weights, tier fillability, merchant
+// stockability, boss blocks) and per-floor coverage up to topFloor.
+//
+// It returns nil when the content is valid, or a single error whose
+// message lists every fault on its own line (errors.Join semantics) —
+// callers should print the report whole, not just its first line.
+// The report is deterministic: assets are walked in id order, sections
+// in slice order, floors ascending.
+//
 // Call this once right after Load(); if it returns an error, that's a
 // content bug (bad JSON), not something a player can hit by playing —
 // so the caller should treat it as fatal and refuse to start.
 func (r *Registry) Validate(topFloor int) error {
+	var errs []error
+	fail := func(format string, args ...any) {
+		errs = append(errs, fmt.Errorf("content validation: "+format, args...))
+	}
+
 	// Item tiers must be real. Load defaults the absent field to 1, so a
 	// non-positive tier here is a content bug, not a missing field.
-	for _, item := range r.Items {
+	for _, id := range sortedIDs(r.Items) {
+		item := r.Items[id]
 		if item.Tier < 1 {
-			return fmt.Errorf(
-				"content validation: item %q has tier %d, want >= 1 (absent/0 defaults to tier 1)",
-				item.ID, item.Tier,
-			)
+			fail("item %q has tier %d, want >= 1 (absent/0 defaults to tier 1)",
+				item.ID, item.Tier)
 		}
 	}
 
 	// Combat 2.0: statuses are checked before moves (moves reference
 	// them), and moves before monsters/weapons (those reference moves).
-	for _, st := range r.Statuses {
+	for _, id := range sortedIDs(r.Statuses) {
+		st := r.Statuses[id]
 		if st.Kind != "buff" && st.Kind != "debuff" {
-			return fmt.Errorf(
-				"content validation: status %q has kind %q, want \"buff\" or \"debuff\"",
-				st.ID, st.Kind,
-			)
+			fail("status %q has kind %q, want \"buff\" or \"debuff\"", st.ID, st.Kind)
 		}
 		if st.Duration < 1 {
-			return fmt.Errorf(
-				"content validation: status %q has duration %d, want >= 1",
-				st.ID, st.Duration,
-			)
+			fail("status %q has duration %d, want >= 1", st.ID, st.Duration)
 		}
 		switch st.Effect.Type {
 		case "dot":
 			if st.Effect.Amount < 1 {
-				return fmt.Errorf(
-					"content validation: status %q has dot amount %d, want >= 1",
-					st.ID, st.Effect.Amount,
-				)
+				fail("status %q has dot amount %d, want >= 1", st.ID, st.Effect.Amount)
 			}
 		case "stat":
 			if !slices.Contains([]string{"dmg", "def", "spd"}, st.Effect.Stat) {
-				return fmt.Errorf(
-					"content validation: status %q modifies unknown stat %q, want one of dmg, def, spd",
-					st.ID, st.Effect.Stat,
-				)
+				fail("status %q modifies unknown stat %q, want one of dmg, def, spd",
+					st.ID, st.Effect.Stat)
 			}
 			if st.Effect.Amount == 0 {
-				return fmt.Errorf(
-					"content validation: status %q has a zero stat amount, want a non-zero modifier",
-					st.ID,
-				)
+				fail("status %q has a zero stat amount, want a non-zero modifier", st.ID)
 			}
 		default:
-			return fmt.Errorf(
-				"content validation: status %q has effect type %q, want \"dot\" or \"stat\"",
-				st.ID, st.Effect.Type,
-			)
+			fail("status %q has effect type %q, want \"dot\" or \"stat\"", st.ID, st.Effect.Type)
 		}
 	}
 
-	for _, mv := range r.Moves {
+	for _, id := range sortedIDs(r.Moves) {
+		mv := r.Moves[id]
 		// Load defaults the absent tier to 1, so a non-positive tier here
 		// is a content bug, not a missing field.
 		if mv.Tier < 1 {
-			return fmt.Errorf(
-				"content validation: move %q has tier %d, want >= 1 (absent/0 defaults to tier 1)",
-				mv.ID, mv.Tier,
-			)
+			fail("move %q has tier %d, want >= 1 (absent/0 defaults to tier 1)",
+				mv.ID, mv.Tier)
 		}
 		if mv.DmgModifier < 50 || mv.DmgModifier > 300 {
-			return fmt.Errorf(
-				"content validation: move %q has dmg_modifier %d, want within [50, 300] (percent, 100 = neutral)",
-				mv.ID, mv.DmgModifier,
-			)
+			fail("move %q has dmg_modifier %d, want within [50, 300] (percent, 100 = neutral)",
+				mv.ID, mv.DmgModifier)
 		}
 		if mv.Cooldown < 0 {
-			return fmt.Errorf(
-				"content validation: move %q has cooldown %d, want >= 0 (0 = spammable)",
-				mv.ID, mv.Cooldown,
-			)
+			fail("move %q has cooldown %d, want >= 0 (0 = spammable)", mv.ID, mv.Cooldown)
 		}
 		if mv.Weight < 1 {
-			return fmt.Errorf(
-				"content validation: move %q has weight %d, want >= 1 (AI pick weight)",
-				mv.ID, mv.Weight,
-			)
+			fail("move %q has weight %d, want >= 1 (AI pick weight)", mv.ID, mv.Weight)
 		}
 		if mv.Status == nil {
 			continue
 		}
 		if mv.Status.Chance < 0 || mv.Status.Chance > 100 {
-			return fmt.Errorf(
-				"content validation: move %q has status chance %d, want within [0, 100] (percentage)",
-				mv.ID, mv.Status.Chance,
-			)
+			fail("move %q has status chance %d, want within [0, 100] (percentage)",
+				mv.ID, mv.Status.Chance)
 		}
 		if mv.Status.Target != "enemy" && mv.Status.Target != "self" {
-			return fmt.Errorf(
-				"content validation: move %q has status target %q, want \"enemy\" or \"self\"",
-				mv.ID, mv.Status.Target,
-			)
+			fail("move %q has status target %q, want \"enemy\" or \"self\"", mv.ID, mv.Status.Target)
 		}
 		if _, ok := r.StatusByID(mv.Status.ID); !ok {
-			return fmt.Errorf(
-				"content validation: move %q references unknown status %q",
-				mv.ID, mv.Status.ID,
-			)
+			fail("move %q references unknown status %q", mv.ID, mv.Status.ID)
 		}
 	}
 
 	// Move references on monsters are checked registry-wide (a monster
 	// absent from every spawn table still cannot carry broken moves).
-	for _, m := range r.Monsters {
+	for _, id := range sortedIDs(r.Monsters) {
+		m := r.Monsters[id]
 		if len(m.Moves) > MaxMoves {
-			return fmt.Errorf(
-				"content validation: monster %q has %d moves, want at most %d (MAX_MOVES)",
-				m.ID, len(m.Moves), MaxMoves,
-			)
+			// An over-cap move list is one fault: its entries are not
+			// re-checked (the cap is the bug a modder fixes first).
+			fail("monster %q has %d moves, want at most %d (MAX_MOVES)",
+				m.ID, len(m.Moves), MaxMoves)
+			continue
 		}
 		for _, ref := range m.Moves {
 			if ref.Weight < 1 {
-				return fmt.Errorf(
-					"content validation: monster %q move %q has weight %d, want >= 1 (AI pick weight)",
-					m.ID, ref.ID, ref.Weight,
-				)
+				fail("monster %q move %q has weight %d, want >= 1 (AI pick weight)",
+					m.ID, ref.ID, ref.Weight)
 			}
 			if _, ok := r.MoveByID(ref.ID); !ok {
-				return fmt.Errorf(
-					"content validation: monster %q references unknown move %q",
-					m.ID, ref.ID,
-				)
+				fail("monster %q references unknown move %q", m.ID, ref.ID)
 			}
 		}
 	}
 
 	// Only weapons may grant moves, at most MaxWeaponMoves each, and
 	// every granted id must exist.
-	for _, item := range r.Items {
+	for _, id := range sortedIDs(r.Items) {
+		item := r.Items[id]
 		if len(item.Moves) == 0 {
 			continue
 		}
 		if item.Slot != weaponSlot {
-			return fmt.Errorf(
-				"content validation: item %q (slot %q) grants moves, but only weapons may",
-				item.ID, item.Slot,
-			)
+			fail("item %q (slot %q) grants moves, but only weapons may", item.ID, item.Slot)
+			continue // the weapon-only rules below make no sense for other slots
 		}
 		if len(item.Moves) > MaxWeaponMoves {
-			return fmt.Errorf(
-				"content validation: weapon %q grants %d moves, want at most %d",
-				item.ID, len(item.Moves), MaxWeaponMoves,
-			)
+			// An over-cap grant list is one fault: its entries are not
+			// re-checked (the cap is the bug a modder fixes first).
+			fail("weapon %q grants %d moves, want at most %d",
+				item.ID, len(item.Moves), MaxWeaponMoves)
+			continue
 		}
+		refsOK := true
 		for _, moveID := range item.Moves {
 			if _, ok := r.MoveByID(moveID); !ok {
-				return fmt.Errorf(
-					"content validation: weapon %q references unknown move %q",
-					item.ID, moveID,
-				)
+				fail("weapon %q references unknown move %q", item.ID, moveID)
+				refsOK = false
 			}
+		}
+		if !refsOK {
+			// The spammable rule needs every grant resolved; the unknown
+			// refs are already reported above.
+			continue
 		}
 		// The spammable rule: granting moves REPLACES the canonical
 		// basic_attack fallback, so the grant list must carry at least
@@ -569,27 +583,29 @@ func (r *Registry) Validate(topFloor int) error {
 			}
 		}
 		if !hasSpammable {
-			return fmt.Errorf(
-				"content validation: weapon %q grants moves, but none has cooldown 0 — "+
-					"want at least one spammable (the grants replace the basic_attack fallback)",
-				item.ID,
-			)
+			fail("weapon %q grants moves, but none has cooldown 0 — "+
+				"want at least one spammable (the grants replace the basic_attack fallback)",
+				item.ID)
 		}
 	}
 
+	// Monster schema rules (difficulty/defense/crit) are checked through
+	// the spawn-table walk below — the same walk the encounter generator
+	// uses — at most once per monster id: the same monster referenced by
+	// many sections is one fault, not one per spawn entry.
+	schemaChecked := make(map[string]bool)
+
 	for _, s := range r.Sections {
 		if len(s.Spawns) == 0 {
-			return fmt.Errorf("content validation: section %q has no spawn table", s.ID)
+			fail("section %q has no spawn table", s.ID)
+			continue // the spawn checks below need a table
 		}
 		// Negativos distorceriam o sorteio do tipo de encontro. Pesos zerados
 		// (ou o campo ausente) são válidos: significam "apenas combate".
 		if s.EncounterTypes.Combat < 0 || s.EncounterTypes.Sanctuary < 0 ||
 			s.EncounterTypes.Chest < 0 || s.EncounterTypes.Merchant < 0 ||
 			s.EncounterTypes.Shrine < 0 {
-			return fmt.Errorf(
-				"content validation: section %q has a negative encounter type weight, want >= 0",
-				s.ID,
-			)
+			fail("section %q has a negative encounter type weight, want >= 0", s.ID)
 		}
 		// item_tiers: every listed value must be a real tier, and each
 		// listed tier must have at least one item in the registry — a
@@ -597,19 +613,15 @@ func (r *Registry) Validate(topFloor int) error {
 		listed := make(map[int]bool, len(s.ItemTiers))
 		for _, tier := range s.ItemTiers {
 			if tier < 1 {
-				return fmt.Errorf(
-					"content validation: section %q has item_tiers value %d, want >= 1",
-					s.ID, tier,
-				)
+				fail("section %q has item_tiers value %d, want >= 1", s.ID, tier)
+				continue
 			}
 			listed[tier] = true
 		}
-		for tier := range listed {
+		for _, tier := range slices.Sorted(maps.Keys(listed)) {
 			if len(r.ItemIDsForTiers([]int{tier})) == 0 {
-				return fmt.Errorf(
-					"content validation: section %q allows item tier %d, but the registry has no items of that tier",
-					s.ID, tier,
-				)
+				fail("section %q allows item tier %d, but the registry has no items of that tier",
+					s.ID, tier)
 			}
 		}
 		// move_tiers: the same contract as item_tiers — every listed
@@ -618,19 +630,15 @@ func (r *Registry) Validate(topFloor int) error {
 		listedMoves := make(map[int]bool, len(s.MoveTiers))
 		for _, tier := range s.MoveTiers {
 			if tier < 1 {
-				return fmt.Errorf(
-					"content validation: section %q has move_tiers value %d, want >= 1",
-					s.ID, tier,
-				)
+				fail("section %q has move_tiers value %d, want >= 1", s.ID, tier)
+				continue
 			}
 			listedMoves[tier] = true
 		}
-		for tier := range listedMoves {
+		for _, tier := range slices.Sorted(maps.Keys(listedMoves)) {
 			if len(r.MovesForTiers([]int{tier})) == 0 {
-				return fmt.Errorf(
-					"content validation: section %q allows move tier %d, but the registry has no moves of that tier",
-					s.ID, tier,
-				)
+				fail("section %q allows move tier %d, but the registry has no moves of that tier",
+					s.ID, tier)
 			}
 		}
 		// A merchant section must be able to stock its shop: at least one
@@ -638,86 +646,99 @@ func (r *Registry) Validate(topFloor int) error {
 		// item_tiers). Tier+1 upgrades only REPLACE offers, so they can
 		// never stock an otherwise-empty shop.
 		if s.EncounterTypes.Merchant > 0 && len(r.ItemIDsForTiers(s.ItemTiers)) == 0 {
-			return fmt.Errorf(
-				"content validation: section %q has a merchant weight but no items to stock it (allowed tiers: %v)",
-				s.ID, s.ItemTiers,
-			)
+			fail("section %q has a merchant weight but no items to stock it (allowed tiers: %v)",
+				s.ID, s.ItemTiers)
 		}
 		// The boss block (absent = no gate): the group cannot be empty,
 		// every listed monster must exist (typo protection), and the gold
 		// bonus cannot be negative.
 		if s.Boss != nil {
 			if len(s.Boss.Monsters) == 0 {
-				return fmt.Errorf(
-					"content validation: section %q has a boss block with an empty monster list", s.ID)
+				fail("section %q has a boss block with an empty monster list", s.ID)
 			}
 			for _, id := range s.Boss.Monsters {
 				if _, ok := r.Monsters[id]; !ok {
-					return fmt.Errorf(
-						"content validation: section %q boss references unknown monster %q", s.ID, id)
+					fail("section %q boss references unknown monster %q", s.ID, id)
 				}
 			}
 			if s.Boss.Gold < 0 {
-				return fmt.Errorf(
-					"content validation: section %q boss has gold %d, want >= 0 (absent/0 = no bonus)",
-					s.ID, s.Boss.Gold,
-				)
+				fail("section %q boss has gold %d, want >= 0 (absent/0 = no bonus)",
+					s.ID, s.Boss.Gold)
 			}
 		}
 		for _, spawn := range s.Spawns {
 			m, ok := r.Monsters[spawn.MonsterID]
 			if !ok {
-				return fmt.Errorf("content validation: section %q references unknown monster %q", s.ID, spawn.MonsterID)
+				fail("section %q references unknown monster %q", s.ID, spawn.MonsterID)
+				continue
 			}
 			if spawn.Weight < 1 {
-				return fmt.Errorf(
-					"content validation: section %q spawn for monster %q has weight %d, want >= 1",
-					s.ID, spawn.MonsterID, spawn.Weight,
-				)
+				fail("section %q spawn for monster %q has weight %d, want >= 1",
+					s.ID, spawn.MonsterID, spawn.Weight)
 			}
+			if schemaChecked[spawn.MonsterID] {
+				continue
+			}
+			schemaChecked[spawn.MonsterID] = true
 			if m.Difficulty < 1 {
-				return fmt.Errorf(
-					"content validation: monster %q has difficulty %d, want >= 1 "+
-						"(garante que geração de encontros termina)",
-					m.ID, m.Difficulty,
-				)
+				fail("monster %q has difficulty %d, want >= 1 "+
+					"(garante que geração de encontros termina)",
+					m.ID, m.Difficulty)
 			}
 			if m.Defense < 0 {
-				return fmt.Errorf(
-					"content validation: monster %q has def %d, want >= 0 "+
-						"(negative defense would amplify incoming damage)",
-					m.ID, m.Defense,
-				)
+				fail("monster %q has def %d, want >= 0 "+
+					"(negative defense would amplify incoming damage)",
+					m.ID, m.Defense)
 			}
 			if m.Crit < 0 || m.Crit > 100 {
-				return fmt.Errorf(
-					"content validation: monster %q has crit %d, want within [0, 100] (percentage)",
-					m.ID, m.Crit,
-				)
+				fail("monster %q has crit %d, want within [0, 100] (percentage)",
+					m.ID, m.Crit)
 			}
 		}
 	}
 
+	// Floor coverage: every floor up to topFloor must be covered by a
+	// section whose spawn table fits its difficulty budget. The first
+	// uncovered floor ends the walk — a missing section fails every
+	// later floor identically, so the report already says where the
+	// coverage ends. A budget failure is reported once per section: the
+	// budget is linear in the floor, so a section's failures share one
+	// tuning bug (its first failing floor points at it).
+	budgetReported := make(map[string]bool)
 	for floor := 1; floor <= topFloor; floor++ {
 		section, err := r.SectionForFloor(floor)
 		if err != nil {
-			return fmt.Errorf("content validation: %w", err)
+			errs = append(errs, fmt.Errorf("content validation: %w", err))
+			break
 		}
 
 		cheapest, err := r.cheapestSpawn(section)
 		if err != nil {
-			return fmt.Errorf("content validation: %w", err)
+			// An unloadable spawn table is already reported per section
+			// above; there is nothing new to say about this floor.
+			break
 		}
 		budget := section.FloorDifficulty(floor)
-		if budget < cheapest {
-			return fmt.Errorf(
-				"content validation: floor %d (section %q) has difficulty budget %d, "+
-					"but the cheapest monster it can spawn (%s) costs %d — this floor would always be empty",
-				floor, section.ID, budget, r.cheapestSpawnName(section), cheapest,
-			)
+		if budget < cheapest && !budgetReported[section.ID] {
+			budgetReported[section.ID] = true
+			fail("floor %d (section %q) has difficulty budget %d, "+
+				"but the cheapest monster it can spawn (%s) costs %d — this floor would always be empty",
+				floor, section.ID, budget, r.cheapestSpawnName(section), cheapest)
 		}
 	}
-	return nil
+
+	return errors.Join(errs...)
+}
+
+// sortedIDs returns the map's ids in sorted order: validation walks the
+// assets by id so the collected report is deterministic run to run.
+func sortedIDs[T any](m map[string]T) []string {
+	ids := make([]string, 0, len(m))
+	for id := range m {
+		ids = append(ids, id)
+	}
+	slices.Sort(ids)
+	return ids
 }
 
 // cheapestSpawn returns the lowest Difficulty among a section's spawn table.
@@ -753,8 +774,15 @@ func (r *Registry) cheapestSpawnName(s SectionAsset) string {
 // Um arquivo externo que não existe faz fallback para os assets embutidos;
 // um arquivo externo que existe mas não pode ser lido é tratado como erro
 // real (mods quebrados não devem falhar silenciosamente).
-func loadJSON[T any](externalDir, filename string) ([]T, error) {
-	var raw []byte
+//
+// Returns the assets and WHERE they came from: "embedded", or
+// "external (<dir>)" when the mod directory's file won the per-file
+// fallback.
+func loadJSON[T any](externalDir, filename string) ([]T, string, error) {
+	var (
+		raw    []byte
+		source = "embedded"
+	)
 
 	if externalDir != "" {
 		path := filepath.Join(externalDir, filename)
@@ -762,25 +790,26 @@ func loadJSON[T any](externalDir, filename string) ([]T, error) {
 		switch {
 		case err == nil:
 			raw = r
+			source = fmt.Sprintf("external (%s)", externalDir)
 		case errors.Is(err, os.ErrNotExist):
 			// arquivo externo ausente: cai para os assets embutidos
 		default:
-			return nil, fmt.Errorf("reading external asset %s: %w", path, err)
+			return nil, "", fmt.Errorf("reading external asset %s: %w", path, err)
 		}
 	}
 	if raw == nil {
 		r, err := embeddedAssets.ReadFile("assets/" + filename)
 		if err != nil {
-			return nil, fmt.Errorf("reading embedded asset %s: %w", filename, err)
+			return nil, "", fmt.Errorf("reading embedded asset %s: %w", filename, err)
 		}
 		raw = r
 	}
 
 	var items []T
 	if err := json.Unmarshal(raw, &items); err != nil {
-		return nil, fmt.Errorf("parsing %s: %w", filename, err)
+		return nil, "", fmt.Errorf("parsing %s: %w", filename, err)
 	}
-	return items, nil
+	return items, source, nil
 }
 
 // Cria um map para o tipo T utilizando o campo retornado por `keyFn` como índice.
