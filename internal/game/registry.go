@@ -181,6 +181,24 @@ type SectionAsset struct {
 	// shrine draws, phase 4). Same contract as item_tiers: absent/empty
 	// means NO restriction.
 	MoveTiers []int `json:"move_tiers"`
+	// Boss is the section's boss challenge (nil = no boss gate): fought
+	// on the section's FINAL floor (see Registry.IsSectionEnd) after a
+	// normal-combat victory there unlocks the challenge. A section
+	// without the block keeps the old final-floor behavior (normal
+	// victory → ascend), so older sections/mods keep working.
+	Boss *BossAsset `json:"boss"`
+}
+
+// BossAsset defines a section's boss challenge: a PREDEFINED monster
+// group (fought in the authored order — no spawn weights, no difficulty
+// budget) and the gold bonus paid when the boss falls. The group
+// references existing monster ids (validated at load time).
+type BossAsset struct {
+	// Monsters are the boss group's monster ids, engaged in this order.
+	Monsters []string `json:"monsters"`
+	// Gold is the bonus added to the hero's purse on the boss's defeat
+	// (absent/0 = no bonus).
+	Gold int `json:"gold"`
 }
 
 // Registro de todos os assets carregados em memória.
@@ -203,6 +221,22 @@ func (r *Registry) SectionForFloor(floor int) (SectionAsset, error) {
 		}
 	}
 	return SectionAsset{}, fmt.Errorf("no section found for floor %d", floor)
+}
+
+// IsSectionEnd reports whether the floor is the FINAL floor of the
+// section covering it — the floor where a section's boss gates the
+// ascension. Resolution is first-match (SectionForFloor): a floor two
+// sections claim belongs to the EARLIER one, and its end is the
+// earlier's (the embedded content's floor 3 is the goblin pits' end, not
+// the outskirts' first floor — the documented behavior). An infinite
+// tail section (max_floor == -1) has no final floor, and a floor no
+// section covers is not a section end either.
+func (r *Registry) IsSectionEnd(floor int) bool {
+	s, err := r.SectionForFloor(floor)
+	if err != nil {
+		return false
+	}
+	return s.MaxFloor != -1 && s.MaxFloor == floor
 }
 
 // ItemIDsForTiers returns the sorted ids of every registry item whose tier
@@ -571,6 +605,27 @@ func (r *Registry) Validate(topFloor int) error {
 				"content validation: section %q has a merchant weight but no items to stock it (allowed tiers: %v)",
 				s.ID, s.ItemTiers,
 			)
+		}
+		// The boss block (absent = no gate): the group cannot be empty,
+		// every listed monster must exist (typo protection), and the gold
+		// bonus cannot be negative.
+		if s.Boss != nil {
+			if len(s.Boss.Monsters) == 0 {
+				return fmt.Errorf(
+					"content validation: section %q has a boss block with an empty monster list", s.ID)
+			}
+			for _, id := range s.Boss.Monsters {
+				if _, ok := r.Monsters[id]; !ok {
+					return fmt.Errorf(
+						"content validation: section %q boss references unknown monster %q", s.ID, id)
+				}
+			}
+			if s.Boss.Gold < 0 {
+				return fmt.Errorf(
+					"content validation: section %q boss has gold %d, want >= 0 (absent/0 = no bonus)",
+					s.ID, s.Boss.Gold,
+				)
+			}
 		}
 		for _, spawn := range s.Spawns {
 			m, ok := r.Monsters[spawn.MonsterID]
