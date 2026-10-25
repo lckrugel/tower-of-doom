@@ -1069,6 +1069,103 @@ func TestLoadProvenance(t *testing.T) {
 	})
 }
 
+// ---- Distribution: the conventional mods directory ----
+
+// DefaultModsDir is a pure convention table: the caller injects the
+// environment, so every platform branch — the XDG absolute-path rule,
+// the APPDATA fallback and the missing-home cases — is table-testable
+// without touching the process environment.
+func TestDefaultModsDir(t *testing.T) {
+	env := func(kv ...string) func(string) string {
+		vars := make(map[string]string, len(kv)/2)
+		for i := 0; i+1 < len(kv); i += 2 {
+			vars[kv[i]] = kv[i+1]
+		}
+		return func(key string) string { return vars[key] }
+	}
+
+	tests := []struct {
+		name   string
+		goos   string
+		getenv func(string) string
+		want   string
+	}{
+		{
+			"linux honours an absolute XDG_DATA_HOME",
+			"linux", env("XDG_DATA_HOME", "/xdg/data", "HOME", "/home/hero"),
+			filepath.Join("/xdg/data", "tower-of-doom", "mods"),
+		},
+		{
+			"linux rejects a relative XDG_DATA_HOME (the XDG spec requires absolute)",
+			"linux", env("XDG_DATA_HOME", "relative/data", "HOME", "/home/hero"),
+			filepath.Join("/home/hero", ".local", "share", "tower-of-doom", "mods"),
+		},
+		{
+			"linux falls back to ~/.local/share without XDG_DATA_HOME",
+			"linux", env("HOME", "/home/hero"),
+			filepath.Join("/home/hero", ".local", "share", "tower-of-doom", "mods"),
+		},
+		{
+			"linux accepts an absolute XDG_DATA_HOME without a home",
+			"linux", env("XDG_DATA_HOME", "/xdg/data"),
+			filepath.Join("/xdg/data", "tower-of-doom", "mods"),
+		},
+		{
+			"linux gives up without a home or XDG_DATA_HOME",
+			"linux", env(),
+			"",
+		},
+		{
+			"unknown goos follows the unix convention",
+			"freebsd", env("XDG_DATA_HOME", "/xdg/data", "HOME", "/home/hero"),
+			filepath.Join("/xdg/data", "tower-of-doom", "mods"),
+		},
+		{
+			"darwin uses ~/Library/Application Support",
+			"darwin", env("HOME", "/Users/hero"),
+			filepath.Join("/Users/hero", "Library", "Application Support", "tower-of-doom", "mods"),
+		},
+		{
+			"darwin gives up without a home",
+			"darwin", env("XDG_DATA_HOME", "/xdg/data"),
+			"",
+		},
+		{
+			"windows uses %APPDATA%",
+			"windows", env("APPDATA", "/appdata", "HOME", "/home/hero"),
+			filepath.Join("/appdata", "tower-of-doom", "mods"),
+		},
+		{
+			"windows falls back to ~/AppData/Roaming without APPDATA",
+			"windows", env("HOME", "/home/hero"),
+			filepath.Join("/home/hero", "AppData", "Roaming", "tower-of-doom", "mods"),
+		},
+		{
+			"windows gives up without APPDATA or a home",
+			"windows", env(),
+			"",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := DefaultModsDir(tt.goos, tt.getenv)
+
+			if got != tt.want {
+				t.Errorf("DefaultModsDir(%q) = %q, want %q", tt.goos, got, tt.want)
+			}
+			if got != "" && filepath.Base(got) != "mods" {
+				t.Errorf("DefaultModsDir(%q) = %q, want it to end with the \"mods\" element", tt.goos, got)
+			}
+		})
+	}
+
+	// The CLI's environment override name is part of the contract.
+	if ModsEnvVar != "TOD_MODS" {
+		t.Errorf("ModsEnvVar = %q, want %q", ModsEnvVar, "TOD_MODS")
+	}
+}
+
 // ---- Combat 2.0 content validation ----
 
 // Combat 2.0 validation: content bugs fail at startup. Each case breaks
