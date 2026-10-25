@@ -135,6 +135,14 @@ func TestValidateRejectsInvalidContent(t *testing.T) {
 			"encounter type weight",
 		},
 		{
+			"negative shrine weight",
+			validMonsters(),
+			[]SectionAsset{{ID: "s", Name: "S", MinFloor: 1, MaxFloor: -1,
+				Spawns:         []SpawnEntry{{MonsterID: "rat", Weight: 1}},
+				EncounterTypes: EncounterTypeWeights{Combat: 10, Shrine: -1}}},
+			"encounter type weight",
+		},
+		{
 			"uncovered floor",
 			validMonsters(),
 			[]SectionAsset{{ID: "s", Name: "S", MinFloor: 2, MaxFloor: -1,
