@@ -285,3 +285,83 @@ an extra roll):
     - Does NOT unlock ASCEND
 
 Only a combat victory clears the floor path and unlocks ASCEND.
+
+## Combat 2.0 — decided design
+
+The decisions below are LOCKED. Implementation lands across the phases
+listed at the end; the game-loop and combat sections above will be
+rewritten as each phase ships.
+
+### Bosses
+
+- ONE Boss Encounter per section, fought at the END of the section (the
+  section's `max_floor`): the goblin pits' boss on floor 3, the
+  outskirts' boss on floor 13, the underdark's on 33, wraithfall's on 59.
+- Boss groups are PREDEFINED in the section assets: fixed monster
+  lists — no weights, no difficulty budget.
+- Progression:
+    - On any normal floor, winning a combat unlocks ASCEND (unchanged).
+    - On a section's final floor, winning a normal combat unlocks the
+      BOSS CHALLENGE (a dedicated command) instead of ASCEND; killing
+      the boss is what unlocks ASCEND into the next section.
+- Boss fights cannot be SNEAKED: the challenge goes straight to combat.
+- FLEEING the boss re-locks the challenge (another normal-combat victory
+  re-unlocks it) and never unlocks ASCEND.
+- Boss loot: an item from tier+1 vs the section (capped at the
+  registry's max tier) plus a gold bonus, presented as the standard
+  loot decision (WEAR / STASH / DISCARD).
+- The infinite dragon_hoard tail (`max_floor: -1`) has NO boss gate.
+- Boss challenges skip every encounter-kind roll (zero rng consumed).
+
+### Moves
+
+- A Move is a new asset (`moves.json`): `id`, `name`, `tier`,
+  `dmg_modifier` (percent; 100 = neutral — DMG-only scaling),
+  `crit_bonus` (percentage points), `cooldown` (turns; 0 = spammable),
+  optional `status {id, chance, target: enemy|self}`, and `weight`
+  (monster AI).
+- Each combatant has AT MOST 4 moves (`MAX_MOVES`).
+- Monsters pick moves by weight (AI v1; a decision tree may come later).
+  A monster without a `moves` field uses the canonical `basic_attack`
+  (cooldown 0), so older assets/mods keep working.
+- Hero moves: 2 LEARNED (via shrines, below) plus up to 2 granted by
+  the equipped weapon (a `moves` field on weapon assets).
+- `CmdMove(index)` replaces ATTACK: every combat turn is a move choice.
+- A move on cooldown is locked for its cooldown's turns (ticked at
+  round end). A fully-cooled hero turn resolves as an automatic
+  RECOVER turn (statuses tick, monsters act) — never a soft-lock.
+- Damage: `base = round(effective DMG × dmg_modifier / 100)`, then the
+  usual spread and crit math; the crit check gains the move's
+  `crit_bonus`.
+
+### Status effects
+
+- A Status is a new asset (`statuses.json`): `id`, `name`,
+  `kind` (buff/debuff), `effect` (DoT damage per turn, or a stat
+  modifier for DMG/DEF/SPD), `duration` (turns). Moves apply them
+  (target: enemy or self, with an application chance).
+- Active effects are COMBAT-SCOPED: tracked per combatant with turns
+  left, ticked at round end, refreshed to the longest duration (never
+  stacked), and cleared when combat ends.
+- Effective stats = base + gear + active status modifiers, clamped
+  at 0 (DMG at 1). DoT damage CAN kill.
+- Starter set: poison (DoT), weaken (−DMG), slow (−SPD), guard
+  (+DEF, self).
+
+### Shrines (move learning)
+
+- A fifth encounter kind (`shrine`): offers a random UNLEARNED move
+  drawn from the section's `move_tiers` (the `item_tiers` pattern:
+  absent = unrestricted).
+- Learning is capped at 2 learned moves: at the cap, the shrine asks
+  the player to FORGET one first.
+- `move_tiers` gate shrine offers; weapon-granted moves are gated by
+  the item's own tier gating.
+
+### Implementation phases
+
+1. Schema & entities — moves/statuses assets, move sets, validation
+2. Combat integration — CmdMove, monster AI, cooldowns, status ticks,
+   stopgap UI
+3. TUI combat redesign — 2×2 move grid, status chips, cooldown display
+4. Bosses & shrines — gate flow, move learning, content, balance retune
