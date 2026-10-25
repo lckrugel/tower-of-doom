@@ -342,6 +342,24 @@ func TestEventText(t *testing.T) {
 			nil,
 		},
 		{
+			"gold from the boss",
+			engine.NewGoldGained(250, engine.GoldSourceBoss),
+			"The fallen boss drops 250 gold!",
+			nil,
+		},
+		{
+			"boss challenge unlocked",
+			engine.NewBossUnlocked(),
+			"The air trembles — the section's boss awaits!",
+			nil,
+		},
+		{
+			"boss challenge start",
+			engine.NewBossChallenge([]entities.Monster{goblin}),
+			"",
+			[]string{"You face the section's boss:", "Goblin (30 HP)"},
+		},
+		{
 			"gold from an unknown source",
 			engine.NewGoldGained(7, "mystery"),
 			"You gain 7 gold.",

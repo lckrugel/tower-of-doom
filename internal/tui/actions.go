@@ -43,6 +43,9 @@ var orderedOptions = []struct {
 }{
 	{"e", "Explore", engine.CmdExplore},
 	{"u", "Ascend", engine.CmdAscend}, // u for "up"
+	// The section's boss challenge: rendered disabled while locked (the
+	// ASCEND precedent), lit once a final-floor victory unlocked it.
+	{"g", "Boss", engine.CmdChallengeBoss},
 	{"i", "Inventory", engine.CmdInventory},
 	{"f", "Fight", engine.CmdFight},
 	{"s", "Sneak", engine.CmdSneak},
@@ -76,6 +79,10 @@ func actionsFor(e *engine.Engine) []action {
 		switch opt.cmd {
 		case engine.CmdAscend:
 			enabled = e.CanAscend
+		case engine.CmdChallengeBoss:
+			// The boss challenge: unlocked by a final-floor victory (the
+			// engine's BossUnlocked), re-locked by fleeing the boss.
+			enabled = e.BossUnlocked
 		case engine.CmdWear, engine.CmdDrop:
 			// Only the bag-state wear/drop act on the bag: an empty bag
 			// has nothing to wear or drop there. The loot-state wear (the

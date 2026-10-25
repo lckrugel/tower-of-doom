@@ -54,10 +54,10 @@ func TestQuitKeyAsksForConfirmation(t *testing.T) {
 // Reaching the Quit entry through the bar's cursor and Enter is the same
 // Quit action: it must confirm too, not silently end the run.
 func TestEnterOnTheQuitActionAsksForConfirmation(t *testing.T) {
-	m := New(testEngine()) // exploring: [E] [U] [I] [Q]
-	m, _ = press(m, "right")
-	m, _ = press(m, "right")
-	m, _ = press(m, "right") // cursor on Quit
+	m := New(testEngine()) // exploring: [E] [U] [G] [I] [Q]
+	for range 4 {
+		m, _ = press(m, "right")
+	} // cursor on Quit
 
 	m, cmd := press(m, "enter")
 

@@ -115,18 +115,32 @@ func viewModels() map[string]Model {
 		return New(e)
 	}
 
+	// The boss challenge unlocked on the exploring bar: the [G] chip lit.
+	bossUnlocked := func() Model {
+		e := testEngine()
+		e.BossUnlocked = true
+		return New(e)
+	}
+
+	// The boss challenge mid-fight: the same combat screen over a
+	// boss-flagged encounter — the ☠ BOSS badge joins the title row.
+	bossCombat := encounter(engine.StateCombat)
+	bossCombat.engine.CurrentEncounter.Boss = true
+
 	return map[string]Model{
-		"exploring":  New(testEngine()),
-		"geared":     geared(),
-		"encounter":  encounter(engine.StateEncounter),
-		"combat":     combat,
-		"full grid":  fullGrid(),
-		"loot":       loot(),
-		"inventory":  inventory(),
-		"merchant":   merchant(),
-		"game over":  gameOver(),
-		"full queue": fullQueue(),
-		"long log":   longLog(),
+		"exploring":     New(testEngine()),
+		"geared":        geared(),
+		"encounter":     encounter(engine.StateEncounter),
+		"combat":        combat,
+		"full grid":     fullGrid(),
+		"loot":          loot(),
+		"inventory":     inventory(),
+		"merchant":      merchant(),
+		"game over":     gameOver(),
+		"full queue":    fullQueue(),
+		"long log":      longLog(),
+		"boss unlocked": bossUnlocked(),
+		"boss combat":   bossCombat,
 	}
 }
 

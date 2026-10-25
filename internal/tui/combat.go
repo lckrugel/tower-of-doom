@@ -102,7 +102,9 @@ func (m *combatMirror) absorb(ev engine.Event, e *engine.Engine) {
 		m.reset() // a zero-valued mirror (not built by New) is still safe
 	}
 	switch ev.Type {
-	case engine.EventEncounterFound:
+	case engine.EventEncounterFound, engine.EventBossChallenge:
+		// A found encounter may become a fight; a boss challenge is
+		// already one. Either way the mirror starts clean.
 		m.reset()
 	case engine.EventMoveUsed:
 		user, _ := ev.Data["user"].(string)

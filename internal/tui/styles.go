@@ -56,6 +56,11 @@ var (
 	styleBadgeUnknown = lipgloss.NewStyle().
 				Bold(true).
 				Foreground(lipgloss.Color("213"))
+	// Boss marker: the ☠ BOSS badge on a boss combat's title row and the
+	// challenge's log line — the loudest red the palette carries.
+	styleBoss = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("196"))
 	styleDeath = lipgloss.NewStyle().
 			Bold(true).
 			Foreground(lipgloss.Color("196"))
@@ -129,6 +134,12 @@ func toneOf(ev engine.Event) lipgloss.Style {
 		return styleDeath
 	case engine.EventVictory:
 		return styleVictory
+	case engine.EventBossUnlocked:
+		// The unlock is a big moment: the victory gold.
+		return styleVictory
+	case engine.EventBossChallenge:
+		// The challenge begins: the boss red.
+		return styleBoss
 	case engine.EventFloorEntered:
 		return styleLocation
 	case engine.EventQuit:
