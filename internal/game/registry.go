@@ -216,6 +216,11 @@ type Registry struct {
 	// Combat 2.0 content: moves and the statuses they apply.
 	Moves    map[string]MoveAsset
 	Statuses map[string]StatusAsset
+
+	// provenance records where each asset file came from, keyed by file
+	// name (see Provenance). Filled by Load; a hand-built Registry has
+	// none.
+	provenance map[string]string
 }
 
 // Busca a seção à qual este andar pertence.
@@ -344,23 +349,23 @@ func (s SectionAsset) FloorDifficulty(floor int) int {
 // Se `externalDir` estiver definido e contem arquivos correspondetes, ele terá precedência
 // sobre os valores pré-compilados do jogo.
 func Load(externalDir string) (*Registry, error) {
-	monsters, err := loadJSON[MonsterAsset](externalDir, "monsters.json")
+	monsters, monstersSrc, err := loadJSON[MonsterAsset](externalDir, "monsters.json")
 	if err != nil {
 		return nil, fmt.Errorf("loading monsters: %w", err)
 	}
-	items, err := loadJSON[ItemAsset](externalDir, "items.json")
+	items, itemsSrc, err := loadJSON[ItemAsset](externalDir, "items.json")
 	if err != nil {
 		return nil, fmt.Errorf("loading items: %w", err)
 	}
-	sections, err := loadJSON[SectionAsset](externalDir, "sections.json")
+	sections, sectionsSrc, err := loadJSON[SectionAsset](externalDir, "sections.json")
 	if err != nil {
 		return nil, fmt.Errorf("loading sections: %w", err)
 	}
-	moves, err := loadJSON[MoveAsset](externalDir, "moves.json")
+	moves, movesSrc, err := loadJSON[MoveAsset](externalDir, "moves.json")
 	if err != nil {
 		return nil, fmt.Errorf("loading moves: %w", err)
 	}
-	statuses, err := loadJSON[StatusAsset](externalDir, "statuses.json")
+	statuses, statusesSrc, err := loadJSON[StatusAsset](externalDir, "statuses.json")
 	if err != nil {
 		return nil, fmt.Errorf("loading statuses: %w", err)
 	}
@@ -390,9 +395,34 @@ func Load(externalDir string) (*Registry, error) {
 		Sections: sections,
 		Moves:    movesMap,
 		Statuses: statusesMap,
+		provenance: map[string]string{
+			"monsters.json": monstersSrc,
+			"items.json":    itemsSrc,
+			"moves.json":    movesSrc,
+			"statuses.json": statusesSrc,
+			"sections.json": sectionsSrc,
+		},
 	}
 	return r, nil
 
+}
+
+// Provenance reports where each asset file was loaded from, keyed by
+// file name ("monsters.json", "items.json", "moves.json",
+// "statuses.json", "sections.json"). The value is "embedded" when the
+// compiled-in assets were used, or "external (<dir>)" when the mod
+// directory's file won the per-file fallback. Diagnostics surface —
+// e.g. the validate command's digest prints one line per file.
+//
+// The returned map is a copy: mutating it never reaches the registry.
+// A Registry not built by Load (hand-assembled in tests) has an empty
+// provenance.
+func (r *Registry) Provenance() map[string]string {
+	out := make(map[string]string, len(r.provenance))
+	for file, source := range r.provenance {
+		out[file] = source
+	}
+	return out
 }
 
 // Validate checks that the loaded content is internally consistent and
@@ -744,8 +774,15 @@ func (r *Registry) cheapestSpawnName(s SectionAsset) string {
 // Um arquivo externo que não existe faz fallback para os assets embutidos;
 // um arquivo externo que existe mas não pode ser lido é tratado como erro
 // real (mods quebrados não devem falhar silenciosamente).
-func loadJSON[T any](externalDir, filename string) ([]T, error) {
-	var raw []byte
+//
+// Returns the assets and WHERE they came from: "embedded", or
+// "external (<dir>)" when the mod directory's file won the per-file
+// fallback.
+func loadJSON[T any](externalDir, filename string) ([]T, string, error) {
+	var (
+		raw    []byte
+		source = "embedded"
+	)
 
 	if externalDir != "" {
 		path := filepath.Join(externalDir, filename)
@@ -753,25 +790,26 @@ func loadJSON[T any](externalDir, filename string) ([]T, error) {
 		switch {
 		case err == nil:
 			raw = r
+			source = fmt.Sprintf("external (%s)", externalDir)
 		case errors.Is(err, os.ErrNotExist):
 			// arquivo externo ausente: cai para os assets embutidos
 		default:
-			return nil, fmt.Errorf("reading external asset %s: %w", path, err)
+			return nil, "", fmt.Errorf("reading external asset %s: %w", path, err)
 		}
 	}
 	if raw == nil {
 		r, err := embeddedAssets.ReadFile("assets/" + filename)
 		if err != nil {
-			return nil, fmt.Errorf("reading embedded asset %s: %w", filename, err)
+			return nil, "", fmt.Errorf("reading embedded asset %s: %w", filename, err)
 		}
 		raw = r
 	}
 
 	var items []T
 	if err := json.Unmarshal(raw, &items); err != nil {
-		return nil, fmt.Errorf("parsing %s: %w", filename, err)
+		return nil, "", fmt.Errorf("parsing %s: %w", filename, err)
 	}
-	return items, nil
+	return items, source, nil
 }
 
 // Cria um map para o tipo T utilizando o campo retornado por `keyFn` como índice.

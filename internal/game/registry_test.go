@@ -424,9 +424,12 @@ func TestIndexByRejectsDuplicateIDs(t *testing.T) {
 // loadJSON: arquivo externo ausente cai para os assets embutidos;
 // arquivo externo quebrado deve ser erro real.
 func TestLoadJSONFallsBackToEmbedded(t *testing.T) {
-	items, err := loadJSON[MonsterAsset](t.TempDir(), "monsters.json")
+	items, source, err := loadJSON[MonsterAsset](t.TempDir(), "monsters.json")
 	if err != nil {
 		t.Fatalf("loadJSON: %v", err)
+	}
+	if source != "embedded" {
+		t.Errorf("loadJSON source = %q, want \"embedded\"", source)
 	}
 	if len(items) == 0 {
 		t.Fatal("loadJSON returned empty list, want embedded monsters")
@@ -440,7 +443,7 @@ func TestLoadJSONBrokenExternalFileIsError(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err := loadJSON[MonsterAsset](dir, "monsters.json")
+	_, _, err := loadJSON[MonsterAsset](dir, "monsters.json")
 
 	if err == nil {
 		t.Fatal("broken external file silently fell back to embedded assets")
@@ -930,6 +933,80 @@ func TestLoadRejectsDuplicateMoveAndStatusIDs(t *testing.T) {
 		_, err := Load(dir)
 		if err == nil || !strings.Contains(err.Error(), "duplicate") {
 			t.Errorf("Load(duplicate statuses) = %v, want a duplicate id error", err)
+		}
+	})
+}
+
+// ---- Asset provenance: where each loaded file came from ----
+
+// Load records WHERE each asset file came from — "embedded" or
+// "external (<dir>)" — per file, respecting the per-file fallback
+// rules: an existing external file wins, a missing one falls back to
+// the compiled-in assets. Provenance() hands that record out read-only.
+func TestLoadProvenance(t *testing.T) {
+	files := []string{"monsters.json", "items.json", "moves.json", "statuses.json", "sections.json"}
+
+	t.Run("no external dir: everything is embedded", func(t *testing.T) {
+		r, err := Load("")
+		if err != nil {
+			t.Fatalf("Load: %v", err)
+		}
+
+		prov := r.Provenance()
+		if len(prov) != len(files) {
+			t.Errorf("Provenance has %d entries, want %d: %v", len(prov), len(files), prov)
+		}
+		for _, file := range files {
+			if got := prov[file]; got != "embedded" {
+				t.Errorf("provenance[%q] = %q, want \"embedded\"", file, got)
+			}
+		}
+	})
+
+	t.Run("a mixed mod dir: external files win, missing fall back", func(t *testing.T) {
+		dir := t.TempDir()
+		write := func(name, content string) {
+			if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		write("monsters.json", `[
+			{"id": "rat", "name": "Rat", "difficulty": 1, "hp": 10, "dmg": 1, "spd": 5}
+		]`)
+		write("sections.json", `[
+			{"id": "s", "name": "S", "base_difficulty": 1, "min_floor": 1, "max_floor": -1,
+			 "spawns": [{"monster_id": "rat", "weight": 1}]}
+		]`)
+
+		r, err := Load(dir)
+		if err != nil {
+			t.Fatalf("Load: %v", err)
+		}
+
+		prov := r.Provenance()
+		for _, file := range []string{"monsters.json", "sections.json"} {
+			if got := prov[file]; got != "external ("+dir+")" {
+				t.Errorf("provenance[%q] = %q, want \"external (%s)\"", file, got, dir)
+			}
+		}
+		for _, file := range []string{"items.json", "moves.json", "statuses.json"} {
+			if got := prov[file]; got != "embedded" {
+				t.Errorf("provenance[%q] = %q, want \"embedded\" (file missing from the dir)", file, got)
+			}
+		}
+	})
+
+	t.Run("the returned map is a copy, not an alias", func(t *testing.T) {
+		r, err := Load("")
+		if err != nil {
+			t.Fatalf("Load: %v", err)
+		}
+
+		prov := r.Provenance()
+		prov["items.json"] = "tampered"
+
+		if again := r.Provenance(); again["items.json"] != "embedded" {
+			t.Errorf("mutating the returned map changed the registry: provenance[items.json] = %q", again["items.json"])
 		}
 	})
 }
