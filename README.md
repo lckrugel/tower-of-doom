@@ -72,8 +72,9 @@ tower-validate            # validate the embedded assets
 tower-validate ~/my-mod   # validate a mod directory
 ```
 
-It prints the provenance and size of each asset table, ending in `OK`, or
-every content fault it found. Exit codes: `0` valid, `1` invalid content
+It prints where each asset file came from, the number of entries per table,
+the covered floor span and the tier ladders, ending in `OK` — or every content
+fault it found. Exit codes: `0` valid, `1` invalid content
 (including an unreadable directory), `2` usage error. `docs/MECHANICS.md`
 describes the content itself.
 
