@@ -718,7 +718,7 @@ func TestExploreShrineAtCapOpensTheChooseStep(t *testing.T) {
 	e := shrineEngine(30, 0)
 	learn(e, "quick_stab", "heavy_slash")
 	e.reg.Moves["power_surge"] = game.MoveAsset{
-		ID: "power_surge", Name: "Power Surge", Tier: 2, DmgModifier: 150, Weight: 10,
+		ID: "power_surge", Name: "Power Surge", Tier: 2, DmgModifier: 150, Weight: 10, Type: "both",
 	}
 
 	events := e.Process(Command{Type: CmdExplore})
@@ -753,7 +753,7 @@ func shrineAtCap() *Engine {
 	e := shrineEngine(30, 0)
 	learn(e, "quick_stab", "heavy_slash")
 	e.reg.Moves["power_surge"] = game.MoveAsset{
-		ID: "power_surge", Name: "Power Surge", Tier: 2, DmgModifier: 150, Weight: 10,
+		ID: "power_surge", Name: "Power Surge", Tier: 2, DmgModifier: 150, Weight: 10, Type: "both",
 	}
 	if events := e.Process(Command{Type: CmdExplore}); len(events) != 1 || events[0].Type != EventShrineOffered {
 		panic("test fixture: expected a shrine offer (StateLearn, choosing step)")
@@ -785,7 +785,7 @@ func shrineTwoOffersAtCap() *Engine {
 	e := shrineEngine(30, 0, 0)
 	learn(e, "quick_stab", "heavy_slash")
 	e.reg.Moves["power_surge"] = game.MoveAsset{
-		ID: "power_surge", Name: "Power Surge", Tier: 2, DmgModifier: 150, Weight: 10,
+		ID: "power_surge", Name: "Power Surge", Tier: 2, DmgModifier: 150, Weight: 10, Type: "both",
 	}
 	e.reg.Sections[0].MoveTiers = []int{1, 2, 3}
 	if events := e.Process(Command{Type: CmdExplore}); len(events) != 1 || events[0].Type != EventShrineOffered {

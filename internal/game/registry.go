@@ -99,6 +99,11 @@ type MoveStatusAsset struct {
 type MoveAsset struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
+	// Type says which consumers may carry the move: "weapon" (only a
+	// weapon's grant list), "creature" (only a creature's kit — monster
+	// sets and the hero's learned set) or "both". Required: there is no
+	// absent-field default, and an unknown word fails validation.
+	Type string `json:"type"`
 	// Tier places the move on the progression ladder (1 = earliest).
 	Tier int `json:"tier"`
 	// DmgModifier scales the striker's DMG, in percent (100 = neutral).
@@ -306,11 +311,32 @@ func (r *Registry) AllStatuses() []StatusAsset {
 	return out
 }
 
-// MovesForTiers returns every registry move whose tier is one of `tiers`,
+// moveUsableByWeapons reports whether a move of this asset type may
+// appear on a weapon's grant list ("weapon" or "both" — a creature-only
+// move is learned or monster-fought, never granted).
+func moveUsableByWeapons(moveType string) bool {
+	return moveType == "weapon" || moveType == "both"
+}
+
+// moveUsableByCreatures reports whether a move of this asset type may
+// appear on a creature's move kit — a monster's set or the hero's
+// learned set ("creature" or "both"; a weapon-only move reaches the hero
+// only through the equipped weapon).
+func moveUsableByCreatures(moveType string) bool {
+	return moveType == "creature" || moveType == "both"
+}
+
+// MovesForTiers returns every registry move a HERO's shrine may teach —
+// creature- or both-typed (a weapon-only move reaches the hero through
+// the equipped weapon, never a shrine) — whose tier is one of `tiers`,
 // sorted by id (assets, not just ids — moves carry their own display data
-// and AI weight). Empty/nil `tiers` lifts the restriction: every move is
-// returned. A pool with no matches comes back empty — never an error; the
-// caller decides what an empty pool means. Mirrors ItemIDsForTiers.
+// and AI weight). Empty/nil `tiers` lifts the tier restriction: every
+// shrine-offerable move is returned. A pool with no matches comes back
+// empty — never an error; the caller decides what an empty pool means.
+// The engine's shrine flow draws its offers from exactly this query, so
+// the type rule lives HERE and no call site can forget it (the section
+// move_tiers fillability check consumes it too: a listed tier must hold
+// at least one offerable move). Mirrors ItemIDsForTiers.
 func (r *Registry) MovesForTiers(tiers []int) []MoveAsset {
 	restricted := len(tiers) > 0
 	allowed := make(map[int]bool, len(tiers))
@@ -319,6 +345,9 @@ func (r *Registry) MovesForTiers(tiers []int) []MoveAsset {
 	}
 	moves := make([]MoveAsset, 0, len(r.Moves))
 	for _, move := range r.Moves {
+		if !moveUsableByCreatures(move.Type) {
+			continue // weapon-only: never offerable at a shrine
+		}
 		if !restricted || allowed[move.Tier] {
 			moves = append(moves, move)
 		}
@@ -501,6 +530,13 @@ func (r *Registry) Validate(topFloor int) error {
 		if mv.Cooldown < 0 {
 			fail("move %q has cooldown %d, want >= 0 (0 = spammable)", mv.ID, mv.Cooldown)
 		}
+		// The type word is required (no absent-field default): it gates
+		// which consumer may carry the move.
+		switch mv.Type {
+		case "weapon", "creature", "both":
+		default:
+			fail("move %q has type %q, want \"weapon\", \"creature\" or \"both\"", mv.ID, mv.Type)
+		}
 		if mv.Weight < 1 {
 			fail("move %q has weight %d, want >= 1 (AI pick weight)", mv.ID, mv.Weight)
 		}
@@ -535,8 +571,16 @@ func (r *Registry) Validate(topFloor int) error {
 				fail("monster %q move %q has weight %d, want >= 1 (AI pick weight)",
 					m.ID, ref.ID, ref.Weight)
 			}
-			if _, ok := r.MoveByID(ref.ID); !ok {
+			move, ok := r.MoveByID(ref.ID)
+			if !ok {
 				fail("monster %q references unknown move %q", m.ID, ref.ID)
+				continue // the type rule needs the move resolved
+			}
+			// A monster's kit is a creature channel: weapon-only moves
+			// (hero weapon grants) can never ride it.
+			if !moveUsableByCreatures(move.Type) {
+				fail("monster %q references move %q of type %q, want a creature or both move (weapon-only moves are never monster moves)",
+					m.ID, ref.ID, move.Type)
 			}
 		}
 	}
@@ -559,14 +603,22 @@ func (r *Registry) Validate(topFloor int) error {
 				item.ID, len(item.Moves), MaxWeaponMoves)
 			continue
 		}
-		refsOK := true
+		unknownRef := false
 		for _, moveID := range item.Moves {
-			if _, ok := r.MoveByID(moveID); !ok {
+			move, ok := r.MoveByID(moveID)
+			if !ok {
 				fail("weapon %q references unknown move %q", item.ID, moveID)
-				refsOK = false
+				unknownRef = true
+				continue
+			}
+			// A weapon's grant list is the weapon channel: creature-only
+			// moves (monster kits / hero learning) can never ride it.
+			if !moveUsableByWeapons(move.Type) {
+				fail("weapon %q grants move %q of type %q, want a weapon or both move (creature-only moves are never weapon-grantable)",
+					item.ID, moveID, move.Type)
 			}
 		}
-		if !refsOK {
+		if unknownRef {
 			// The spammable rule needs every grant resolved; the unknown
 			// refs are already reported above.
 			continue

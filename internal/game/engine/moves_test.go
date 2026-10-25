@@ -9,12 +9,14 @@ import (
 
 // testMoves mirrors the shipped moves.json entries the combat tests
 // exercise (hand-built registry — content validation is not in play).
+// Types mirror the embedded content too (all four are creature- or
+// both-typed: monster kits and shrine pools can carry them).
 func testMoves() map[string]game.MoveAsset {
 	return map[string]game.MoveAsset{
-		"basic_attack":     {ID: "basic_attack", Name: "Basic Attack", Tier: 1, DmgModifier: 100, Weight: 100},
-		"heavy_slash":      {ID: "heavy_slash", Name: "Heavy Slash", Tier: 2, DmgModifier: 175, Cooldown: 2, Weight: 60},
-		"quick_stab":       {ID: "quick_stab", Name: "Quick Stab", Tier: 1, DmgModifier: 60, CritBonus: 20, Weight: 100},
-		"assassins_strike": {ID: "assassins_strike", Name: "Assassin's Strike", Tier: 3, DmgModifier: 110, CritBonus: 35, Cooldown: 3, Weight: 30},
+		"basic_attack":     {ID: "basic_attack", Name: "Basic Attack", Tier: 1, DmgModifier: 100, Weight: 100, Type: "both"},
+		"heavy_slash":      {ID: "heavy_slash", Name: "Heavy Slash", Tier: 2, DmgModifier: 175, Cooldown: 2, Weight: 60, Type: "both"},
+		"quick_stab":       {ID: "quick_stab", Name: "Quick Stab", Tier: 1, DmgModifier: 60, CritBonus: 20, Weight: 100, Type: "both"},
+		"assassins_strike": {ID: "assassins_strike", Name: "Assassin's Strike", Tier: 3, DmgModifier: 110, CritBonus: 35, Cooldown: 3, Weight: 30, Type: "both"},
 	}
 }
 
