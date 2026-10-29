@@ -109,7 +109,7 @@ release:
   # The repository slug uses underscores, unlike the Go module path (dashes).
   github:
     owner: lckrugel
-    name: tower_of_doom
+    name: tower-of-doom
   # Publish immediately: the release workflow only runs on tags known to be
   # green in CI.
   draft: false
