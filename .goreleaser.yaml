@@ -106,7 +106,10 @@ changelog:
       - '^Merge branch'
 
 release:
-  # The repository slug uses underscores, unlike the Go module path (dashes).
+  # Repository slug, as GitHub reports it (matches the module path). Keep this
+  # in sync with install.sh's REPO default and the README URLs: asset uploads
+  # go to uploads.github.com, where a renamed repo's old slug 307-redirects
+  # and POSTs fail.
   github:
     owner: lckrugel
     name: tower-of-doom

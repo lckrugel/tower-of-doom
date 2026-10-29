@@ -1,7 +1,7 @@
 #!/bin/sh
 # Tower of Doom installer.
 #
-#   curl -fsSL https://raw.githubusercontent.com/lckrugel/tower_of_doom/main/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/lckrugel/tower-of-doom/main/install.sh | sh
 #
 # Downloads the release archive for this machine, checks its sha256 against the
 # release's checksums.txt and installs `tower-of-doom` (the game) plus
@@ -10,14 +10,14 @@
 # Environment overrides:
 #   VERSION  release to install, with or without the leading "v" (default: latest)
 #   BIN_DIR  where to install (default: $HOME/.local/bin)
-#   REPO     GitHub slug to fetch from (default: lckrugel/tower_of_doom)
+#   REPO     GitHub slug to fetch from (default: lckrugel/tower-of-doom)
 #
 # Needs sh, tar and curl (or wget), plus sha256sum or shasum to verify. Files
 # only appear in $BIN_DIR once the download is verified and fully extracted.
 
 set -eu
 
-REPO=${REPO:-lckrugel/tower_of_doom}
+REPO=${REPO:-lckrugel/tower-of-doom}
 VERSION=${VERSION:-}
 BIN_DIR=${BIN_DIR:-}
 work=''

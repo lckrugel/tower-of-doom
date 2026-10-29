@@ -3,12 +3,12 @@
 A roguelike for the terminal: one hero, a tower of escalating floors, and
 whatever is waiting on them.
 
-[![ci](https://github.com/lckrugel/tower_of_doom/actions/workflows/ci.yml/badge.svg)](https://github.com/lckrugel/tower_of_doom/actions/workflows/ci.yml)
+[![ci](https://github.com/lckrugel/tower-of-doom/actions/workflows/ci.yml/badge.svg)](https://github.com/lckrugel/tower-of-doom/actions/workflows/ci.yml)
 
 ## Install
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/lckrugel/tower_of_doom/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/lckrugel/tower-of-doom/main/install.sh | sh
 ```
 
 The script picks the archive for your OS and architecture, verifies its sha256
@@ -20,12 +20,12 @@ verified.
 Choose another directory or pin a version with environment variables:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/lckrugel/tower_of_doom/main/install.sh | BIN_DIR=~/bin sh
-curl -fsSL https://raw.githubusercontent.com/lckrugel/tower_of_doom/main/install.sh | VERSION=v0.1.0 sh
+curl -fsSL https://raw.githubusercontent.com/lckrugel/tower-of-doom/main/install.sh | BIN_DIR=~/bin sh
+curl -fsSL https://raw.githubusercontent.com/lckrugel/tower-of-doom/main/install.sh | VERSION=v0.1.0 sh
 ```
 
 Alternatively download an archive from
-[Releases](https://github.com/lckrugel/tower_of_doom/releases) and extract
+[Releases](https://github.com/lckrugel/tower-of-doom/releases) and extract
 `tower-of-doom` (and `tower-validate`) yourself: `.tar.gz` for linux and
 macOS, `.zip` for Windows. The installer does not support Windows — use the
 manual download there.
