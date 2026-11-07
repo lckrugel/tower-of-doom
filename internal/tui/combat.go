@@ -2,8 +2,6 @@ package tui
 
 import "github.com/lckrugel/tower-of-doom/internal/game/engine"
 
-const heroName = "Hero" // event wording only; never used as combat identity
-
 // combatStatus is one active status on one side of the fight, as the
 // chips display it: the status NAME (event payloads carry names), its
 // kind (buff/debuff — the chip's color) and the rounds still left.

@@ -43,10 +43,13 @@ type Model struct {
 	// cancels back. Arming is TUI-internal (no engine call); the flag
 	// never survives a dispatch, so any state change restores the bar.
 	confirmQuit bool
+	// feedback is the most recent engine message, surfaced in the active
+	// decision screen as well as the event log.
+	feedback string
 	// gridCursor is the selected cell of the combat move grid (0-3,
 	// row-major: [0 1 / 2 3]). The four arrows walk it with wraparound
 	// while in combat; it only ever rests on a real move (never on a
-	// placeholder) and resets to the first cell with the mirror, on
+	// placeholder) and resets to the first cell on
 	// every combat entry.
 	gridCursor int
 	// overlay marks the '?' lore overlay: a TUI-internal pure view mode
@@ -338,16 +341,20 @@ func (m Model) dispatch(a action) (tea.Model, tea.Cmd) {
 		}
 	}
 	prevState := m.engine.State
+	m.feedback = ""
 	events := m.engine.Process(cmd)
 	enteredCombat := prevState != engine.StateCombat && m.engine.State == engine.StateCombat
 	exitedCombat := prevState == engine.StateCombat && m.engine.State != engine.StateCombat
-	// A new fight starts with a clean mirror before its events are absorbed;
-	// failed-sneak free turns therefore track from a clean slate as well.
+	// A new fight resets only the grid cursor; combat details come directly
+	// from the engine snapshot, including failed-sneak free turns.
 	if enteredCombat {
 		m.gridCursor = 0
 	}
 	for _, ev := range events {
 		m.absorb(ev)
+		if ev.Type == engine.EventMessage {
+			m.feedback, _ = ev.Data["message"].(string)
+		}
 		if ev.Type == engine.EventQuit {
 			quit = true
 		}
@@ -366,8 +373,8 @@ func (m Model) dispatch(a action) (tea.Model, tea.Cmd) {
 }
 
 // absorb records one engine event's consequences on the model: the
-// rendered log line, the combat mirror's update, plus anything a later
-// view needs (the defeat event's run stats feed the game-over recap).
+// rendered log line plus anything a later view needs (the defeat event's
+// run stats feed the game-over recap).
 func (m *Model) absorb(ev engine.Event) {
 	m.log = append(m.log, renderEvent(ev))
 	if ev.Type == engine.EventHeroDefeated {

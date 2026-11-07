@@ -449,3 +449,24 @@ func TestViewInventoryRowsFitTheColumn(t *testing.T) {
 		}
 	}
 }
+
+func TestRejectedInventoryActionIsVisibleInPanel(t *testing.T) {
+	m := bagModel(1)
+	next, _ := m.dispatch(action{cmd: engine.CmdMove, usesIndex: true, index: 0})
+	m = modelOf(next, t)
+	if m.feedback == "" || !strings.Contains(stripANSI(m.inventoryPanel()), m.feedback) {
+		t.Fatalf("inventory panel omitted rejection feedback %q:\n%s", m.feedback, stripANSI(m.inventoryPanel()))
+	}
+}
+
+func TestRejectedLootActionIsVisibleInPanel(t *testing.T) {
+	e := chestEngine()
+	item := entities.NewItemFromAsset(game.ItemAsset{ID: "loot", Name: "Loot", Slot: "ring", BonusDEF: 1})
+	e.PendingLoot, e.State = &item, engine.StateLoot
+	m := New(e)
+	next, _ := m.dispatch(action{cmd: engine.CmdMove, usesIndex: true, index: 0})
+	m = modelOf(next, t)
+	if m.feedback == "" || !strings.Contains(stripANSI(m.lootPanel()), m.feedback) {
+		t.Fatalf("loot panel omitted rejection feedback %q:\n%s", m.feedback, stripANSI(m.lootPanel()))
+	}
+}

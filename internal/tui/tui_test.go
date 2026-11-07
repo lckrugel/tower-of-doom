@@ -544,7 +544,7 @@ func TestViewGameOverRecap(t *testing.T) {
 		"Floor 7",     // where it ended
 		"Goblin Pits", // the section, via SectionName
 		"Level 3",     // hero level
-		"40 XP gathered",
+		"40 current XP",
 	} {
 		if !strings.Contains(view, want) {
 			t.Errorf("game over view missing %q:\n%s", want, view)
@@ -590,7 +590,7 @@ func TestLegacyDefeatStoresNoRecap(t *testing.T) {
 }
 
 // The game-over recap must quote the captured defeat stats, kills
-// included, e.g. "Level 3 · 7 kills · 40 XP gathered".
+// included, e.g. "Level 3 · 7 kills · 40 current XP".
 func TestViewGameOverRecapShowsTheKillCount(t *testing.T) {
 	e := testEngine()
 	e.State = engine.StateGameOver
@@ -602,7 +602,7 @@ func TestViewGameOverRecapShowsTheKillCount(t *testing.T) {
 
 	view := stripControls(stripANSI(m.View()))
 
-	if !strings.Contains(view, "Level 3 · 7 kills · 40 XP gathered") {
+	if !strings.Contains(view, "Level 3 · 7 kills · 40 current XP") {
 		t.Errorf("recap missing the kills line:\n%s", view)
 	}
 
@@ -631,7 +631,7 @@ func TestViewGameOverRecapHandlesMissingAndZeroKills(t *testing.T) {
 		view := stripControls(stripANSI(withKills(
 			engine.NewHeroDefeatedWithStats(1, 1, 0),
 		).View()))
-		if !strings.Contains(view, "Level 1 · 0 kills · 40 XP gathered") {
+		if !strings.Contains(view, "Level 1 · 0 kills · 40 current XP") {
 			t.Errorf("zero kills recapped wrong:\n%s", view)
 		}
 	})
@@ -645,7 +645,7 @@ func TestViewGameOverRecapHandlesMissingAndZeroKills(t *testing.T) {
 		if strings.Contains(view, "kills") {
 			t.Errorf("recap printed a kills segment with no kills data:\n%s", view)
 		}
-		if !strings.Contains(view, "Level 2 · 40 XP gathered") {
+		if !strings.Contains(view, "Level 2 · 40 current XP") {
 			t.Errorf("recap without kills data lost the level line:\n%s", view)
 		}
 	})

@@ -105,20 +105,9 @@ func (m Model) statusLoreByID(id string) (game.StatusAsset, bool) {
 	return game.StatusAsset{}, false
 }
 
-// statusLoreByName resolves a registry status asset by name (the event
-// payloads and the mirror carry names).
-func (m Model) statusLoreByName(name string) (game.StatusAsset, bool) {
-	for _, a := range m.engine.StatusLore() {
-		if a.Name == name {
-			return a, true
-		}
-	}
-	return game.StatusAsset{}, false
-}
-
 // statusExplanation joins statuses into ONE dim tooltip line: "Poison —
 // 3 dmg/turn · 2 turns left; Weaken — -3 DMG · 3 turns left" — the live
-// turns from the mirror, the effect from the registry's lore. A status
+// turns from the engine combat view, the effect from the registry's lore. A status
 // the registry doesn't know degrades to its live count. An empty list
 // explains nothing.
 func (m Model) statusExplanation(statuses []combatStatus) string {
@@ -127,7 +116,7 @@ func (m Model) statusExplanation(statuses []combatStatus) string {
 	}
 	parts := make([]string, 0, len(statuses))
 	for _, s := range statuses {
-		if lore, ok := m.statusLoreByName(s.name); ok {
+		if lore, ok := m.statusLoreByID(s.id); ok {
 			parts = append(parts, fmt.Sprintf("%s — %s · %d turns left", s.name, statusEffectText(lore), s.turns))
 			continue
 		}

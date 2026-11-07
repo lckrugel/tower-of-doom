@@ -399,6 +399,13 @@ func itemBonusList(item *entities.Item) string {
 	if item.BonusSPD != 0 {
 		parts = append(parts, fmt.Sprintf("%+d SPD", item.BonusSPD))
 	}
+	if moves := item.GrantedMoves(); len(moves) > 0 {
+		names := make([]string, 0, len(moves))
+		for _, move := range moves {
+			names = append(names, move.Name)
+		}
+		parts = append(parts, "grants "+strings.Join(names, ", "))
+	}
 	if len(parts) == 0 {
 		return ""
 	}
@@ -408,8 +415,7 @@ func itemBonusList(item *entities.Item) string {
 // moveUsedText renders a move use: "You use Power Slash!" for the hero,
 // "The Goblin uses Venom Bite!" for monsters. The move NAME carries the
 // accent span (the tones); the hero is recognized by its fixed name
-// Combat side metadata is authoritative; the name fallback preserves old
-// serialized events that predate that metadata.
+// Combat side metadata is authoritative; display names are narrative only.
 func moveUsedText(data map[string]any, t tones) string {
 	user, _ := data["user"].(string)
 	move, _ := data["move"].(string)
@@ -420,11 +426,8 @@ func moveUsedText(data map[string]any, t tones) string {
 }
 
 func isHeroEvent(data map[string]any) bool {
-	if side, ok := data["side"].(engine.ActorSide); ok {
-		return side == engine.ActorHero
-	}
-	user, _ := data["user"].(string)
-	return user == heroName
+	side, _ := data["side"].(engine.ActorSide)
+	return side == engine.ActorHero
 }
 
 // statusAppliedText renders a status landing (fresh or refreshed —
@@ -436,7 +439,7 @@ func statusAppliedText(data map[string]any) string {
 	status, _ := data["status"].(string)
 	turns, _ := data["turns"].(int)
 	verb := statusVerb(data)
-	if target == "Hero" {
+	if side, _ := data["side"].(engine.ActorSide); side == engine.ActorHero {
 		return fmt.Sprintf("You %s %s (%d turns).", verb, status, turns)
 	}
 	return fmt.Sprintf("The %s %ss %s (%d turns).", target, verb, status, turns)

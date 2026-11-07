@@ -4,16 +4,15 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/lipgloss"
+
 	"github.com/lckrugel/tower-of-doom/internal/game"
 	"github.com/lckrugel/tower-of-doom/internal/game/engine"
 	"github.com/lckrugel/tower-of-doom/internal/game/engine/entities"
 )
 
-// The combat mirror's tests. The engine keeps combat-scoped state (move
-// cooldowns, active statuses) unexported — the mirror rebuilds it from
-// the event stream. Most tests below drive a REAL engine through real
-// rounds and assert the mirror against the engine's own observable truth
-// (its exported MoveCooldown accessor and its log lines).
+// Combat rendering tests drive a real engine through real rounds; the
+// engine combat view is the source of truth for cooldowns and statuses.
 
 // statusAssets mirrors the shipped statuses.json — the fixture engines'
 // registry lore (the '?' overlay and the chip explanations read it;
@@ -126,6 +125,26 @@ func joinedLog(m Model) string {
 	return strings.Join(lines, "\n")
 }
 
+func TestStatusOmissionKeepsDescriptionsAligned(t *testing.T) {
+	statuses := []combatStatus{
+		{id: "wide", name: strings.Repeat("界", 40), kind: "debuff", turns: 1},
+		{id: "visible", name: "Visible", kind: "buff", turns: 2},
+	}
+	shown := shownStatuses(statuses, 24, 2)
+	if len(shown) != 1 || shown[0].id != "visible" {
+		t.Fatalf("shown status identities = %+v, want only visible status", shown)
+	}
+}
+
+func TestTextSizingUsesTerminalCells(t *testing.T) {
+	if got := truncateRunes("界界x", 3); got != "界" {
+		t.Errorf("truncateRunes = %q, want one wide glyph in a 3-cell budget", got)
+	}
+	if got := lipgloss.Width(padRight("界", 5)); got != 5 {
+		t.Errorf("padded cell width = %d, want 5", got)
+	}
+}
+
 func TestCombatRenderingReadsLiveEngineView(t *testing.T) {
 	e := combatEngine()
 	learnMove(e, envenom(2))
@@ -139,57 +158,7 @@ func TestCombatRenderingReadsLiveEngineView(t *testing.T) {
 	}
 }
 
-// assertCooldownsEqual fails unless the mirror's picture of every combat
-// move's cooldown matches the engine's own read-only accessor — the two
-// must never drift apart across real rounds.
-
-// Cooldowns lock on use and tick down as completed rounds pass — the
-// mirror must agree with the engine's accessor after every single round.
-
-// A blocked move (dispatched while cooling) is a message, not a round:
-// neither the mirror nor the engine may tick.
-
-// A RECOVER round (every move locked) still ticks: the enemy acts, the
-// round completes, cooldowns count down without a hero lock being set.
-
-// A killing blow ends the round early: no tick runs, but the used move
-// still locks at its full cooldown (engine appendEnemyDefeat).
-
-// Status chips appear when the event lands, count down as completed
-// rounds pass, and vanish when the engine reports the expiry.
-
-// Re-applying a status refreshes it to the event's turns payload (the
-// engine's max-of rule) — never a stack, never a sum.
-
-// A queue advance clears the ENEMY side only: the next monster steps in
-// fresh, and the killing move locks at its full cooldown (no tick ran).
-
-// The HERO side survives a queue advance: the engine keeps heroCombat
-// when the next monster steps in, and so must the mirror.
-
-// Leaving combat (victory here) resets everything: the hero panel must
-// not carry chips into exploring. A NEW fight then tracks from zero —
-// the engine's startCombat reset, mirrored at the state transition.
-
-// EventEncounterFound resets the mirror preemptively: a found encounter
-// may become a fight, and nothing stale may leak into it.
-
-// A round is not over until the enemy answers — and one dispatch batch is
-// one round: a batch holding only the hero's strike (a killing blow is
-// the only real case, covered against the real engine above) locks
-// nothing on its own.
-
-// A failed flee grants the enemy a free turn: the round completes and
-// ticks even though the hero never acted (engine enemyFreeTurn).
-
-// A DoT kill at round end: the enemy's killing tick proves the round-end
-// tick ran (the hero's afflictions tick FIRST) even though the defeat
-// aborted the cooldown bookkeeping — the mirror reads the tick events as
-// proof and ticks the hero side, while the lock still applies at full
-// value and the enemy side clears.
-
-// A plain kill (no round-end tick) must NOT tick the hero's statuses:
-// only tick events prove the round end ran.
+// The tests below exercise combat interactions through the real engine.
 
 // ---- the 2×2 move grid ----
 

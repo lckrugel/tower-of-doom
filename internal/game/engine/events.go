@@ -264,6 +264,7 @@ func NewMoveUsedOnSide(user, move string, side ActorSide) Event {
 //   - "status": the status's name.
 //   - "turns": rounds the status now has left.
 //   - "kind": "buff" or "debuff" (additive; lets UIs tone the line).
+//   - "side": stable hero/enemy identity; target's display name is narrative only.
 func NewStatusApplied(target Combatant, status entities.Status, turns int) Event {
 	return Event{
 		Type: EventStatusApplied,
@@ -272,6 +273,7 @@ func NewStatusApplied(target Combatant, status entities.Status, turns int) Event
 			"status": status.Name,
 			"turns":  turns,
 			"kind":   string(status.Kind),
+			"side":   combatantSide(target),
 		},
 	}
 }
@@ -289,6 +291,7 @@ func NewStatusExpired(target Combatant, status entities.Status) Event {
 			"target": target.Name(),
 			"status": status.Name,
 			"kind":   string(status.Kind),
+			"side":   combatantSide(target),
 		},
 	}
 }
@@ -314,8 +317,16 @@ func NewStatusDamage(target Combatant, status entities.Status, amount int) Event
 			"target_hp_exact": target.HP(),
 			"target_max_hp":   target.MaxHP(),
 			"kind":            string(status.Kind),
+			"side":            combatantSide(target),
 		},
 	}
+}
+
+func combatantSide(target Combatant) ActorSide {
+	if _, ok := target.(*entities.Hero); ok {
+		return ActorHero
+	}
+	return ActorEnemy
 }
 
 func NewSneakFailed() Event {

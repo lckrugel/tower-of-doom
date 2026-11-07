@@ -139,6 +139,17 @@ func TestBuyPurchasesTheSelectedOffer(t *testing.T) {
 	}
 }
 
+func TestRejectedBuyFeedbackRemainsVisibleOnMerchantScreen(t *testing.T) {
+	m := New(merchantEngine(1, 0, 0))
+	m, _ = press(m, "p")
+	if got := stripANSI(m.log[len(m.log)-1]); got != "Not enough gold." {
+		t.Fatalf("rejection log = %q, want actionable feedback", got)
+	}
+	if !strings.Contains(stripANSI(m.View()), "Not enough gold.") {
+		t.Fatalf("merchant screen hid the rejected-action feedback:\n%s", stripANSI(m.View()))
+	}
+}
+
 func TestEnterActsOnTheSelectedMerchantRow(t *testing.T) {
 	t.Run("stock row buys", func(t *testing.T) {
 		m := New(merchantEngine(1, 0, 500))
