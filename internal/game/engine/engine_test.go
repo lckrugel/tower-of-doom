@@ -270,3 +270,13 @@ func TestExploringFlow(t *testing.T) {
 		t.Error("engine state holds no encounter after explore")
 	}
 }
+
+func TestEventPayloadObjectsAreLiveReferences(t *testing.T) {
+	item := entities.NewItemFromAsset(game.ItemAsset{ID: "ring", Name: "Old Name", Slot: "ring"})
+	event := NewLootFound(&item)
+	item.Name = "Updated Name"
+	payload, ok := event.Data["item"].(*entities.Item)
+	if !ok || payload != &item || payload.Name != "Updated Name" {
+		t.Fatalf("event item payload = %v, want the same live item pointer", event.Data["item"])
+	}
+}

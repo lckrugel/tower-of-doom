@@ -94,7 +94,11 @@ const (
 	EventShrineOffered
 )
 
-// `Event` é o que o jogo envia após processar um `Command`.
+// Event is a synchronous command notification. Data is a fresh map, and
+// scalar/value entries are emission-time values. Pointer and slice entries
+// intentionally refer to live engine objects/storage (for example, item
+// pointers and encounter monster slices); consumers must treat them as
+// read-only and must not retain events as immutable history or replay data.
 type Event struct {
 	Type EventType
 	Data map[string]any
