@@ -1131,6 +1131,15 @@ func TestLoadProvenance(t *testing.T) {
 // the APPDATA fallback and the missing-home cases — is table-testable
 // without touching the process environment.
 func TestDefaultModsDir(t *testing.T) {
+	hostAbs := func(path string) string {
+		abs, err := filepath.Abs(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return abs
+	}
+	xdgData, home := hostAbs(filepath.Join("xdg", "data")), hostAbs("hero-home")
+	homeHero := filepath.Join(home, "hero")
 	env := func(kv ...string) func(string) string {
 		vars := make(map[string]string, len(kv)/2)
 		for i := 0; i+1 < len(kv); i += 2 {
@@ -1147,23 +1156,23 @@ func TestDefaultModsDir(t *testing.T) {
 	}{
 		{
 			"linux honours an absolute XDG_DATA_HOME",
-			"linux", env("XDG_DATA_HOME", "/xdg/data", "HOME", "/home/hero"),
-			filepath.Join("/xdg/data", "tower-of-doom", "mods"),
+			"linux", env("XDG_DATA_HOME", xdgData, "HOME", homeHero),
+			filepath.Join(xdgData, "tower-of-doom", "mods"),
 		},
 		{
 			"linux rejects a relative XDG_DATA_HOME (the XDG spec requires absolute)",
-			"linux", env("XDG_DATA_HOME", "relative/data", "HOME", "/home/hero"),
-			filepath.Join("/home/hero", ".local", "share", "tower-of-doom", "mods"),
+			"linux", env("XDG_DATA_HOME", "relative/data", "HOME", homeHero),
+			filepath.Join(homeHero, ".local", "share", "tower-of-doom", "mods"),
 		},
 		{
 			"linux falls back to ~/.local/share without XDG_DATA_HOME",
-			"linux", env("HOME", "/home/hero"),
-			filepath.Join("/home/hero", ".local", "share", "tower-of-doom", "mods"),
+			"linux", env("HOME", homeHero),
+			filepath.Join(homeHero, ".local", "share", "tower-of-doom", "mods"),
 		},
 		{
 			"linux accepts an absolute XDG_DATA_HOME without a home",
-			"linux", env("XDG_DATA_HOME", "/xdg/data"),
-			filepath.Join("/xdg/data", "tower-of-doom", "mods"),
+			"linux", env("XDG_DATA_HOME", xdgData),
+			filepath.Join(xdgData, "tower-of-doom", "mods"),
 		},
 		{
 			"linux gives up without a home or XDG_DATA_HOME",
@@ -1172,8 +1181,8 @@ func TestDefaultModsDir(t *testing.T) {
 		},
 		{
 			"unknown goos follows the unix convention",
-			"freebsd", env("XDG_DATA_HOME", "/xdg/data", "HOME", "/home/hero"),
-			filepath.Join("/xdg/data", "tower-of-doom", "mods"),
+			"freebsd", env("XDG_DATA_HOME", xdgData, "HOME", homeHero),
+			filepath.Join(xdgData, "tower-of-doom", "mods"),
 		},
 		{
 			"darwin uses ~/Library/Application Support",
