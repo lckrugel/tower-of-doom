@@ -801,8 +801,39 @@ func (r *Registry) Validate(topFloor int) error {
 				floor, section.ID, budget, r.cheapestSpawnName(section), cheapest)
 		}
 	}
+	if err := r.validateEquipmentHP(); err != nil {
+		fail("%v", err)
+	}
 
 	return errors.Join(errs...)
+}
+
+// validateEquipmentHP allows signed bonuses but rejects a registry whose
+// worst-case combination of one item per slot could remove all hero max HP.
+func (r *Registry) validateEquipmentHP() error {
+	minimumHPBonusBySlot := make(map[string]int64, len(equipmentSlots))
+	for _, id := range sortedIDs(r.Items) {
+		item := r.Items[id]
+		if _, ok := equipmentSlots[item.Slot]; !ok {
+			continue
+		}
+		bonus := int64(item.BonusHP)
+		if bonus < minimumHPBonusBySlot[item.Slot] {
+			minimumHPBonusBySlot[item.Slot] = bonus
+		}
+	}
+	worstCaseHPBonus := int64(0)
+	for slot := range equipmentSlots {
+		bonus := minimumHPBonusBySlot[slot]
+		if bonus >= 0 {
+			continue
+		}
+		if bonus <= -int64(StartingHeroMaxHP)-worstCaseHPBonus {
+			return fmt.Errorf("equipment HP penalties could reduce the hero's maximum HP to 0 or less")
+		}
+		worstCaseHPBonus += bonus
+	}
+	return nil
 }
 
 // sortedIDs returns the map's ids in sorted order: validation walks the

@@ -1583,3 +1583,30 @@ func TestValidateCollectsEveryError(t *testing.T) {
 		t.Errorf("Validate is not deterministic:\nfirst:  %v\nsecond: %v", err, again)
 	}
 }
+
+func TestValidateRejectsEquipmentThatCanZeroHeroMaxHP(t *testing.T) {
+	r := makeReg(validMonsters(), validSections())
+	r.Moves["basic_attack"] = MoveAsset{
+		ID: "basic_attack", Name: "Basic Attack", Type: "both", Tier: 1,
+		DmgModifier: 100, Weight: 100,
+	}
+	for i, slot := range []string{"weapon", "helmet", "body_armor", "boots", "ring", "amulet"} {
+		id := "penalty_" + slot
+		r.Items[id] = ItemAsset{ID: id, Name: id, Slot: slot, Tier: 1, BonusHP: -17}
+		if i == 0 {
+			// A legitimate negative non-HP bonus remains accepted.
+			r.Items[id] = ItemAsset{ID: id, Name: id, Slot: slot, Tier: 1, BonusHP: -16, BonusSPD: -10, Moves: []string{"basic_attack"}}
+		}
+	}
+
+	err := r.Validate(10)
+	if err == nil || !strings.Contains(err.Error(), "could reduce the hero's maximum HP to 0") {
+		t.Fatalf("Validate(lethal equipment combination) = %v, want unsafe-max-HP error", err)
+	}
+
+	// The same combination leaving exactly one HP is valid.
+	r.Items["penalty_amulet"] = ItemAsset{ID: "penalty_amulet", Name: "penalty_amulet", Slot: "amulet", Tier: 1, BonusHP: -15}
+	if err := r.Validate(10); err != nil {
+		t.Errorf("Validate(equipment combination leaving 1 max HP) = %v, want nil", err)
+	}
+}

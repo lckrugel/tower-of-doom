@@ -3,11 +3,13 @@ package entities
 import (
 	"math"
 	"slices"
+
+	"github.com/lckrugel/tower-of-doom/internal/game"
 )
 
 // Status base do Herói
 const (
-	baseHp           = 100
+	baseHp           = game.StartingHeroMaxHP
 	baseDmg          = 0
 	baseSpd          = 10
 	baseDef          = 0
