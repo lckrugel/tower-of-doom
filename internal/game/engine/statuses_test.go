@@ -342,6 +342,28 @@ func TestMultipleStatusExpirationAndLethalDoTOrdering(t *testing.T) {
 	})
 }
 
+func TestCombinedPercentageStatusCalculations(t *testing.T) {
+	target := entities.NewMonsterFromAsset(game.MonsterAsset{ID: "boss", Name: "Boss", HP: 1000})
+	dot := entities.NewStatusFromAsset(game.StatusAsset{ID: "bleed", Name: "Bleed", Kind: "debuff", Duration: 2,
+		Effect: game.StatusEffectAsset{Type: "dot", Amount: 5, Percent: 3, PercentCap: 12}})
+	if got := statusDotDamage(dot, &target); got != 17 {
+		t.Errorf("combined DoT = %d, want 17 (5 flat + capped 12)", got)
+	}
+	target.TakeDmg(990)
+	if got := statusDotDamage(dot, &target); got != 17 {
+		t.Errorf("DoT after HP loss = %d, want 17 (uses MaxHP)", got)
+	}
+
+	state := newCombatantState()
+	state.applyStatus(entities.Status{ID: "flat", Stat: entities.StatDMG, StatAmount: -3})
+	state.applyStatus(entities.Status{ID: "percent", Stat: entities.StatDMG, StatPercent: 25})
+	flat, percent := state.statMods(entities.StatDMG)
+	got := 40*max(0, 100+percent)/100 + flat
+	if got != 47 {
+		t.Errorf("combined stat = %d, want 47 (40 + 25%%, then -3)", got)
+	}
+}
+
 // DoT damage is a plain clamp (no mitigation) and CAN kill: a monster
 // dying to poison goes through the normal defeat path (XP, gold,
 // queue/victory).

@@ -77,14 +77,22 @@ func (s *combatantState) applyStatus(status entities.Status) int {
 
 // statMods sums the stat modifier of every active stat-status for one
 // stat kind (DoT statuses modify nothing).
-func (s *combatantState) statMods(stat entities.StatKind) int {
-	total := 0
+func (s *combatantState) statMods(stat entities.StatKind) (flat, percent int) {
 	for _, a := range s.statuses {
 		if !a.status.IsDot() && a.status.Stat == stat {
-			total += a.status.StatAmount
+			flat += a.status.StatAmount
+			percent += a.status.StatPercent
 		}
 	}
-	return total
+	return flat, percent
+}
+
+func statusDotDamage(status entities.Status, target Combatant) int {
+	percent := target.MaxHP() * status.DotPercent / 100
+	if status.DotPercentCap > 0 {
+		percent = min(percent, status.DotPercentCap)
+	}
+	return max(1, status.DotAmount+percent)
 }
 
 // tickStatuses runs the round-end status tick for one combatant, in
@@ -96,7 +104,7 @@ func tickStatuses(st *combatantState, target Combatant) (events []Event, dead bo
 	for i := 0; i < len(st.statuses); {
 		a := &st.statuses[i]
 		if a.status.IsDot() {
-			dmg := target.TakeDmg(a.status.DotAmount)
+			dmg := target.TakeDmg(statusDotDamage(a.status, target))
 			events = append(events, NewStatusDamage(target, a.status, dmg))
 			if !target.IsAlive() {
 				return events, true
