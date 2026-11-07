@@ -1,7 +1,6 @@
 package engine
 
 import (
-	"fmt"
 	"slices"
 
 	"github.com/lckrugel/tower-of-doom/internal/game"
@@ -70,24 +69,6 @@ func stockIDs(stock []*entities.Item) map[string]bool {
 func (e *Engine) itemFromID(id string) *entities.Item {
 	item := e.itemFromAsset(e.reg.Items[id])
 	return &item
-}
-
-// itemFromAsset builds a runtime item from its asset, resolving the
-// asset's granted-move ids through the registry (only weapons grant
-// moves, and validated content guarantees every id exists). The resolved
-// moves are what the hero's EffectiveMoves reports while the item is
-// equipped. Consumes no rng.
-func (e *Engine) itemFromAsset(asset game.ItemAsset) entities.Item {
-	granted := make([]entities.Move, 0, len(asset.Moves))
-	for _, id := range asset.Moves {
-		moveAsset, ok := e.reg.MoveByID(id)
-		if !ok {
-			panic(fmt.Sprintf("unreachable: item %q references unknown move %q despite passing content validation",
-				asset.ID, id))
-		}
-		granted = append(granted, entities.NewMoveFromAsset(moveAsset))
-	}
-	return entities.NewItemFromAsset(asset, granted...)
 }
 
 // upgradedItem rolls a registry item one tier above base, capped at the
