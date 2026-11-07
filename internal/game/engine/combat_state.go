@@ -89,9 +89,6 @@ func (s *combatantState) statMods(stat entities.StatKind) (flat, percent int) {
 
 func statusDotDamage(status entities.Status, target Combatant) int {
 	percent := target.MaxHP() * status.DotPercent / 100
-	if status.DotPercentCap > 0 {
-		percent = min(percent, status.DotPercentCap)
-	}
 	return max(1, status.DotAmount+percent)
 }
 

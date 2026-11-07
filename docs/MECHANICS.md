@@ -167,9 +167,9 @@ helpers are for non-engine use only (e.g. item durability).
   multiple percentages add, then flat modifiers apply afterward.
 - DoT is evaluated at each round-end tick from the target's current
   equipment-inclusive MaxHP: `amount + floor(MaxHP × percent / 100)`.
-  `percent_cap` limits only that percentage component; flat damage remains
-  additive. A positive DoT deals at least 1 damage before the remaining-HP
-  clamp. DoT bypasses defense and can kill.
+  Percentage DoTs are uncapped and keep scaling with target MaxHP; flat
+  damage remains additive. A positive DoT deals at least 1 damage before
+  the remaining-HP clamp. DoT bypasses defense and can kill.
 - A status's application round counts toward its duration. Stat effects are
   active immediately; DoT ticks at that round's end. Reapplying the same
   status ID refreshes it to the longest duration without stacking, while
@@ -681,14 +681,25 @@ field is required as authored and validated at startup:
   in statuses.json.
 - `weight` — the move's default AI weight (monster picks); ≥ 1.
 
-**Status asset** (`statuses.json`). Every field is required — statuses
-have no absent-field defaults:
+**Status asset** (`statuses.json`). Identity, kind, effect type, and
+duration are required; the effect's numeric components are optional and
+omitted components mean zero:
 
 - `id`, `name` — identity.
 - `kind` — `buff` or `debuff`.
-- `effect` — one of `{type: dot, amount ≥ 1}` (damage per turn) or
-  `{type: stat, stat: dmg|def|spd, amount ≠ 0}`.
-- `duration` — turns the status lasts; ≥ 1.
+- `effect` — `{type: dot, amount?, percent?}` or
+  `{type: stat, stat: dmg|def|spd, amount?, percent?}`. At least one of
+  `amount` or `percent` must be nonzero. DoT components must be
+  nonnegative; a present DoT percentage must be in [1, 100] and is
+  uncapped. Stat components may be positive or negative. Stat percentages
+  are summed, applied to the equipment-inclusive baseline with flooring,
+  then flat amounts are summed and added; effective DMG/DEF/SPD retain
+  their existing minimums.
+- `duration` — rounds the status lasts; ≥ 1. The application round
+  counts toward the duration: stat effects apply immediately, and DoT
+  ticks at that round's end. Same-ID reapplications refresh to the
+  longest remaining duration without stacking; different statuses
+  combine their stat effects or tick their DoTs independently.
 
 **Where moves attach:**
 

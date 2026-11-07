@@ -92,9 +92,6 @@ func statusEffectText(a game.StatusAsset) string {
 		}
 		if a.Effect.Percent != 0 {
 			p := fmt.Sprintf("%d%% max HP", a.Effect.Percent)
-			if a.Effect.PercentCap > 0 {
-				p += fmt.Sprintf(" (percentage capped at %d)", a.Effect.PercentCap)
-			}
 			parts = append(parts, p)
 		}
 		return strings.Join(parts, " + ") + " dmg/turn"

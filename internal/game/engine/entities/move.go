@@ -153,10 +153,9 @@ type Status struct {
 	Name string
 	Kind StatusKind
 	// DoT components are damage each round; percentage damage is based on
-	// target MaxHP and only that component is bounded by DotPercentCap.
-	DotAmount     int
-	DotPercent    int
-	DotPercentCap int
+	// target MaxHP at each tick.
+	DotAmount  int
+	DotPercent int
 	Stat          StatKind // "" for DoT effects
 	StatAmount    int
 	StatPercent   int
@@ -182,7 +181,6 @@ func NewStatusFromAsset(asset game.StatusAsset) Status {
 	case "dot":
 		s.DotAmount = asset.Effect.Amount
 		s.DotPercent = asset.Effect.Percent
-		s.DotPercentCap = asset.Effect.PercentCap
 	case "stat":
 		s.Stat = StatKind(asset.Effect.Stat)
 		s.StatAmount = asset.Effect.Amount
