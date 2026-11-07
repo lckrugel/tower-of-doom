@@ -24,10 +24,8 @@ import (
 // with: -ldflags "-X main.version=<version>".
 var version = "dev"
 
-// validateHorizon validates content coverage up to this floor.
-// The tower is infinite (sections with max_floor == -1 cover the rest),
-// so a large horizon is enough to guarantee valid content for everything
-// reachable in a game.
+// validateHorizon bounds floor-budget validation. Sections may describe an
+// infinite tower, but a finite walk cannot prove every future floor valid.
 const validateHorizon = 100_000
 
 // assetFiles are the flat overlay files a mod directory may provide. A

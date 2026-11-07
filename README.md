@@ -52,6 +52,8 @@ A mod is a flat directory holding any of five JSON files:
 The overlay is per file: a file present in the directory replaces the embedded
 one as a whole, and any file you leave out falls back to the embedded version.
 A directory holding at least one of the five counts as a mod.
+Unknown JSON fields are rejected, so misspelled asset fields fail validation
+instead of silently taking their zero value.
 
 The game looks in the conventional per-user directory unless told otherwise
 (`--mods`, then `$TOD_MODS`, then the default):
@@ -73,8 +75,8 @@ tower-validate ~/my-mod   # validate a mod directory
 ```
 
 It prints where each asset file came from, the number of entries per table,
-the covered floor span and the tier ladders, ending in `OK` — or every content
-fault it found. Exit codes: `0` valid, `1` invalid content
+the finite floor-validation horizon and the tier ladders, ending in `OK` — or
+every content fault it found. Exit codes: `0` valid, `1` invalid content
 (including an unreadable directory), `2` usage error. `docs/MECHANICS.md`
 describes the content itself.
 

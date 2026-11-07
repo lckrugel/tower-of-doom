@@ -99,6 +99,13 @@ func TestValidateRejectsInvalidContent(t *testing.T) {
 			"difficulty",
 		},
 		{
+			"zero monster HP",
+			[]MonsterAsset{{ID: "rat", Name: "Rat", Difficulty: 1, HP: 0}},
+			[]SectionAsset{{ID: "s", Name: "S", MinFloor: 1, MaxFloor: -1,
+				Spawns: []SpawnEntry{{MonsterID: "rat", Weight: 1}}}},
+			"hp",
+		},
+		{
 			"floor budget below cheapest monster",
 			[]MonsterAsset{{ID: "rat", Name: "Rat", Difficulty: 5, HP: 10}},
 			[]SectionAsset{{ID: "s", Name: "S", BaseDifficulty: 1, MinFloor: 1, MaxFloor: -1,
@@ -162,6 +169,54 @@ func TestValidateRejectsInvalidContent(t *testing.T) {
 				t.Errorf("error = %v, want it to contain %q", err, tt.wantErr)
 			}
 		})
+	}
+}
+
+func TestValidateChecksBossOnlyMonsterSchema(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		monster MonsterAsset
+		wantErr string
+	}{
+		{"difficulty", MonsterAsset{Difficulty: 0, HP: 10}, `has difficulty 0`},
+		{"HP", MonsterAsset{Difficulty: 1, HP: 0}, `has hp 0`},
+		{"defense", MonsterAsset{Difficulty: 1, HP: 10, Defense: -1}, `has def -1`},
+		{"crit", MonsterAsset{Difficulty: 1, HP: 10, Crit: 101}, `has crit 101`},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			monster := tt.monster
+			monster.ID, monster.Name = "boss_only", "Boss Only"
+			monsters := append(validMonsters(), monster)
+			sections := validSections()
+			sections[0].Boss = &BossAsset{Monsters: []string{"boss_only"}}
+
+			err := makeReg(monsters, sections).Validate(10)
+			if err == nil || !strings.Contains(err.Error(), `monster "boss_only" `+tt.wantErr) {
+				t.Fatalf("Validate(boss-only monster) = %v, want intrinsic schema error containing %q", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestValidateRejectsUnknownItemSlots(t *testing.T) {
+	r := makeReg(validMonsters(), validSections())
+	r.Items["misspelled"] = ItemAsset{ID: "misspelled", Name: "Misspelled", Slot: "helment", Tier: 1}
+
+	err := r.Validate(10)
+	if err == nil || !strings.Contains(err.Error(), `item "misspelled" has unknown slot "helment"`) {
+		t.Fatalf("Validate(unknown item slot) = %v, want unknown slot error", err)
+	}
+}
+
+func TestLoadJSONRejectsUnknownFields(t *testing.T) {
+	dir := t.TempDir()
+	contents := `[{"id":"rat","name":"Rat","difficulty":1,"hp":10,"dmg":1,"spd":5,"dificulty":1}]`
+	if err := os.WriteFile(filepath.Join(dir, "monsters.json"), []byte(contents), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, _, err := loadJSON[MonsterAsset](dir, "monsters.json")
+	if err == nil || !strings.Contains(err.Error(), `unknown field "dificulty"`) {
+		t.Fatalf("loadJSON with a misspelled field = %v, want unknown-field error", err)
 	}
 }
 

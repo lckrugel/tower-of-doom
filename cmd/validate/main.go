@@ -16,10 +16,9 @@ import (
 // time with: -ldflags "-X main.version=<version>".
 var version = "dev"
 
-// validateHorizon validates content coverage up to this floor.
-// Mirrors cmd/cli: the tower is infinite (a tail section with
-// max_floor == -1 covers the rest), so a large horizon is enough to
-// guarantee valid content for everything reachable in a game.
+// validateHorizon bounds floor-budget validation. An unbounded tail section
+// describes coverage beyond this point, but this finite walk does not verify
+// every future floor's difficulty budget.
 const validateHorizon = 100_000
 
 const usage = `usage: validate [--version] [path]
@@ -87,8 +86,8 @@ func fail(err error) {
 	os.Exit(1)
 }
 
-// printDigest summarizes valid content: where each asset file came
-// from, how much of it there is, the covered floor span and the tier
+// printDigest summarizes valid content: where each asset file came from,
+// how much of it there is, the finite floor-validation horizon and the tier
 // ladders. Plain lines, one fact each, ending in OK.
 func printDigest(r *game.Registry) {
 	provenance := r.Provenance()
@@ -101,16 +100,7 @@ func printDigest(r *game.Registry) {
 	fmt.Printf("statuses: %d\n", len(r.Statuses))
 	fmt.Printf("sections: %d\n", len(r.Sections))
 
-	// The validated span starts at floor 1 and reaches the horizon — or
-	// forever, when a tail section (max_floor == -1) has no end.
-	last := fmt.Sprint(validateHorizon)
-	for _, s := range r.Sections {
-		if s.MaxFloor == -1 {
-			last = "∞"
-			break
-		}
-	}
-	fmt.Printf("floors: 1-%s\n", last)
+	fmt.Printf("validated floors: 1-%d (finite validation horizon)\n", validateHorizon)
 
 	fmt.Printf("item tiers: %s\n", tierSpan(r.Items, func(i game.ItemAsset) int { return i.Tier }))
 	fmt.Printf("move tiers: %s\n", tierSpan(r.Moves, func(m game.MoveAsset) int { return m.Tier }))
