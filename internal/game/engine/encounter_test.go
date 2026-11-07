@@ -472,7 +472,7 @@ func TestShrineBucketSitsAfterMerchant(t *testing.T) {
 // shrineCleared reports the PendingLoot discipline over the shrine's
 // pending state: nothing survives a resolution path.
 func shrineCleared(e *Engine) bool {
-	return e.PendingMoves == nil && e.PendingMove == nil && e.ChosenMove == nil
+	return e.PendingMoves == nil && e.ChosenMove == nil
 }
 
 // Exploring into a shrine rolls ONE OR TWO offers from the filtered
@@ -494,9 +494,6 @@ func TestExploreShrineOffersTwoMoves(t *testing.T) {
 	}
 	if len(e.PendingMoves) != 2 || e.PendingMoves[0].ID != "heavy_slash" || e.PendingMoves[1].ID != "quick_stab" {
 		t.Errorf("pending moves = %+v, want [heavy_slash quick_stab] (distinct, pool shrinking)", e.PendingMoves)
-	}
-	if e.PendingMove == nil || e.PendingMove.ID != "heavy_slash" {
-		t.Errorf("deprecated mirror = %+v, want the FIRST offer", e.PendingMove)
 	}
 	if e.State != StateLearn {
 		t.Errorf("state = %v, want StateLearn (the choosing step)", e.State)
@@ -823,9 +820,6 @@ func TestShrineChooseAtCapAdvancesToTheForgettingStep(t *testing.T) {
 	}
 	if len(e.PendingMoves) != 2 {
 		t.Errorf("pending moves = %+v, want both offers still held", e.PendingMoves)
-	}
-	if e.PendingMove == nil || e.PendingMove.ID != "power_surge" {
-		t.Errorf("deprecated mirror = %+v, want the chosen offer", e.PendingMove)
 	}
 	if stub.calls != 0 {
 		t.Errorf("choosing consumed %d rng calls, want 0", stub.calls)

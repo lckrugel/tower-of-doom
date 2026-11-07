@@ -371,10 +371,6 @@ const moveRowNameWidth = 20
 // CmdForget{Index}. [N] Decline resolves either step. The decision is
 // explicit-only (esc is a no-op), like the chest loot.
 //
-// The deprecated PendingMove mirror is never read: a legacy one-offer
-// construction (PendingMove alone, no PendingMoves/ChosenMove) renders
-// the silent guard, like an empty offer list.
-//
 // Height budget, worst case (16 rows): choosing = title + 2 dossiers ×2
 // lines = 5; forgetting = title + learning dossier 2 + label + 2 rows =
 // 6 — the panel always fits, never leaning on slot() to clip.

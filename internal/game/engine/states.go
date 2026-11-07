@@ -88,9 +88,8 @@ func AllowedCommands(s GameState) []CommandType {
 // function documents the split):
 //   - the CHOOSING step (no choice recorded yet): pick one of
 //     Engine.PendingMoves or decline;
-//   - the FORGETTING step (Engine.ChosenMove set — or a legacy
-//     one-offer StateLearn holding only the deprecated PendingMove
-//     mirror, see inForgetStep): forget a learned move or decline.
+//   - the FORGETTING step (Engine.ChosenMove set): forget a learned move
+//     or decline.
 //
 // Every state keeps CmdQuit.
 func (e *Engine) allowedCommands(s GameState) []CommandType {

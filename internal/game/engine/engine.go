@@ -52,14 +52,6 @@ type Engine struct {
 	// CmdChooseOffer. Set when the shrine is found and cleared on every
 	// resolution path; meaningful only while State == StateLearn.
 	PendingMoves []entities.Move
-	// Deprecated: the TUI bridge of the two-offer shrine flow. The
-	// offers live in PendingMoves (and the picked one in ChosenMove);
-	// this field survives as a read-only MIRROR for the current shrine
-	// screen, which renders one offer: the first offer while StateLearn
-	// is in its choosing step, the chosen offer once the forgetting step
-	// opens. Cleared on every exit path, like PendingMoves. New
-	// consumers must read PendingMoves instead.
-	PendingMove *entities.Move
 	// ChosenMove is the offer the player picked in StateLearn's choosing
 	// step while the hero is at the 2-learned cap: the move the
 	// forgetting step will teach (CmdForget). It also marks the step —
@@ -359,7 +351,7 @@ func (e *Engine) handleInventory(cmd Command) []Event {
 // the choice is recorded (ChosenMove) and the FORGETTING step asks what
 // to forget (CmdForget). CmdDecline — in either step — keeps everything
 // as it was. Every branch clears the pending state (PendingMoves,
-// ChosenMove and the deprecated PendingMove mirror) and returns to
+// ChosenMove) and returns to
 // exploring; the decision consumes no rng.
 func (e *Engine) handleLearn(cmd Command) []Event {
 	switch cmd.Type {
@@ -384,7 +376,6 @@ func (e *Engine) handleLearn(cmd Command) []Event {
 		// the learned set is untouched until a move is forgotten (or
 		// the offer declined).
 		e.ChosenMove = &chosen
-		e.PendingMove = &chosen // the deprecated TUI mirror follows the choice
 		return []Event{NewMessage(shrineForgetPromptMessage)}
 	case CmdForget:
 		// The index was range-checked by isValidCommand against the
@@ -416,40 +407,23 @@ func (e *Engine) handleLearn(cmd Command) []Event {
 	}
 }
 
-// inForgetStep reports whether StateLearn is in its second step (the
-// forget prompt): a chosen offer waits and the learned set is untouched.
-// The step is DERIVED from the pending state, never stored:
-//   - Engine.ChosenMove set — the normal forgetting step (the choice was
-//     recorded by CmdChooseOffer at the learned cap);
-//   - ONLY the deprecated PendingMove mirror set (no PendingMoves, no
-//     ChosenMove) — a legacy ONE-offer StateLearn construction (the old
-//     flow's shape, still built by the current TUI's fixtures): it
-//     behaves exactly like the forgetting step with the mirror as the
-//     chosen offer.
+// inForgetStep reports whether StateLearn is in its forgetting step: a
+// chosen offer waits and the learned set is untouched.
 func (e *Engine) inForgetStep() bool {
-	return e.ChosenMove != nil || (len(e.PendingMoves) == 0 && e.PendingMove != nil)
+	return e.ChosenMove != nil
 }
 
-// chosenOffer reports the offer the forgetting step will teach:
-// Engine.ChosenMove in the normal flow, the deprecated PendingMove
-// mirror in a legacy one-offer construction (see inForgetStep).
+// chosenOffer reports the offer the forgetting step will teach.
 func (e *Engine) chosenOffer() *entities.Move {
-	if e.ChosenMove != nil {
-		return e.ChosenMove
-	}
-	if len(e.PendingMoves) == 0 {
-		return e.PendingMove
-	}
-	return nil
+	return e.ChosenMove
 }
 
-// clearShrine empties the shrine's pending state — PendingMoves, the
-// deprecated PendingMove mirror and ChosenMove. Every StateLearn exit
+// clearShrine empties the shrine's pending state — PendingMoves and
+// ChosenMove. Every StateLearn exit
 // path goes through it (the PendingLoot discipline: nothing survives a
 // resolution).
 func (e *Engine) clearShrine() {
 	e.PendingMoves = nil
-	e.PendingMove = nil
 	e.ChosenMove = nil
 }
 
