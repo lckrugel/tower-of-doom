@@ -16,6 +16,9 @@ against the release's `checksums.txt`, and installs `tower-of-doom` and
 `tower-validate` into `~/.local/bin`. It needs only curl (or wget), tar and
 sha256sum (or shasum), and nothing reaches `BIN_DIR` until the download is
 verified.
+Each binary is staged and atomically replaced independently; installation is
+not atomic as a pair, so a failure installing the second binary can leave the
+first one updated.
 
 Choose another directory or pin a version with environment variables:
 
