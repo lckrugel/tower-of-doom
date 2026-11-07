@@ -895,10 +895,9 @@ func TestShrineDeclineKeepsBothMoves(t *testing.T) {
 	})
 }
 
-// A wrong-step shortcut reaches the engine anyway and is answered with
-// the generic rejection — the state (and its pending offer) stays
-// exactly as it was.
-func TestShrineWrongStepShortcutsAreRejectedByTheEngine(t *testing.T) {
+// A wrong-step shortcut is absent from the engine-provided command set,
+// so the TUI ignores it without dispatching.
+func TestShrineWrongStepShortcutsAreIgnored(t *testing.T) {
 	t.Run("forget in the choosing step", func(t *testing.T) {
 		m := shrineModel()
 		logLen := len(m.log)
@@ -911,8 +910,8 @@ func TestShrineWrongStepShortcutsAreRejectedByTheEngine(t *testing.T) {
 		if len(m.engine.PendingMoves) != 2 || m.engine.ChosenMove != nil {
 			t.Error("the wrong-step dispatch consumed the choosing step")
 		}
-		if last := stripANSI(m.log[len(m.log)-1]); last != "Invalid command" || len(m.log) != logLen+1 {
-			t.Errorf("last log line = %q (+%d lines), want the generic rejection", last, len(m.log)-logLen)
+		if len(m.log) != logLen {
+			t.Errorf("wrong-step key dispatched: log grew from %d to %d", logLen, len(m.log))
 		}
 	})
 	t.Run("learn in the forgetting step", func(t *testing.T) {
@@ -927,8 +926,8 @@ func TestShrineWrongStepShortcutsAreRejectedByTheEngine(t *testing.T) {
 		if m.engine.ChosenMove == nil {
 			t.Error("the wrong-step dispatch dropped the recorded choice")
 		}
-		if last := stripANSI(m.log[len(m.log)-1]); last != "Invalid command" || len(m.log) != logLen+1 {
-			t.Errorf("last log line = %q (+%d lines), want the generic rejection", last, len(m.log)-logLen)
+		if len(m.log) != logLen {
+			t.Errorf("wrong-step key dispatched: log grew from %d to %d", logLen, len(m.log))
 		}
 	})
 }

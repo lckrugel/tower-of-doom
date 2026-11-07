@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/progress"
@@ -391,7 +392,7 @@ func (m Model) shrinePanel() string {
 // derivation the engine's allow-matrix uses). Offers without a choice
 // are the choosing step.
 func (m Model) learnForgetStep() bool {
-	return m.engine.ChosenMove != nil
+	return slices.Contains(m.engine.AvailableCommands(), engine.CmdForget)
 }
 
 // shrineChooseStep renders the pending offers as stacked dossiers, the

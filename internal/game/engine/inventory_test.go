@@ -64,7 +64,7 @@ func TestStateLearnStepCommandMatrix(t *testing.T) {
 		e := shrineEngine(30, 0, 0)
 		e.Process(Command{Type: CmdExplore}) // under the cap: StateLearn choosing
 
-		got := e.allowedCommands(StateLearn)
+		got := e.AvailableCommands()
 		want := []CommandType{CmdChooseOffer, CmdDecline, CmdQuit}
 		if len(got) != len(want) {
 			t.Fatalf("choosing-step commands = %v, want %v", got, want)
@@ -89,7 +89,7 @@ func TestStateLearnStepCommandMatrix(t *testing.T) {
 	t.Run("forgetting step", func(t *testing.T) {
 		e := shrineForgetting()
 
-		got := e.allowedCommands(StateLearn)
+		got := e.AvailableCommands()
 		want := []CommandType{CmdForget, CmdDecline, CmdQuit}
 		if len(got) != len(want) {
 			t.Fatalf("forgetting-step commands = %v, want %v", got, want)

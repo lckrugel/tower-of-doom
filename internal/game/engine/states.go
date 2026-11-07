@@ -53,13 +53,9 @@ func (s GameState) String() string {
 
 // Returns which `CommandType`s are allowed for a given `GameState`.
 //
-// StateLearn is STEP-dependent — the CHOOSING step allows
-// [CmdChooseOffer, CmdDecline, CmdQuit], the FORGETTING step
-// [CmdForget, CmdDecline, CmdQuit] — but this package-level view cannot
-// see the engine's internal step, so it returns the UNION of both steps
-// (the TUI builds its action bar from it). The ENGINE enforces the
-// per-step matrix in isValidCommand (allowedCommands): a command from
-// the other step is a generic invalid command with no state change.
+// StateLearn is STEP-dependent — this state-only query returns the UNION
+// of both steps. Use Engine.AvailableCommands for the active instance's
+// precise command set.
 func AllowedCommands(s GameState) []CommandType {
 	switch s {
 	case StateExploring:
@@ -81,6 +77,13 @@ func AllowedCommands(s GameState) []CommandType {
 	default:
 		return []CommandType{}
 	}
+}
+
+// AvailableCommands reports the commands accepted in the engine's current
+// state, including instance-specific workflow steps such as shrine choosing
+// versus forgetting. The returned slice is independent of engine state.
+func (e *Engine) AvailableCommands() []CommandType {
+	return e.allowedCommands(e.State)
 }
 
 // allowedCommands is the ENGINE's view of AllowedCommands, resolving the

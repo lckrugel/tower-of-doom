@@ -74,7 +74,7 @@ var orderedOptions = []struct {
 
 // actionsFor builds the action bar for the engine's current state.
 func actionsFor(e *engine.Engine) []action {
-	allowed := engine.AllowedCommands(e.State)
+	allowed := e.AvailableCommands()
 	// Combat swaps the static bar for the two combat-only actions.
 	if slices.Contains(allowed, engine.CmdMove) {
 		return combatActions()
@@ -131,11 +131,8 @@ func combatActions() []action {
 }
 
 // barActions is the state's action bar with the context-sensitive
-// shaping applied: at the merchant BUY and SELL follow the row cursor;
-// at the shrine the bar filters to the LIVE step's actions (the panel's
-// step label carries the context — the wrong-step chip is not shown,
-// though a raw wrong-step letter still dispatches the union and the
-// engine answers the generic rejection with the state intact).
+// shaping applied: at the merchant BUY and SELL follow the row cursor.
+// State-specific workflow command sets come from the engine.
 func (m Model) barActions() []action {
 	actions := actionsFor(m.engine)
 	switch m.engine.State {
@@ -151,17 +148,6 @@ func (m Model) barActions() []action {
 				actions[i].enabled = !onStock && len(m.engine.Player.Bag()) > 0
 			}
 		}
-	case engine.StateLearn:
-		shaped := make([]action, 0, len(actions))
-		for _, a := range actions {
-			live := a.cmd == engine.CmdDecline || a.cmd == engine.CmdQuit ||
-				(a.cmd == engine.CmdChooseOffer && !m.learnForgetStep()) ||
-				(a.cmd == engine.CmdForget && m.learnForgetStep())
-			if live {
-				shaped = append(shaped, a)
-			}
-		}
-		actions = shaped
 	}
 	return actions
 }
