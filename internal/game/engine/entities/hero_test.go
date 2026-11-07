@@ -421,6 +421,34 @@ func TestHeroEquipRescalesHP(t *testing.T) {
 			t.Errorf("CurrentHP = %d, MaxHP = %d, want 100/200 (50%% of new max)", h.CurrentHP, h.MaxHP())
 		}
 	})
+
+	t.Run("replacement rescales once from the original maximum", func(t *testing.T) {
+		for _, tt := range []struct {
+			name      string
+			currentHP int
+			newBonus  int
+			wantHP    int
+		}{
+			{name: "same bonus fractional health", currentHP: 50, newBonus: 5, wantHP: 50},
+			{name: "different bonus fractional health", currentHP: 50, newBonus: 10, wantHP: 52},
+			{name: "one hp remains alive", currentHP: 1, newBonus: 5, wantHP: 1},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				h := NewPlayer()
+				first := newTestItem(game.ItemAsset{ID: "first", Name: "First", Slot: amulet, BonusHP: 5})
+				second := newTestItem(game.ItemAsset{ID: "second", Name: "Second", Slot: amulet, BonusHP: tt.newBonus})
+				h.EquipItem(first)
+				h.CurrentHP = tt.currentHP
+
+				if got := h.EquipItem(second); got != first {
+					t.Fatalf("replaced item = %v, want first item", got)
+				}
+				if h.CurrentHP != tt.wantHP {
+					t.Errorf("CurrentHP = %d, want %d", h.CurrentHP, tt.wantHP)
+				}
+			})
+		}
+	})
 }
 
 func TestHeroUnequipRescalesHP(t *testing.T) {
