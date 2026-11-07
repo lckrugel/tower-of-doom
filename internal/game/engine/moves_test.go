@@ -27,6 +27,25 @@ func movesEngine(rngValues ...int) *Engine {
 	return e
 }
 
+func TestCanonicalBasicAttackUsesRegistryDefinitionInEngine(t *testing.T) {
+	e := movesEngine()
+	asset := game.MoveAsset{
+		ID: "basic_attack", Name: "Modded Basic", Type: "both", Tier: 1,
+		DmgModifier: 135, CritBonus: 7, Cooldown: 1, Weight: 25,
+	}
+	e.reg.Moves[asset.ID] = asset
+	e.Player.ForgetMove(entities.Punch().ID)
+
+	heroMoves := e.CombatMoves()
+	if len(heroMoves) != 1 || heroMoves[0].Name != "Modded Basic" || heroMoves[0].DmgModifier != 135 || heroMoves[0].Cooldown != 1 {
+		t.Fatalf("hero fallback = %+v, want registry-defined basic attack", heroMoves)
+	}
+	monsterMoves, err := e.monsterMoves(game.MonsterAsset{ID: "rat"})
+	if err != nil || len(monsterMoves) != 1 || monsterMoves[0].Name != "Modded Basic" || monsterMoves[0].Weight != 25 {
+		t.Fatalf("monster fallback = %+v, err %v; want registry-defined basic attack", monsterMoves, err)
+	}
+}
+
 // learn teaches the hero the named fixture moves in order (learning
 // order = the effective-set order the CmdMove index points into).
 func learn(e *Engine, ids ...string) {

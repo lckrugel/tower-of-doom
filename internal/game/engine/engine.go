@@ -556,7 +556,7 @@ func (e *Engine) generateEncounter(floor int) (Encounter, error) {
 // that load-time validation otherwise catches.
 func (e *Engine) monsterMoves(asset game.MonsterAsset) ([]entities.Move, error) {
 	if len(asset.Moves) == 0 {
-		return nil, nil
+		return []entities.Move{e.basicAttack()}, nil
 	}
 	moves := make([]entities.Move, 0, len(asset.Moves))
 	for _, ref := range asset.Moves {

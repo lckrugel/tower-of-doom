@@ -47,9 +47,18 @@ func (e *Engine) currentEnemy() *entities.Monster {
 func (e *Engine) CombatMoves() []entities.Move {
 	moves := e.Player.EffectiveMoves(e.Player.Weapon)
 	if len(moves) == 0 {
-		return []entities.Move{entities.BasicAttack()}
+		return []entities.Move{e.basicAttack()}
 	}
 	return moves
+}
+
+// basicAttack resolves the canonical fallback from the active registry. The
+// entity-level value remains a safe fallback for unvalidated/minimal registries.
+func (e *Engine) basicAttack() entities.Move {
+	if asset, ok := e.reg.MoveByID(entities.BasicAttack().ID); ok {
+		return entities.NewMoveFromAsset(asset)
+	}
+	return entities.BasicAttack()
 }
 
 // MoveCooldown reports how many more rounds the hero's move stays
