@@ -365,6 +365,48 @@ func TestMirrorResetsWhenANewCombatStarts(t *testing.T) {
 	assertCooldownsEqual(t, m, "in the new combat")
 }
 
+func TestMirrorResetsAfterBossUnlockBatch(t *testing.T) {
+	section := game.SectionAsset{
+		ID: "gate", Name: "Gate", MinFloor: 1, MaxFloor: 1,
+		BaseDifficulty: 1,
+		Spawns:         []game.SpawnEntry{{MonsterID: "goblin", Weight: 1}},
+		Boss:           &game.BossAsset{Monsters: []string{"goblin"}},
+	}
+	e := engine.NewEngine(&game.Registry{
+		Monsters: map[string]game.MonsterAsset{
+			"goblin": {ID: "goblin", Name: "Goblin", Difficulty: 1, HP: 1, Damage: 0, Speed: 1},
+		},
+		Items:    map[string]game.ItemAsset{},
+		Statuses: statusAssets,
+		Sections: []game.SectionAsset{section},
+	})
+	e.Player.ForgetMove(entities.Punch().ID)
+	selfGuard := entities.Move{
+		ID: "self_guard", Name: "Self Guard", DmgModifier: 100,
+		Status: entities.MoveStatus{ID: "guard", Chance: 100, Target: entities.TargetSelf},
+	}
+	if _, ok := e.Player.LearnMove(selfGuard); !ok {
+		t.Fatal("setup: could not learn self-guard move")
+	}
+	e.CurrentEncounter = engine.Encounter{
+		Type: engine.EncounterCombat,
+		Monsters: []entities.Monster{entities.NewMonsterFromAsset(game.MonsterAsset{
+			ID: "goblin", Name: "Goblin", Difficulty: 1, HP: 1, Damage: 0, Speed: 1,
+		})},
+	}
+	e.State = engine.StateCombat
+	m := New(e)
+
+	m = useMove(t, m, 0)
+
+	if e.State != engine.StateExploring || !e.BossUnlocked {
+		t.Fatalf("setup: state=%v bossUnlocked=%v, want exploration with boss challenge unlocked", e.State, e.BossUnlocked)
+	}
+	if len(m.mirror.heroStatuses) != 0 {
+		t.Errorf("boss-unlock batch left combat-only hero statuses in the mirror: %+v", m.mirror.heroStatuses)
+	}
+}
+
 // EventEncounterFound resets the mirror preemptively: a found encounter
 // may become a fight, and nothing stale may leak into it.
 func TestMirrorResetsOnEncounterFound(t *testing.T) {

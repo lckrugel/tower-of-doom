@@ -345,12 +345,11 @@ func (m Model) dispatch(a action) (tea.Model, tea.Cmd) {
 	}
 	prevState := m.engine.State
 	events := m.engine.Process(cmd)
-	// A combat boundary crossed by this dispatch resets the mirror (and
-	// the grid cursor with it): on entry BEFORE the batch is absorbed (a
-	// failed sneak's free turn tracks on a clean slate), on exit after it
-	// — the reset is idempotent, and nothing outside a live fight renders
-	// the mirror.
-	if (prevState == engine.StateCombat) != (m.engine.State == engine.StateCombat) {
+	enteredCombat := prevState != engine.StateCombat && m.engine.State == engine.StateCombat
+	exitedCombat := prevState == engine.StateCombat && m.engine.State != engine.StateCombat
+	// A new fight starts with a clean mirror before its events are absorbed;
+	// failed-sneak free turns therefore track from a clean slate as well.
+	if enteredCombat {
 		m.mirror.reset()
 		m.gridCursor = 0
 	}
@@ -361,6 +360,12 @@ func (m Model) dispatch(a action) (tea.Model, tea.Cmd) {
 		}
 	}
 	m.mirror.endBatch()
+	// Absorb the final combat batch before clearing its mirror. This matters
+	// for endings such as BossUnlocked, which are not ordinary victories.
+	if exitedCombat {
+		m.mirror.reset()
+		m.gridCursor = 0
+	}
 	m.log = trimLog(m.log)
 	m.cursor = 0    // the action bar is rebuilt for the (possibly new) state
 	m.bagCursor = 0 // re-entering the bag (or the shop) selects the first row again
