@@ -39,6 +39,7 @@ jobs:
           cache: true
 
       - name: gofmt
+        if: runner.os == 'Linux'
         shell: bash
         run: |
           unformatted=$(gofmt -l .)
