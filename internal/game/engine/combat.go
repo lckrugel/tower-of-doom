@@ -178,7 +178,7 @@ func (e *Engine) rollMoveDamage(effDmg int, move *entities.Move, critThreshold i
 func (e *Engine) heroStrike(move *entities.Move) []Event {
 	enemy := e.currentEnemy()
 	swing, crit := e.rollMoveDamage(e.heroStat(entities.StatDMG), move, e.Player.CritThreshold())
-	events := []Event{NewMoveUsed(e.Player.Name(), move.Name)}
+	events := []Event{NewMoveUsedOnSide(e.Player.Name(), move.Name, ActorHero)}
 	events = append(events, NewDamageDealtWithMove(enemy,
 		enemy.TakeDmg(effectiveDamage(swing, e.enemyStat(entities.StatDEF))), crit, move.Name))
 	events = append(events, e.applyStrikeStatus(move, e.Player, enemy)...)
@@ -246,7 +246,7 @@ func (e *Engine) enemyTurnMove() *entities.Move {
 func (e *Engine) enemyStrike(move *entities.Move) []Event {
 	enemy := e.currentEnemy()
 	swing, crit := e.rollMoveDamage(e.enemyStat(entities.StatDMG), move, enemy.CritThreshold())
-	events := []Event{NewMoveUsed(enemy.Name(), move.Name)}
+	events := []Event{NewMoveUsedOnSide(enemy.Name(), move.Name, ActorEnemy)}
 	events = append(events, NewDamageTakenWithMove(e.Player,
 		e.Player.TakeDmg(effectiveDamage(swing, e.heroStat(entities.StatDEF))), crit, move.Name))
 	events = append(events, e.applyStrikeStatus(move, enemy, e.Player)...)

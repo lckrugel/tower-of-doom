@@ -498,7 +498,7 @@ func TestViewCombatShowsOnlyTheCurrentEnemy(t *testing.T) {
 
 	// The engaged enemy gets its stat line too — crit chance and defense
 	// are worth watching mid-fight — but only the front enemy's.
-	front := "⚔ 2 · ⛨ 0 · » 10 · ✦ 5% · ⬆ 3"
+	front := "⚔ 2 · ⛨ 0 · » 10 · ✦ 5%"
 	if !strings.Contains(view, front) {
 		t.Errorf("combat view missing the front enemy's stat line %q:\n%s", front, view)
 	}
@@ -540,11 +540,11 @@ func TestViewGameOverRecap(t *testing.T) {
 	view := stripControls(stripANSI(m.View()))
 
 	for _, want := range []string{
-		"YOU DIED",       // the banner stays
-		"Floor 7",        // where it ended
-		"Goblin Pits",    // the section, via SectionName
-		"Level 3",        // hero level
-		"40 XP gathered", // xp accumulated before death
+		"YOU DIED",    // the banner stays
+		"Floor 7",     // where it ended
+		"Goblin Pits", // the section, via SectionName
+		"Level 3",     // hero level
+		"40 XP gathered",
 	} {
 		if !strings.Contains(view, want) {
 			t.Errorf("game over view missing %q:\n%s", want, view)

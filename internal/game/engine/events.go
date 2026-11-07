@@ -239,12 +239,19 @@ func NewDamageTakenWithMove(hero Combatant, dmgTaken int, crit bool, move string
 //   - "user": the striker's name.
 //   - "move": the move's name.
 func NewMoveUsed(user, move string) Event {
+	return NewMoveUsedOnSide(user, move, "")
+}
+
+// NewMoveUsedOnSide includes stable actor-side identity for consumers that
+// style or interpret combat events; names remain narrative only.
+func NewMoveUsedOnSide(user, move string, side ActorSide) Event {
+	data := map[string]any{"user": user, "move": move}
+	if side != "" {
+		data["side"] = side
+	}
 	return Event{
 		Type: EventMoveUsed,
-		Data: map[string]any{
-			"user": user,
-			"move": move,
-		},
+		Data: data,
 	}
 }
 

@@ -39,6 +39,49 @@ func fastRat() entities.Monster {
 	})
 }
 
+func TestCombatViewContract(t *testing.T) {
+	e := newTestEngine()
+	first := entities.NewMonsterFromAsset(game.MonsterAsset{ID: "one", Name: "Twin", Difficulty: 1, HP: 20, Damage: 3, Speed: 4})
+	second := entities.NewMonsterFromAsset(game.MonsterAsset{ID: "two", Name: "Twin", Difficulty: 1, HP: 20, Damage: 3, Speed: 4})
+	startEncounter(e, first, second)
+	e.Process(Command{Type: CmdFight})
+	e.heroCombat.cooldowns["basic_attack"] = 2
+	e.heroCombat.statuses = []activeStatus{{status: entities.Status{ID: "guard", Name: "Twin", Kind: entities.StatusBuff, Stat: entities.StatDEF, StatAmount: 5}, turnsLeft: 3}}
+	e.enemyCombat.statuses = []activeStatus{{status: entities.Status{ID: "poison", Name: "Twin", Kind: entities.StatusDebuff}, turnsLeft: 1}}
+
+	view := e.CombatView()
+	if !view.InCombat || view.Hero.Side != ActorHero || view.Enemy.Side != ActorEnemy {
+		t.Fatalf("combat identities = %+v/%+v, want explicit hero/enemy sides", view.Hero, view.Enemy)
+	}
+	if view.Enemy.ID != "one" || view.Hero.Name == view.Enemy.Name {
+		t.Errorf("actor identity should use stable side/id, not names: %+v / %+v", view.Hero, view.Enemy)
+	}
+	if view.Hero.Stats.DEF != 5 {
+		t.Errorf("hero effective DEF = %d, want status-adjusted 5", view.Hero.Stats.DEF)
+	}
+	var move *CombatMoveView
+	for i := range view.Hero.Moves {
+		if view.Hero.Moves[i].ID == "basic_attack" {
+			move = &view.Hero.Moves[i]
+			break
+		}
+	}
+	if move == nil || move.CooldownLeft != 2 {
+		t.Errorf("hero move view = %+v, want basic_attack cooldown 2", view.Hero.Moves)
+	}
+	if len(view.Hero.Statuses) != 1 || view.Hero.Statuses[0].ID != "guard" || view.Hero.Statuses[0].TurnsLeft != 3 || len(view.Enemy.Statuses) != 1 || view.Enemy.Statuses[0].ID != "poison" {
+		t.Errorf("status view = %+v / %+v", view.Hero.Statuses, view.Enemy.Statuses)
+	}
+	view.Hero.Statuses[0].TurnsLeft = 99
+	if e.CombatView().Hero.Statuses[0].TurnsLeft != 3 {
+		t.Error("view mutation changed engine state")
+	}
+	e.CurrentEncounter.Monsters[0] = second
+	if next := e.CombatView(); next.Enemy.ID != "two" || next.Enemy.Name != view.Enemy.Name {
+		t.Errorf("duplicate display name identity = %+v, want stable ID two", next.Enemy)
+	}
+}
+
 func eventTypes(events []Event) []EventType {
 	types := make([]EventType, 0, len(events))
 	for _, ev := range events {

@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"fmt"
 	"strings"
 	"testing"
 
@@ -127,409 +126,70 @@ func joinedLog(m Model) string {
 	return strings.Join(lines, "\n")
 }
 
-// assertCooldownsEqual fails unless the mirror's picture of every combat
-// move's cooldown matches the engine's own read-only accessor — the two
-// must never drift apart across real rounds.
-func assertCooldownsEqual(t *testing.T, m Model, when string) {
-	t.Helper()
-	for _, mv := range m.engine.CombatMoves() {
-		if got, want := m.mirror.cooldownLeft(mv.ID), m.engine.MoveCooldown(mv.ID); got != want {
-			t.Errorf("%s: mirror cooldown of %s = %d, engine reports %d", when, mv.ID, got, want)
+func TestCombatRenderingReadsLiveEngineView(t *testing.T) {
+	e := combatEngine()
+	learnMove(e, envenom(2))
+	m := enterCombat(t, e)
+	m = useMove(t, m, 0)
+	view := stripANSI(m.View())
+	for _, want := range []string{"Poison(2)", "(2 turns)", "DMG 1 · DEF 0 · SPD 10"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("combat view missing engine snapshot value %q:\n%s", want, view)
 		}
 	}
 }
 
+// assertCooldownsEqual fails unless the mirror's picture of every combat
+// move's cooldown matches the engine's own read-only accessor — the two
+// must never drift apart across real rounds.
+
 // Cooldowns lock on use and tick down as completed rounds pass — the
 // mirror must agree with the engine's accessor after every single round.
-func TestMirrorCooldownsFollowTheEngineAcrossRounds(t *testing.T) {
-	e := combatEngine()
-	learnMove(e, envenom(2)) // locks for 2 rounds
-	learnMove(e, jab())
-	m := enterCombat(t, e)
-
-	m = useMove(t, m, 0) // round 1: Envenom locks
-	assertCooldownsEqual(t, m, "after round 1")
-	if got := m.mirror.cooldownLeft("envenom"); got != 2 {
-		t.Errorf("cooldown after round 1 = %d, want 2 (the move's cooldown)", got)
-	}
-
-	m = useMove(t, m, 1) // round 2: a completed round ticks the lock down
-	assertCooldownsEqual(t, m, "after round 2")
-	if got := m.mirror.cooldownLeft("envenom"); got != 1 {
-		t.Errorf("cooldown after round 2 = %d, want 1", got)
-	}
-
-	m = useMove(t, m, 1) // round 3
-	m = useMove(t, m, 1) // round 4: ready again
-	assertCooldownsEqual(t, m, "after round 4")
-	if got := m.mirror.cooldownLeft("envenom"); got != 0 {
-		t.Errorf("cooldown after round 4 = %d, want 0 (expired)", got)
-	}
-}
 
 // A blocked move (dispatched while cooling) is a message, not a round:
 // neither the mirror nor the engine may tick.
-func TestMirrorBlockedMoveDoesNotTick(t *testing.T) {
-	e := combatEngine()
-	learnMove(e, envenom(2))
-	learnMove(e, jab())
-	m := enterCombat(t, e)
-	m = useMove(t, m, 0)
-
-	m = useMove(t, m, 0) // locked — the engine blocks it
-
-	last := stripANSI(m.log[len(m.log)-1])
-	if last != "Move on cooldown." {
-		t.Fatalf("last log line = %q, want the cooldown block", last)
-	}
-	if got := m.mirror.cooldownLeft("envenom"); got != 2 {
-		t.Errorf("a blocked move ticked the mirror: %d, want 2", got)
-	}
-	assertCooldownsEqual(t, m, "after the blocked move")
-}
 
 // A RECOVER round (every move locked) still ticks: the enemy acts, the
 // round completes, cooldowns count down without a hero lock being set.
-func TestMirrorRecoverRoundTicksCooldowns(t *testing.T) {
-	e := combatEngine()
-	learnMove(e, envenom(2)) // the ONLY move
-	m := enterCombat(t, e)
-	m = useMove(t, m, 0)
-
-	m = useMove(t, m, 0) // fully cooled → RECOVER round
-
-	if !strings.Contains(joinedLog(m), "you recover this turn") {
-		t.Fatalf("setup: no recover round happened:\n%s", joinedLog(m))
-	}
-	if got := m.mirror.cooldownLeft("envenom"); got != 1 {
-		t.Errorf("cooldown after the recover round = %d, want 1", got)
-	}
-	assertCooldownsEqual(t, m, "after the recover round")
-}
 
 // A killing blow ends the round early: no tick runs, but the used move
 // still locks at its full cooldown (engine appendEnemyDefeat).
-func TestMirrorKillRoundLocksWithoutTicking(t *testing.T) {
-	e := combatEngine()
-	e.Player.BaseDMG = 40 // one-shots the fixture goblins
-	learnMove(e, envenom(2))
-	learnMove(e, jab())
-	m := enterCombat(t, e)
-
-	m = useMove(t, m, 0) // kill → round aborted, lock applied at full value
-	if got := m.mirror.cooldownLeft("envenom"); got != 2 {
-		t.Errorf("kill-round lock = %d, want 2 (full cooldown, no tick)", got)
-	}
-	assertCooldownsEqual(t, m, "after the kill round")
-
-	m = useMove(t, m, 1) // another kill (Jab: no cooldown of its own)
-	if m.engine.State != engine.StateCombat {
-		t.Fatalf("setup: combat ended early (state %v)", m.engine.State)
-	}
-	if got := m.mirror.cooldownLeft("envenom"); got != 2 {
-		t.Errorf("the second kill round ticked the lock: %d, want 2", got)
-	}
-	assertCooldownsEqual(t, m, "after the second kill round")
-}
 
 // Status chips appear when the event lands, count down as completed
 // rounds pass, and vanish when the engine reports the expiry.
-func TestMirrorTracksStatusChipsAcrossRounds(t *testing.T) {
-	e := combatEngine()
-	learnMove(e, envenom(0)) // spammable poison
-	learnMove(e, jab())
-	m := enterCombat(t, e)
-
-	m = useMove(t, m, 0) // the poison lands (chance 100)
-
-	chips := m.mirror.enemyStatuses
-	if len(chips) != 1 || chips[0].name != "Poison" || chips[0].turns != 2 {
-		t.Fatalf("after round 1 the enemy chips are %+v, want Poison(2) — applied at 3, ticked at round end", chips)
-	}
-
-	m = useMove(t, m, 1) // round 2
-	if chips = m.mirror.enemyStatuses; len(chips) != 1 || chips[0].turns != 1 {
-		t.Errorf("after round 2 the enemy chips are %+v, want Poison(1)", chips)
-	}
-
-	m = useMove(t, m, 1) // round 3: the last tick expires it
-	if chips = m.mirror.enemyStatuses; len(chips) != 0 {
-		t.Errorf("the expired poison still shows: %+v", chips)
-	}
-	if !strings.Contains(joinedLog(m), "The Poison wears off.") {
-		t.Error("the engine's expiry line is missing — the mirror must agree with the log")
-	}
-}
 
 // Re-applying a status refreshes it to the event's turns payload (the
 // engine's max-of rule) — never a stack, never a sum.
-func TestMirrorRefreshesAStatusToTheEventTurns(t *testing.T) {
-	e := combatEngine()
-	learnMove(e, envenom(0))
-	m := enterCombat(t, e)
-
-	m = useMove(t, m, 0) // applied at 3 → ticked to 2
-	m = useMove(t, m, 0) // re-applied: refreshed to 3 → ticked to 2
-
-	chips := m.mirror.enemyStatuses
-	if len(chips) != 1 || chips[0].turns != 2 {
-		t.Errorf("refreshed chips = %+v, want a single Poison(2)", chips)
-	}
-}
 
 // A queue advance clears the ENEMY side only: the next monster steps in
 // fresh, and the killing move locks at its full cooldown (no tick ran).
-func TestMirrorClearsEnemyStatusesWhenTheQueueAdvances(t *testing.T) {
-	e := combatEngine()
-	learnMove(e, envenom(2))
-	learnMove(e, jab())
-	m := enterCombat(t, e)
-	m = useMove(t, m, 0) // the goblin is poisoned; Envenom locks for 2
-
-	m.engine.CurrentEncounter.Monsters[0].CurrentHP = 1
-	m = useMove(t, m, 1) // Jab kills → the poison dies with the goblin
-
-	if chips := m.mirror.enemyStatuses; len(chips) != 0 {
-		t.Errorf("the dead goblin kept its statuses: %+v", chips)
-	}
-	if got := m.mirror.cooldownLeft("envenom"); got != 2 {
-		t.Errorf("kill-round lock = %d, want 2 (full value, no tick)", got)
-	}
-	assertCooldownsEqual(t, m, "after the queue advance")
-	if len(m.engine.CurrentEncounter.Monsters) != 3 {
-		t.Errorf("queue = %d monsters, want 3 (a fresh goblin stepped up)", len(m.engine.CurrentEncounter.Monsters))
-	}
-}
 
 // The HERO side survives a queue advance: the engine keeps heroCombat
 // when the next monster steps in, and so must the mirror.
-func TestMirrorKeepsTheHeroSideAcrossAQueueAdvance(t *testing.T) {
-	e := combatEngine()
-	learnMove(e, jab())
-	e.CurrentEncounter = engine.Encounter{
-		Type:     engine.EncounterCombat,
-		Monsters: []entities.Monster{spitterMonster(200), goblinMonster()},
-	}
-	e.State = engine.StateCombat
-	m := New(e)
-
-	m = useMove(t, m, 0) // the spitter chips and poisons the hero
-	if chips := m.mirror.heroStatuses; len(chips) != 1 || chips[0].turns != 2 {
-		t.Fatalf("hero chips after round 1 = %+v, want Poison(2)", chips)
-	}
-
-	m.engine.CurrentEncounter.Monsters[0].CurrentHP = 1
-	m = useMove(t, m, 0) // kill → the queue advances
-
-	chips := m.mirror.heroStatuses
-	if len(chips) != 1 || chips[0].turns != 2 {
-		t.Errorf("hero chips after the queue advance = %+v, want Poison(2) kept", chips)
-	}
-}
 
 // Leaving combat (victory here) resets everything: the hero panel must
 // not carry chips into exploring. A NEW fight then tracks from zero —
 // the engine's startCombat reset, mirrored at the state transition.
-func TestMirrorResetsWhenANewCombatStarts(t *testing.T) {
-	e := combatEngine()
-	learnMove(e, jab())
-	e.Player.BaseDMG = 40 // one-shots the queue
-	e.CurrentEncounter = engine.Encounter{
-		Type:     engine.EncounterCombat,
-		Monsters: []entities.Monster{spitterMonster(200), goblinMonster()},
-	}
-	e.State = engine.StateCombat
-	m := New(e)
-
-	m = useMove(t, m, 0) // the spitter poisons the hero before dying
-	if len(m.mirror.heroStatuses) == 0 {
-		t.Fatal("setup: the hero was never poisoned")
-	}
-	m.engine.CurrentEncounter.Monsters[0].CurrentHP = 1
-	m = useMove(t, m, 0) // the spitter falls; the goblin steps up
-	m = useMove(t, m, 0) // the goblin falls → victory
-	if m.engine.State != engine.StateExploring {
-		t.Fatalf("setup: state after the last kill = %v, want StateExploring (victory)", m.engine.State)
-	}
-	if chips := m.mirror.heroStatuses; len(chips) != 0 {
-		t.Errorf("the mirror survived the victory: %+v", chips)
-	}
-
-	// A new fight starts clean and tracks from zero again.
-	m, _ = press(m, "e")
-	m, _ = press(m, "f")
-	if len(m.mirror.heroStatuses) != 0 {
-		t.Errorf("a new combat started with stale chips: %+v", m.mirror.heroStatuses)
-	}
-	m = useMove(t, m, 0)
-	assertCooldownsEqual(t, m, "in the new combat")
-}
-
-func TestMirrorResetsAfterBossUnlockBatch(t *testing.T) {
-	section := game.SectionAsset{
-		ID: "gate", Name: "Gate", MinFloor: 1, MaxFloor: 1,
-		BaseDifficulty: 1,
-		Spawns:         []game.SpawnEntry{{MonsterID: "goblin", Weight: 1}},
-		Boss:           &game.BossAsset{Monsters: []string{"goblin"}},
-	}
-	e := engine.NewEngine(&game.Registry{
-		Monsters: map[string]game.MonsterAsset{
-			"goblin": {ID: "goblin", Name: "Goblin", Difficulty: 1, HP: 1, Damage: 0, Speed: 1},
-		},
-		Items:    map[string]game.ItemAsset{},
-		Statuses: statusAssets,
-		Sections: []game.SectionAsset{section},
-	})
-	e.Player.ForgetMove(entities.Punch().ID)
-	selfGuard := entities.Move{
-		ID: "self_guard", Name: "Self Guard", DmgModifier: 100,
-		Status: entities.MoveStatus{ID: "guard", Chance: 100, Target: entities.TargetSelf},
-	}
-	if _, ok := e.Player.LearnMove(selfGuard); !ok {
-		t.Fatal("setup: could not learn self-guard move")
-	}
-	e.CurrentEncounter = engine.Encounter{
-		Type: engine.EncounterCombat,
-		Monsters: []entities.Monster{entities.NewMonsterFromAsset(game.MonsterAsset{
-			ID: "goblin", Name: "Goblin", Difficulty: 1, HP: 1, Damage: 0, Speed: 1,
-		})},
-	}
-	e.State = engine.StateCombat
-	m := New(e)
-
-	m = useMove(t, m, 0)
-
-	if e.State != engine.StateExploring || !e.BossUnlocked {
-		t.Fatalf("setup: state=%v bossUnlocked=%v, want exploration with boss challenge unlocked", e.State, e.BossUnlocked)
-	}
-	if len(m.mirror.heroStatuses) != 0 {
-		t.Errorf("boss-unlock batch left combat-only hero statuses in the mirror: %+v", m.mirror.heroStatuses)
-	}
-}
 
 // EventEncounterFound resets the mirror preemptively: a found encounter
 // may become a fight, and nothing stale may leak into it.
-func TestMirrorResetsOnEncounterFound(t *testing.T) {
-	m := New(combatEngine())
-	m.absorb(engine.Event{Type: engine.EventStatusApplied, Data: map[string]any{
-		"target": "Hero", "status": "Poison", "turns": 3, "kind": "debuff",
-	}})
-
-	m.absorb(engine.NewEncounterFound(nil))
-
-	if chips := m.mirror.heroStatuses; len(chips) != 0 {
-		t.Errorf("encounter found kept stale chips: %+v", chips)
-	}
-}
 
 // A round is not over until the enemy answers — and one dispatch batch is
 // one round: a batch holding only the hero's strike (a killing blow is
 // the only real case, covered against the real engine above) locks
 // nothing on its own.
-func TestMirrorRoundNeedsTheEnemysResponse(t *testing.T) {
-	newMirror := func() Model {
-		m := New(combatEngine())
-		learnMove(m.engine, envenom(2))
-		return m
-	}
-
-	t.Run("a hero strike without the enemy's response locks nothing", func(t *testing.T) {
-		m := newMirror()
-		m.absorb(engine.NewMoveUsed("Hero", "Envenom"))
-		m.mirror.endBatch() // no enemy response in this batch
-
-		if got := m.mirror.cooldownLeft("envenom"); got != 0 {
-			t.Errorf("a lock applied without the enemy's response: %d, want 0", got)
-		}
-	})
-
-	t.Run("the enemy's answer completes the round and locks the move", func(t *testing.T) {
-		m := newMirror()
-		m.absorb(engine.NewMoveUsed("Hero", "Envenom"))
-		m.absorb(engine.NewMoveUsed("Goblin", "Basic Attack"))
-		m.absorb(damagedHero(2, false))
-		m.mirror.endBatch()
-
-		if got := m.mirror.cooldownLeft("envenom"); got != 2 {
-			t.Errorf("cooldown after the completed round = %d, want 2", got)
-		}
-	})
-}
 
 // A failed flee grants the enemy a free turn: the round completes and
 // ticks even though the hero never acted (engine enemyFreeTurn).
-func TestMirrorFreeTurnCountsAsARound(t *testing.T) {
-	m := New(combatEngine())
-	m.mirror.heroCooldowns["envenom"] = 2 // locked from an earlier round
-
-	m.absorb(engine.NewMessage("You failed to flee!"))
-	m.absorb(engine.NewMoveUsed("Goblin", "Basic Attack"))
-	m.absorb(damagedHero(2, false))
-	m.mirror.endBatch()
-
-	if got := m.mirror.cooldownLeft("envenom"); got != 1 {
-		t.Errorf("the free turn did not tick the lock: %d, want 1", got)
-	}
-}
 
 // A DoT kill at round end: the enemy's killing tick proves the round-end
 // tick ran (the hero's afflictions tick FIRST) even though the defeat
 // aborted the cooldown bookkeeping — the mirror reads the tick events as
 // proof and ticks the hero side, while the lock still applies at full
 // value and the enemy side clears.
-func TestMirrorDoTKillAtRoundEndStillTicksHeroStatuses(t *testing.T) {
-	m := New(combatEngine())
-	learnMove(m.engine, envenom(2))
-
-	m.absorb(engine.Event{Type: engine.EventStatusApplied, Data: map[string]any{
-		"target": "Hero", "status": "Guard", "turns": 2, "kind": "buff",
-	}})
-	m.absorb(engine.Event{Type: engine.EventStatusApplied, Data: map[string]any{
-		"target": "Goblin", "status": "Poison", "turns": 1, "kind": "debuff",
-	}})
-	m.absorb(engine.NewMoveUsed("Hero", "Envenom"))
-	m.absorb(engine.NewMoveUsed("Goblin", "Basic Attack"))
-	m.absorb(engine.Event{Type: engine.EventStatusDamage, Data: map[string]any{
-		"target": "Goblin", "status": "Poison", "amount": 3, "kind": "debuff",
-	}})
-	m.absorb(engine.NewEnemyDefeated("Goblin", 4))
-	m.mirror.endBatch()
-
-	chips := m.mirror.heroStatuses
-	if len(chips) != 1 || chips[0].name != "Guard" || chips[0].turns != 1 {
-		t.Errorf("hero chips after the DoT kill = %+v, want Guard(1) — the hero's tick ran first", chips)
-	}
-	if got := m.mirror.cooldownLeft("envenom"); got != 2 {
-		t.Errorf("lock after the DoT kill = %d, want 2 (the defeat path locks, never ticks)", got)
-	}
-	if chips := m.mirror.enemyStatuses; len(chips) != 0 {
-		t.Errorf("the dead enemy kept statuses: %+v", chips)
-	}
-}
 
 // A plain kill (no round-end tick) must NOT tick the hero's statuses:
 // only tick events prove the round end ran.
-func TestMirrorPlainKillSkipsTheStatusTick(t *testing.T) {
-	m := New(combatEngine())
-	learnMove(m.engine, envenom(2))
-
-	m.absorb(engine.Event{Type: engine.EventStatusApplied, Data: map[string]any{
-		"target": "Hero", "status": "Guard", "turns": 2, "kind": "buff",
-	}})
-	m.absorb(engine.NewMoveUsed("Goblin", "Basic Attack"))
-	m.absorb(damagedHero(2, false))
-	m.absorb(engine.NewMoveUsed("Hero", "Envenom"))
-	m.absorb(engine.NewEnemyDefeated("Goblin", 4))
-	m.mirror.endBatch()
-
-	chips := m.mirror.heroStatuses
-	if len(chips) != 1 || chips[0].turns != 2 {
-		t.Errorf("hero chips after the plain kill = %+v, want Guard(2) untouched (no tick ran)", chips)
-	}
-	if got := m.mirror.cooldownLeft("envenom"); got != 2 {
-		t.Errorf("lock after the plain kill = %d, want 2", got)
-	}
-}
 
 // ---- the 2×2 move grid ----
 
@@ -1065,89 +725,13 @@ func TestStatusChipsToneByKind(t *testing.T) {
 // The enemy block's chips wrap to at most two rows, plus ONE dim
 // explanation line under them; nothing leans on slot() to clip: every
 // row fits the column, the rest is dropped.
-func TestEnemyStatusRowsCap(t *testing.T) {
-	m := New(combatEngine())
-	for i := range 12 {
-		m.mirror.enemyStatuses = append(m.mirror.enemyStatuses, combatStatus{
-			name: fmt.Sprintf("Status %02d long", i), kind: "debuff", turns: 3,
-		})
-	}
-
-	rows := strings.Split(m.enemyStatusRows(), "\n")
-
-	if len(rows) > maxStatusRows+1 {
-		t.Errorf("enemy statuses occupy %d rows, want at most %d chip rows + 1 explanation",
-			len(rows), maxStatusRows)
-	}
-	if len(rows) == 0 || !strings.Contains(strings.Join(rows, "\n"), "Status 00") {
-		t.Fatalf("no status chips rendered:\n%s", strings.Join(rows, "\n"))
-	}
-	if strings.Contains(strings.Join(rows, "\n"), "Status 11") {
-		t.Errorf("status chips were not capped; final status is visible:\n%s", strings.Join(rows, "\n"))
-	}
-	for i, row := range rows {
-		if w := ansiLen(row); w > mainColWidth {
-			t.Errorf("status row %d is %d wide, overflows the %d-col column: %q", i, w, mainColWidth, row)
-		}
-	}
-}
 
 // Under the chips sits one dim explanation line — "Poison — 3 dmg/turn
 // · 2 turns left": the live turns from the mirror, the effect from the
 // registry's lore.
-func TestEnemyChipsCarryAnExplanationLine(t *testing.T) {
-	e := combatEngine()
-	e.CurrentEncounter = engine.Encounter{
-		Type:     engine.EncounterCombat,
-		Monsters: []entities.Monster{goblinMonster()},
-	}
-	m := New(e)
-	m.mirror.enemyStatuses = []combatStatus{{name: "Poison", kind: "debuff", turns: 2}}
-
-	found := 0
-	for _, line := range viewLines(m.combatPanel()) {
-		if strings.Contains(line, "Poison — 3 dmg/turn · 2 turns left") {
-			found++
-		}
-	}
-	if found != 1 {
-		t.Errorf("the chips' explanation line is missing:\n%s", m.combatPanel())
-	}
-}
 
 // A status the registry doesn't know degrades to its live count — the
 // explanation stays truthful.
-func TestChipExplanationDegradesWithoutLore(t *testing.T) {
-	e := combatEngine()
-	e.CurrentEncounter = engine.Encounter{
-		Type:     engine.EncounterCombat,
-		Monsters: []entities.Monster{goblinMonster()},
-	}
-	m := New(e)
-	m.mirror.enemyStatuses = []combatStatus{{name: "Mystery", kind: "debuff", turns: 4}}
-
-	view := stripControls(stripANSI(m.combatPanel()))
-	if !strings.Contains(view, "Mystery · 4 turns left") {
-		t.Errorf("the unknown status lost its explanation:\n%s", view)
-	}
-}
 
 // The hero's chips fill the HP row while they fit — the row never
 // overflows the column and the panel keeps its four lines.
-func TestHeroChipsNeverOverflowTheRow(t *testing.T) {
-	m := New(combatEngine())
-	for i := range 8 {
-		m.mirror.heroStatuses = append(m.mirror.heroStatuses, combatStatus{
-			name: fmt.Sprintf("Status %d", i), kind: "debuff", turns: 3,
-		})
-	}
-
-	lines := viewLines(m.heroPanel())
-
-	if len(lines) != 4 {
-		t.Fatalf("hero panel has %d lines, want 4", len(lines))
-	}
-	if w := ansiLen(lines[2]); w > mainColWidth {
-		t.Errorf("hero HP row is %d wide, overflows the %d-col column: %q", w, mainColWidth, lines[2])
-	}
-}

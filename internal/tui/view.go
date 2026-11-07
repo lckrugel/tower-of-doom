@@ -537,10 +537,11 @@ func (m Model) combatPanel() string {
 	if len(monsters) == 0 {
 		return b.String() + styleDim.Render("   (no enemies in sight)")
 	}
-	front := monsters[0]
-	b.WriteString("▶ " + stylePanelTitle.Render(truncateRunes(front.Name(), enemyNameWidth)) +
-		"  " + hpBar(front.CurrentHP, front.MaxHP()) + "\n")
-	b.WriteString("  " + statLine(front) + "\n")
+	combat := m.engine.CombatView()
+	stats := combat.Enemy.Stats
+	b.WriteString("▶ " + stylePanelTitle.Render(truncateRunes(combat.Enemy.Name, enemyNameWidth)) +
+		"  " + hpBar(stats.HP, stats.MaxHP) + "\n")
+	b.WriteString("  " + effectiveStatLine(stats) + "\n")
 	if rows := m.enemyStatusRows(); rows != "" {
 		b.WriteString(rows + "\n")
 	}
@@ -627,7 +628,7 @@ func (m Model) gridCell(moves []entities.Move, i int) (name, tags string) {
 			strings.Repeat(" ", gridCellWidth)
 	}
 	move := moves[i]
-	cooling := m.mirror.cooldownLeft(move.ID) > 0
+	cooling := m.cooldownLeft(move.ID) > 0
 	style := styleAction
 	name = "  " + move.Name
 	if cooling {
@@ -656,7 +657,7 @@ func (m Model) gridCell(moves []entities.Move, i int) (name, tags string) {
 // unusable.
 func (m Model) gridTags(move entities.Move, cooling bool, source string) string {
 	if cooling {
-		return fmt.Sprintf("   (%d turns)", m.mirror.cooldownLeft(move.ID))
+		return fmt.Sprintf("   (%d turns)", m.cooldownLeft(move.ID))
 	}
 	tags := []string{fmt.Sprintf("%d%%", move.DmgModifier)}
 	if move.HasStatus() {
@@ -742,12 +743,14 @@ func wrapChips(chips []string, maxWidth, maxRows int) (rows []string, shown int)
 // title + name/HP + stats + 3 + the waiting counter = 7 of the 16 body
 // rows, grid included.
 func (m Model) enemyStatusRows() string {
-	chips := statusChips(m.mirror.enemyStatuses)
-	rows, shown := wrapChips(chips, mainColWidth-2, maxStatusRows)
+	statuses := combatStatuses(m.engine.CombatView().Enemy)
+	chips := statusChips(statuses)
+	rows, _ := wrapChips(chips, mainColWidth-2, maxStatusRows)
 	for i := range rows {
 		rows[i] = "  " + rows[i]
 	}
-	if expl := m.statusExplanation(m.mirror.enemyStatuses[:shown]); expl != "" {
+	_, shown := wrapChips(chips, mainColWidth-2, maxStatusRows)
+	if expl := m.statusExplanation(statuses[:shown]); expl != "" {
 		rows = append(rows, "  "+styleDim.Render(truncateRunes(expl, mainColWidth-2)))
 	}
 	return strings.Join(rows, "\n")
@@ -762,6 +765,11 @@ func (m Model) enemyStatusRows() string {
 func statLine(mon entities.Monster) string {
 	return styleDim.Render(fmt.Sprintf("⚔ %d · ⛨ %d · » %d · ✦ %d%% · ⬆ %d",
 		mon.Damage(), mon.Defense(), mon.Speed(), mon.CritThreshold(), mon.Difficulty))
+}
+
+func effectiveStatLine(stats engine.CombatStats) string {
+	return styleDim.Render(fmt.Sprintf("⚔ %d · ⛨ %d · » %d · ✦ %d%%",
+		stats.DMG, stats.DEF, stats.SPD, stats.Crit))
 }
 
 // maxNameWidth is the longest (rune-wise) monster name in the queue.
@@ -807,7 +815,11 @@ func (m Model) heroPanel() string {
 	b.WriteString(styleDim.Render(fmt.Sprintf("   XP %s %d/%d to Lv %d", xpBar(p), p.Xp, p.Xp+p.XpToLevel(), p.Lvl+1)))
 	b.WriteString("\n")
 	b.WriteString(m.heroHPRow() + "\n")
-	b.WriteString(fmt.Sprintf("  DMG %d · DEF %d · SPD %d · ", p.Damage(), p.Defense(), p.Speed()))
+	dmg, def, spd := p.Damage(), p.Defense(), p.Speed()
+	if combat := m.engine.CombatView(); combat.InCombat {
+		dmg, def, spd = combat.Hero.Stats.DMG, combat.Hero.Stats.DEF, combat.Hero.Stats.SPD
+	}
+	b.WriteString(fmt.Sprintf("  DMG %d · DEF %d · SPD %d · ", dmg, def, spd))
 	// The purse shares the stats line, dim like the panel's XP segment:
 	// the panel labels stay quiet, the log carries the gold-colored news.
 	b.WriteString(styleDim.Render(fmt.Sprintf("GOLD %d", p.Gold)))
@@ -825,7 +837,8 @@ func (m Model) heroPanel() string {
 func (m Model) heroHPRow() string {
 	p := m.engine.Player
 	row := fmt.Sprintf("  HP %s %d/%d", hpBarPlain(p.CurrentHP, p.MaxHP()), p.CurrentHP, p.MaxHP())
-	chips := statusChips(m.mirror.heroStatuses)
+	statuses := combatStatuses(m.engine.CombatView().Hero)
+	chips := statusChips(statuses)
 	shown := 0
 	for _, chip := range chips {
 		if lipgloss.Width(row)+1+lipgloss.Width(chip) > mainColWidth {
@@ -834,7 +847,7 @@ func (m Model) heroHPRow() string {
 		row += " " + chip
 		shown++
 	}
-	if expl := m.statusExplanation(m.mirror.heroStatuses[:shown]); expl != "" {
+	if expl := m.statusExplanation(statuses[:shown]); expl != "" {
 		if room := mainColWidth - lipgloss.Width(row) - 1; room > 0 {
 			row += " " + styleDim.Render(truncateRunes(expl, room))
 		}

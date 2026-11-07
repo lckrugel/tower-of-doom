@@ -43,11 +43,6 @@ type Model struct {
 	// cancels back. Arming is TUI-internal (no engine call); the flag
 	// never survives a dispatch, so any state change restores the bar.
 	confirmQuit bool
-	// mirror is the combat mirror — the model-side picture of the
-	// engine's unexported combat-scoped state (move cooldowns, active
-	// statuses), rebuilt from the event stream. See combat.go for the
-	// round-tracking and reset rules.
-	mirror combatMirror
 	// gridCursor is the selected cell of the combat move grid (0-3,
 	// row-major: [0 1 / 2 3]). The four arrows walk it with wraparound
 	// while in combat; it only ever rests on a real move (never on a
@@ -69,7 +64,6 @@ func New(e *engine.Engine) Model {
 		log: []string{
 			styleDim.Render("Welcome to the Tower of Doom! Climb as you dare."),
 		},
-		mirror: newCombatMirror(),
 	}
 }
 
@@ -350,7 +344,6 @@ func (m Model) dispatch(a action) (tea.Model, tea.Cmd) {
 	// A new fight starts with a clean mirror before its events are absorbed;
 	// failed-sneak free turns therefore track from a clean slate as well.
 	if enteredCombat {
-		m.mirror.reset()
 		m.gridCursor = 0
 	}
 	for _, ev := range events {
@@ -359,11 +352,7 @@ func (m Model) dispatch(a action) (tea.Model, tea.Cmd) {
 			quit = true
 		}
 	}
-	m.mirror.endBatch()
-	// Absorb the final combat batch before clearing its mirror. This matters
-	// for endings such as BossUnlocked, which are not ordinary victories.
 	if exitedCombat {
-		m.mirror.reset()
 		m.gridCursor = 0
 	}
 	m.log = trimLog(m.log)
@@ -381,7 +370,6 @@ func (m Model) dispatch(a action) (tea.Model, tea.Cmd) {
 // view needs (the defeat event's run stats feed the game-over recap).
 func (m *Model) absorb(ev engine.Event) {
 	m.log = append(m.log, renderEvent(ev))
-	m.mirror.absorb(ev, m.engine)
 	if ev.Type == engine.EventHeroDefeated {
 		m.recap = recapFromEvent(ev)
 	}
