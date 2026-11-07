@@ -222,6 +222,9 @@ func TestVictoryOnLastEnemyKill(t *testing.T) {
 	if len(e.CurrentEncounter.Monsters) != 0 {
 		t.Errorf("encounter = %v, want empty after victory", monsterIDs(e.CurrentEncounter.Monsters))
 	}
+	if e.CurrentEncounter.Type != EncounterCombat || e.CurrentEncounter.Boss || e.CurrentEncounter.Monsters != nil {
+		t.Errorf("CurrentEncounter after victory = %+v, want zero value", e.CurrentEncounter)
+	}
 }
 
 func TestMidCombatLevelUp(t *testing.T) {
@@ -298,6 +301,9 @@ func TestHeroDeathEndsCombatAndGame(t *testing.T) {
 	if got := eventTypes(events); !typesEqual(got,
 		EventMoveUsed, EventCombatDamageDealt, EventMoveUsed, EventCombatDamageTaken, EventHeroDefeated) {
 		t.Errorf("events = %v, want [move-used dealt move-used taken hero-defeated]", got)
+	}
+	if e.CurrentEncounter.Type != EncounterCombat || e.CurrentEncounter.Boss || e.CurrentEncounter.Monsters != nil {
+		t.Errorf("CurrentEncounter after defeat = %+v, want zero value", e.CurrentEncounter)
 	}
 	if e.State != StateGameOver {
 		t.Errorf("state after death = %v, want StateGameOver", e.State)

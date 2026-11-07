@@ -282,8 +282,10 @@ func (e *Engine) endRound(events []Event, heroMove, enemyMove *entities.Move) []
 	tickEvents, enemyDead := tickStatuses(&e.enemyCombat, e.currentEnemy())
 	events = append(events, tickEvents...)
 	if enemyDead {
-		// The poison kill is still a kill: XP, gold, queue advance —
-		// and the hero's used move locks for its full cooldown.
+		// Both sides completed the round before the poison tick, so existing
+		// hero cooldowns advance. appendEnemyDefeat then applies the move used
+		// this round at its full cooldown, after that completed-round tick.
+		e.heroCombat.tickCooldowns()
 		return e.appendEnemyDefeat(events, heroMove)
 	}
 
@@ -341,10 +343,12 @@ func (e *Engine) appendEnemyDefeat(events []Event, heroMove *entities.Move) []Ev
 		if section := e.currentSection(); section.Boss != nil && e.reg.IsSectionEnd(e.CurrentFloor) {
 			e.BossUnlocked = true
 			e.State = StateExploring
+			e.CurrentEncounter = Encounter{}
 			return append(events, NewBossUnlocked())
 		}
 		e.CanAscend = true
 		e.State = StateExploring
+		e.CurrentEncounter = Encounter{}
 		events = append(events, NewVictory())
 	}
 	return events
@@ -354,7 +358,9 @@ func (e *Engine) appendEnemyDefeat(events []Event, heroMove *entities.Move) []Ev
 // floor reached, hero level and enemies defeated so far.
 func (e *Engine) appendHeroDefeat(events []Event) []Event {
 	e.State = StateGameOver
-	return append(events, NewHeroDefeatedWithStats(e.CurrentFloor, e.Player.Lvl, e.kills))
+	events = append(events, NewHeroDefeatedWithStats(e.CurrentFloor, e.Player.Lvl, e.kills))
+	e.CurrentEncounter = Encounter{}
+	return events
 }
 
 // defCurveK tunes the defense mitigation curve — mitigation per hit is

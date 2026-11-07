@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/lckrugel/tower-of-doom/internal/game"
@@ -337,6 +338,35 @@ func TestDoTKillsTheMonster(t *testing.T) {
 	}
 	if e.Player.Xp != 4 { // round(4 × 1^1.5) = 4
 		t.Errorf("xp = %d, want 4 (the kill XP was granted)", e.Player.Xp)
+	}
+}
+
+// A DoT defeat happens after both sides acted, so it advances existing hero
+// cooldowns while still giving the move used that round its full cooldown.
+func TestDoTKillAdvancesExistingCooldowns(t *testing.T) {
+	e := statusesEngine(0, 99, 0, 0, 0, 99, 0, 99, 0, 0, 0, 99)
+	heroWithDamage(e, 0)
+	learn(e, "sure_poison", "guard_strike")
+	monster := entities.NewMonsterFromAsset(game.MonsterAsset{
+		ID: "fleabane", Name: "Fleabane", Difficulty: 1, HP: 7, Damage: 0, Speed: 5,
+	})
+	startEncounter(e, monster)
+	e.Process(Command{Type: CmdFight})
+	e.Process(Command{Type: CmdMove, Index: 0}) // poison; tick leaves the monster at 3 HP
+	if hp := e.CurrentEncounter.Monsters[0].CurrentHP; hp != 3 {
+		t.Fatalf("monster HP after poison setup round = %d, want 3", hp)
+	}
+	e.heroCombat.cooldowns["prior_move"] = 2
+
+	events := e.Process(Command{Type: CmdMove, Index: 1}) // guard strike + lethal poison tick
+	if !slices.Contains(eventTypes(events), EventEnemyDefeated) {
+		t.Fatalf("events = %v, want a DoT enemy defeat", eventTypes(events))
+	}
+	if got := e.heroCombat.cooldowns["prior_move"]; got != 1 {
+		t.Errorf("existing cooldown after completed DoT-kill round = %d, want 1", got)
+	}
+	if got := e.heroCombat.cooldowns["guard_strike"]; got != 2 {
+		t.Errorf("move used in DoT-kill round cooldown = %d, want full cooldown 2", got)
 	}
 }
 
