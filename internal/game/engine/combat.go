@@ -242,7 +242,7 @@ func (e *Engine) enemyTurnMove() *entities.Move {
 		weights = append(weights, m.Weight)
 	}
 	if len(filtered) == 0 {
-		basic := entities.BasicAttack()
+		basic := e.basicAttack()
 		return &basic
 	}
 	picked := weightedPick(e.rng, filtered, weights)

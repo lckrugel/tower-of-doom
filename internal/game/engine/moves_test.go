@@ -44,6 +44,20 @@ func TestCanonicalBasicAttackUsesRegistryDefinitionInEngine(t *testing.T) {
 	if err != nil || len(monsterMoves) != 1 || monsterMoves[0].Name != "Modded Basic" || monsterMoves[0].Weight != 25 {
 		t.Fatalf("monster fallback = %+v, err %v; want registry-defined basic attack", monsterMoves, err)
 	}
+
+	locked := entities.NewMoveFromAsset(game.MoveAsset{
+		ID: "locked", Name: "Locked", Type: "both", Tier: 1,
+		DmgModifier: 100, Cooldown: 2, Weight: 1,
+	})
+	startEncounter(e, entities.NewMonsterFromAsset(game.MonsterAsset{
+		ID: "rat", Name: "Rat", Difficulty: 1, HP: 20,
+	}, locked))
+	e.State = StateCombat
+	e.enemyCombat = newCombatantState()
+	e.enemyCombat.cooldowns[locked.ID] = 2
+	if got := e.enemyTurnMove(); got.ID != asset.ID || got.Name != asset.Name || got.DmgModifier != asset.DmgModifier {
+		t.Errorf("all-locked enemy fallback = %+v, want registry-defined basic attack", got)
+	}
 }
 
 // learn teaches the hero the named fixture moves in order (learning
@@ -524,8 +538,8 @@ func TestMonsterAllMovesLockedUsesBasicAttackWithoutRng(t *testing.T) {
 	if got := eventTypes(events); !typesEqual(got, EventMoveUsed, EventCombatDamageDealt, EventMoveUsed, EventCombatDamageTaken) {
 		t.Fatalf("events = %v, want [move-used dealt move-used taken]", got)
 	}
-	if move := events[2].Data["move"]; move != "Basic Strike" {
-		t.Errorf("monster move = %v, want the basic_attack fallback", move)
+	if move := events[2].Data["move"]; move != "Basic Attack" {
+		t.Errorf("monster move = %v, want registry-defined basic_attack name", move)
 	}
 	// The fallback saves the PICK roll: two strikes' worth of rolls
 	// (spread + crit each) — one less than a picked turn would consume.
