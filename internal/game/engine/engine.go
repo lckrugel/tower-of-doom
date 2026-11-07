@@ -380,7 +380,7 @@ func (e *Engine) handleLearn(cmd Command) []Event {
 	case CmdForget:
 		// The index was range-checked by isValidCommand against the
 		// learned set, so this indexes safely.
-		chosen := e.chosenOffer()
+		chosen := e.ChosenMove
 		if chosen == nil {
 			// Unreachable: the forgetting step only exists over a chosen
 			// offer. Refuse safely, never panic.
@@ -411,11 +411,6 @@ func (e *Engine) handleLearn(cmd Command) []Event {
 // chosen offer waits and the learned set is untouched.
 func (e *Engine) inForgetStep() bool {
 	return e.ChosenMove != nil
-}
-
-// chosenOffer reports the offer the forgetting step will teach.
-func (e *Engine) chosenOffer() *entities.Move {
-	return e.ChosenMove
 }
 
 // clearShrine empties the shrine's pending state — PendingMoves and
