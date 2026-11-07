@@ -1353,12 +1353,22 @@ func TestValidateCombat2Content(t *testing.T) {
 		{
 			"dot amount below 1",
 			func(r *Registry) { s := r.Statuses["poison"]; s.Effect.Amount = 0; r.Statuses["poison"] = s },
-			"dot amount",
+			"no dot component",
 		},
 		{
 			"stat amount zero",
 			func(r *Registry) { s := r.Statuses["weaken"]; s.Effect.Amount = 0; r.Statuses["weaken"] = s },
-			"zero stat amount",
+			"no stat modifier",
+		},
+		{
+			"percentage dot requires cap",
+			func(r *Registry) { s := r.Statuses["poison"]; s.Effect.Percent = 10; r.Statuses["poison"] = s },
+			"percent_cap",
+		},
+		{
+			"stat rejects dot cap",
+			func(r *Registry) { s := r.Statuses["guard"]; s.Effect.PercentCap = 4; r.Statuses["guard"] = s },
+			"percent_cap",
 		},
 		{
 			"status unknown stat",

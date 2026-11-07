@@ -152,19 +152,21 @@ type Status struct {
 	ID   string
 	Name string
 	Kind StatusKind
-	// Exactly one effect flavor is set: DotAmount (> 0) deals that much
-	// damage per turn; otherwise Stat + StatAmount modify a stat (the
-	// amount is never 0 in validated content).
-	DotAmount  int
-	Stat       StatKind // "" for DoT effects
-	StatAmount int
+	// DoT components are damage each round; percentage damage is based on
+	// target MaxHP and only that component is bounded by DotPercentCap.
+	DotAmount     int
+	DotPercent    int
+	DotPercentCap int
+	Stat          StatKind // "" for DoT effects
+	StatAmount    int
+	StatPercent   int
 	// Duration is how many turns the status lasts.
 	Duration int
 }
 
 // IsDot reports whether the status deals damage per turn (instead of
 // modifying a stat).
-func (s Status) IsDot() bool { return s.DotAmount > 0 }
+func (s Status) IsDot() bool { return s.Stat == "" && (s.DotAmount != 0 || s.DotPercent != 0) }
 
 // NewStatusFromAsset builds a runtime status from its asset. The asset
 // must come from a validated registry (Load → Validate): an unknown
@@ -179,9 +181,12 @@ func NewStatusFromAsset(asset game.StatusAsset) Status {
 	switch asset.Effect.Type {
 	case "dot":
 		s.DotAmount = asset.Effect.Amount
+		s.DotPercent = asset.Effect.Percent
+		s.DotPercentCap = asset.Effect.PercentCap
 	case "stat":
 		s.Stat = StatKind(asset.Effect.Stat)
 		s.StatAmount = asset.Effect.Amount
+		s.StatPercent = asset.Effect.Percent
 	}
 	return s
 }

@@ -141,6 +141,11 @@ type StatusEffectAsset struct {
 	// Amount is the DoT damage per turn (>= 1) or the stat modifier (!= 0)
 	// — matching the type.
 	Amount int `json:"amount"`
+	// Percent is an optional percentage modifier. For DoT it is a percent
+	// of the target's maximum HP; for stat effects it modifies the baseline.
+	Percent int `json:"percent,omitempty"`
+	// PercentCap bounds only the percentage portion of a DoT.
+	PercentCap int `json:"percent_cap,omitempty"`
 }
 
 // StatusAsset defines a Combat 2.0 status effect (an entry of
@@ -513,16 +518,31 @@ func (r *Registry) Validate(topFloor int) error {
 		}
 		switch st.Effect.Type {
 		case "dot":
-			if st.Effect.Amount < 1 {
-				fail("status %q has dot amount %d, want >= 1", st.ID, st.Effect.Amount)
+			if st.Effect.Amount < 0 || st.Effect.Percent < 0 {
+				fail("status %q has negative dot component (amount %d, percent %d), want >= 0", st.ID, st.Effect.Amount, st.Effect.Percent)
+			}
+			if st.Effect.Amount == 0 && st.Effect.Percent == 0 {
+				fail("status %q has no dot component, want positive amount or percent", st.ID)
+			}
+			if st.Effect.Percent > 100 {
+				fail("status %q has dot percent %d, want within [0, 100]", st.ID, st.Effect.Percent)
+			}
+			if st.Effect.Percent > 0 && st.Effect.PercentCap < 1 {
+				fail("status %q has dot percent but percent_cap %d, want >= 1", st.ID, st.Effect.PercentCap)
+			}
+			if st.Effect.Percent == 0 && st.Effect.PercentCap != 0 {
+				fail("status %q has percent_cap without dot percent", st.ID)
 			}
 		case "stat":
 			if !slices.Contains([]string{"dmg", "def", "spd"}, st.Effect.Stat) {
 				fail("status %q modifies unknown stat %q, want one of dmg, def, spd",
 					st.ID, st.Effect.Stat)
 			}
-			if st.Effect.Amount == 0 {
-				fail("status %q has a zero stat amount, want a non-zero modifier", st.ID)
+			if st.Effect.Amount == 0 && st.Effect.Percent == 0 {
+				fail("status %q has no stat modifier, want non-zero amount or percent", st.ID)
+			}
+			if st.Effect.PercentCap != 0 {
+				fail("status %q has percent_cap on a stat effect", st.ID)
 			}
 		default:
 			fail("status %q has effect type %q, want \"dot\" or \"stat\"", st.ID, st.Effect.Type)
