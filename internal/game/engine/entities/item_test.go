@@ -43,6 +43,10 @@ func TestItemBuyPrice(t *testing.T) {
 			game.ItemAsset{ID: "r", Name: "R", Slot: "ring", BonusHP: 5, Durability: -1}, 0, 250},
 		{"a zero-bonus item is free",
 			game.ItemAsset{ID: "z", Name: "Z", Slot: "weapon", Durability: 50}, 0, 0},
+		{"negative net bonuses never create a negative price",
+			game.ItemAsset{ID: "c", Name: "C", Slot: "ring", BonusSPD: -1}, 0, 0},
+		{"negative durability never creates a negative price",
+			game.ItemAsset{ID: "w", Name: "W", Slot: "weapon", BonusDMG: 5, Durability: 10}, 20, 0},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
