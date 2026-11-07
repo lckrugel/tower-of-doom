@@ -125,9 +125,10 @@ helpers are for non-engine use only (e.g. item durability).
   and the round's used moves lock. A round aborted by a death skips the
   remaining ticks (the used move still locks).
 - **Effective stats:** every stat read in combat (strike damage,
-  mitigation, initiative, the flee formula) is base+gear plus the sum of
-  the combatant's active stat-mod statuses, clamped — DMG at 1, DEF/SPD
-  at 0. Pure math — no rng.
+  mitigation, initiative, the flee formula) starts from base+gear. Active
+  status percentages are summed and applied once (floored) to that baseline;
+  summed flat modifiers are then added. Stat percentages do not compound.
+  Results clamp — DMG at 1, DEF/SPD at 0. Pure math — no rng.
 - **Move cooldowns:** using a move locks it for exactly its `cooldown`
   full rounds after the round of use (0 = spammable). Locks tick at
   round end and never survive the encounter. A fully-cooled hero turn
@@ -158,6 +159,21 @@ helpers are for non-engine use only (e.g. item durability).
 - Applied engine-side on both directions (hero taking damage and monsters
   taking damage); `TakeDmg` itself stays a plain clamp. Pure math —
   consumes no rng. Content validation rejects negative DEF.
+
+### Status effects
+
+- Status effects support flat `amount`, percentage `percent`, or both.
+  Stat percentages use the equipment-inclusive baseline before statuses;
+  multiple percentages add, then flat modifiers apply afterward.
+- DoT is evaluated at each round-end tick from the target's current
+  equipment-inclusive MaxHP: `amount + floor(MaxHP × percent / 100)`.
+  `percent_cap` limits only that percentage component; flat damage remains
+  additive. A positive DoT deals at least 1 damage before the remaining-HP
+  clamp. DoT bypasses defense and can kill.
+- A status's application round counts toward its duration. Stat effects are
+  active immediately; DoT ticks at that round's end. Reapplying the same
+  status ID refreshes it to the longest duration without stacking, while
+  different statuses combine or tick independently.
 
 ### Kill XP
 
