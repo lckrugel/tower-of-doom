@@ -85,6 +85,9 @@ func (i *Item) Value() float32 {
 	return max(float32(0), value)
 }
 
+// Use applies the unfinished durability wear roll. It is intentionally not
+// called by engine gameplay; durability remains dormant until that mechanic
+// is designed and enabled as a separate change.
 func (i *Item) Use() {
 	if i.Slot != amulet && i.Slot != ring {
 		roll := game.RollD20()

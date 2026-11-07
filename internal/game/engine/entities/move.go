@@ -237,11 +237,10 @@ func FilterUnknownMoves(pool []game.MoveAsset, known []Move) []game.MoveAsset {
 	return filtered
 }
 
-// BasicAttack returns the canonical fallback move (asset id
-// "basic_attack"): a neutral strike — 100% damage, no crit bonus, no
-// cooldown, no status. Monsters whose asset lists no moves fight with
-// it. A function (not a package variable) so callers can never mutate a
-// shared value; the embedded moves.json ships the same move as an asset.
+// BasicAttack returns the safe built-in fallback value for callers without
+// an engine registry. Engine combat resolves the canonical basic_attack ID
+// from its active registry when available. A function (not a package
+// variable) prevents callers from mutating a shared value.
 func BasicAttack() Move {
 	return Move{
 		ID:          "basic_attack",
