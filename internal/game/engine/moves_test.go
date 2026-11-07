@@ -306,7 +306,7 @@ func TestKillRoundLocksWithoutTicking(t *testing.T) {
 // The hero's opening move set: Punch PRE-LEARNED (learned slot 1 of 2)
 // plus the starter sword's explicit Basic Strike grant. With the punch
 // in the learned set the effective set is never empty for a fresh hero —
-// the basic_attack fallback below stays depth-only.
+// the registry-defined basic_attack is reserved for empty move sets.
 func TestFreshHeroStartsWithThePunch(t *testing.T) {
 	// starterEngine builds an engine whose registry carries the starter
 	// sword (equipped by id) and the move its grant references.
