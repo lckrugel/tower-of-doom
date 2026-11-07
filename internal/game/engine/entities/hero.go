@@ -3,11 +3,13 @@ package entities
 import (
 	"math"
 	"slices"
+
+	"github.com/lckrugel/tower-of-doom/internal/game"
 )
 
 // Status base do Herói
 const (
-	baseHp           = 100
+	baseHp           = game.StartingHeroMaxHP
 	baseDmg          = 0
 	baseSpd          = 10
 	baseDef          = 0
@@ -232,29 +234,31 @@ func (h *Hero) EquipItem(i *Item) *Item {
 	if i == nil {
 		return nil
 	}
-	oldItem := h.UnequipItem(i.Slot)
-
-	// Máximo antes do novo item entrar no slot.
 	oldMax := h.MaxHP()
+	oldItem := h.replaceEquippedItem(i.Slot, i)
+	// A replacement is one equipment change. Rescale from the original
+	// maximum directly to the final maximum, without intermediate rounding.
+	h.rescaleHP(oldMax, h.MaxHP())
+	return oldItem
+}
 
-	switch i.Slot {
+// replaceEquippedItem changes a slot without adjusting HP. The caller
+// applies a single rescale across the complete equipment mutation.
+func (h *Hero) replaceEquippedItem(slot ItemSlot, replacement *Item) *Item {
+	var oldItem *Item
+	switch slot {
 	case weapon:
-		h.Weapon = i
+		oldItem, h.Weapon = h.Weapon, replacement
 	case helmet:
-		h.Head = i
+		oldItem, h.Head = h.Head, replacement
 	case body:
-		h.Body = i
+		oldItem, h.Body = h.Body, replacement
 	case boots:
-		h.Feet = i
+		oldItem, h.Feet = h.Feet, replacement
 	case amulet:
-		h.Amulet = i
+		oldItem, h.Amulet = h.Amulet, replacement
 	case ring:
-		h.Ring = i
-	}
-
-	// Preserva o % de vida quando o novo item muda o HP máximo.
-	if i.BonusHP != 0 {
-		h.rescaleHP(oldMax, h.MaxHP())
+		oldItem, h.Ring = h.Ring, replacement
 	}
 	return oldItem
 }
@@ -263,27 +267,7 @@ func (h *Hero) UnequipItem(slot ItemSlot) *Item {
 	// Máximo antes do item sair do slot.
 	oldMax := h.MaxHP()
 
-	var item *Item
-	switch slot {
-	case weapon:
-		item = h.Weapon
-		h.Weapon = nil
-	case helmet:
-		item = h.Head
-		h.Head = nil
-	case body:
-		item = h.Body
-		h.Body = nil
-	case boots:
-		item = h.Feet
-		h.Feet = nil
-	case amulet:
-		item = h.Amulet
-		h.Amulet = nil
-	case ring:
-		item = h.Ring
-		h.Ring = nil
-	}
+	item := h.replaceEquippedItem(slot, nil)
 
 	// Preserva o % de vida quando o item que saiu muda o HP máximo.
 	if item != nil && item.BonusHP != 0 {

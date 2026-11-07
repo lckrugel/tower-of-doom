@@ -99,6 +99,13 @@ func TestValidateRejectsInvalidContent(t *testing.T) {
 			"difficulty",
 		},
 		{
+			"zero monster HP",
+			[]MonsterAsset{{ID: "rat", Name: "Rat", Difficulty: 1, HP: 0}},
+			[]SectionAsset{{ID: "s", Name: "S", MinFloor: 1, MaxFloor: -1,
+				Spawns: []SpawnEntry{{MonsterID: "rat", Weight: 1}}}},
+			"hp",
+		},
+		{
 			"floor budget below cheapest monster",
 			[]MonsterAsset{{ID: "rat", Name: "Rat", Difficulty: 5, HP: 10}},
 			[]SectionAsset{{ID: "s", Name: "S", BaseDifficulty: 1, MinFloor: 1, MaxFloor: -1,
@@ -162,6 +169,54 @@ func TestValidateRejectsInvalidContent(t *testing.T) {
 				t.Errorf("error = %v, want it to contain %q", err, tt.wantErr)
 			}
 		})
+	}
+}
+
+func TestValidateChecksBossOnlyMonsterSchema(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		monster MonsterAsset
+		wantErr string
+	}{
+		{"difficulty", MonsterAsset{Difficulty: 0, HP: 10}, `has difficulty 0`},
+		{"HP", MonsterAsset{Difficulty: 1, HP: 0}, `has hp 0`},
+		{"defense", MonsterAsset{Difficulty: 1, HP: 10, Defense: -1}, `has def -1`},
+		{"crit", MonsterAsset{Difficulty: 1, HP: 10, Crit: 101}, `has crit 101`},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			monster := tt.monster
+			monster.ID, monster.Name = "boss_only", "Boss Only"
+			monsters := append(validMonsters(), monster)
+			sections := validSections()
+			sections[0].Boss = &BossAsset{Monsters: []string{"boss_only"}}
+
+			err := makeReg(monsters, sections).Validate(10)
+			if err == nil || !strings.Contains(err.Error(), `monster "boss_only" `+tt.wantErr) {
+				t.Fatalf("Validate(boss-only monster) = %v, want intrinsic schema error containing %q", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestValidateRejectsUnknownItemSlots(t *testing.T) {
+	r := makeReg(validMonsters(), validSections())
+	r.Items["misspelled"] = ItemAsset{ID: "misspelled", Name: "Misspelled", Slot: "helment", Tier: 1}
+
+	err := r.Validate(10)
+	if err == nil || !strings.Contains(err.Error(), `item "misspelled" has unknown slot "helment"`) {
+		t.Fatalf("Validate(unknown item slot) = %v, want unknown slot error", err)
+	}
+}
+
+func TestLoadJSONRejectsUnknownFields(t *testing.T) {
+	dir := t.TempDir()
+	contents := `[{"id":"rat","name":"Rat","difficulty":1,"hp":10,"dmg":1,"spd":5,"dificulty":1}]`
+	if err := os.WriteFile(filepath.Join(dir, "monsters.json"), []byte(contents), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, _, err := loadJSON[MonsterAsset](dir, "monsters.json")
+	if err == nil || !strings.Contains(err.Error(), `unknown field "dificulty"`) {
+		t.Fatalf("loadJSON with a misspelled field = %v, want unknown-field error", err)
 	}
 }
 
@@ -1076,6 +1131,15 @@ func TestLoadProvenance(t *testing.T) {
 // the APPDATA fallback and the missing-home cases — is table-testable
 // without touching the process environment.
 func TestDefaultModsDir(t *testing.T) {
+	hostAbs := func(path string) string {
+		abs, err := filepath.Abs(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return abs
+	}
+	xdgData, home := hostAbs(filepath.Join("xdg", "data")), hostAbs("hero-home")
+	homeHero := filepath.Join(home, "hero")
 	env := func(kv ...string) func(string) string {
 		vars := make(map[string]string, len(kv)/2)
 		for i := 0; i+1 < len(kv); i += 2 {
@@ -1092,23 +1156,23 @@ func TestDefaultModsDir(t *testing.T) {
 	}{
 		{
 			"linux honours an absolute XDG_DATA_HOME",
-			"linux", env("XDG_DATA_HOME", "/xdg/data", "HOME", "/home/hero"),
-			filepath.Join("/xdg/data", "tower-of-doom", "mods"),
+			"linux", env("XDG_DATA_HOME", xdgData, "HOME", homeHero),
+			filepath.Join(xdgData, "tower-of-doom", "mods"),
 		},
 		{
 			"linux rejects a relative XDG_DATA_HOME (the XDG spec requires absolute)",
-			"linux", env("XDG_DATA_HOME", "relative/data", "HOME", "/home/hero"),
-			filepath.Join("/home/hero", ".local", "share", "tower-of-doom", "mods"),
+			"linux", env("XDG_DATA_HOME", "relative/data", "HOME", homeHero),
+			filepath.Join(homeHero, ".local", "share", "tower-of-doom", "mods"),
 		},
 		{
 			"linux falls back to ~/.local/share without XDG_DATA_HOME",
-			"linux", env("HOME", "/home/hero"),
-			filepath.Join("/home/hero", ".local", "share", "tower-of-doom", "mods"),
+			"linux", env("HOME", homeHero),
+			filepath.Join(homeHero, ".local", "share", "tower-of-doom", "mods"),
 		},
 		{
 			"linux accepts an absolute XDG_DATA_HOME without a home",
-			"linux", env("XDG_DATA_HOME", "/xdg/data"),
-			filepath.Join("/xdg/data", "tower-of-doom", "mods"),
+			"linux", env("XDG_DATA_HOME", xdgData),
+			filepath.Join(xdgData, "tower-of-doom", "mods"),
 		},
 		{
 			"linux gives up without a home or XDG_DATA_HOME",
@@ -1117,8 +1181,8 @@ func TestDefaultModsDir(t *testing.T) {
 		},
 		{
 			"unknown goos follows the unix convention",
-			"freebsd", env("XDG_DATA_HOME", "/xdg/data", "HOME", "/home/hero"),
-			filepath.Join("/xdg/data", "tower-of-doom", "mods"),
+			"freebsd", env("XDG_DATA_HOME", xdgData, "HOME", homeHero),
+			filepath.Join(xdgData, "tower-of-doom", "mods"),
 		},
 		{
 			"darwin uses ~/Library/Application Support",
@@ -1526,5 +1590,32 @@ func TestValidateCollectsEveryError(t *testing.T) {
 	again := r.Validate(10)
 	if again == nil || again.Error() != err.Error() {
 		t.Errorf("Validate is not deterministic:\nfirst:  %v\nsecond: %v", err, again)
+	}
+}
+
+func TestValidateRejectsEquipmentThatCanZeroHeroMaxHP(t *testing.T) {
+	r := makeReg(validMonsters(), validSections())
+	r.Moves["basic_attack"] = MoveAsset{
+		ID: "basic_attack", Name: "Basic Attack", Type: "both", Tier: 1,
+		DmgModifier: 100, Weight: 100,
+	}
+	for i, slot := range []string{"weapon", "helmet", "body_armor", "boots", "ring", "amulet"} {
+		id := "penalty_" + slot
+		r.Items[id] = ItemAsset{ID: id, Name: id, Slot: slot, Tier: 1, BonusHP: -17}
+		if i == 0 {
+			// A legitimate negative non-HP bonus remains accepted.
+			r.Items[id] = ItemAsset{ID: id, Name: id, Slot: slot, Tier: 1, BonusHP: -16, BonusSPD: -10, Moves: []string{"basic_attack"}}
+		}
+	}
+
+	err := r.Validate(10)
+	if err == nil || !strings.Contains(err.Error(), "could reduce the hero's maximum HP to 0") {
+		t.Fatalf("Validate(lethal equipment combination) = %v, want unsafe-max-HP error", err)
+	}
+
+	// The same combination leaving exactly one HP is valid.
+	r.Items["penalty_amulet"] = ItemAsset{ID: "penalty_amulet", Name: "penalty_amulet", Slot: "amulet", Tier: 1, BonusHP: -15}
+	if err := r.Validate(10); err != nil {
+		t.Errorf("Validate(equipment combination leaving 1 max HP) = %v, want nil", err)
 	}
 }

@@ -2,10 +2,12 @@ package tui
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/progress"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/mattn/go-runewidth"
 
 	"github.com/lckrugel/tower-of-doom/internal/game/engine"
 	"github.com/lckrugel/tower-of-doom/internal/game/engine/entities"
@@ -257,7 +259,7 @@ func (m Model) body() string {
 // offers no way out but the three actions.
 func (m Model) lootPanel() string {
 	var b strings.Builder
-	b.WriteString(stylePanelTitle.Render("◈ CHEST LOOT") + "\n")
+	b.WriteString(m.panelHeading("◈ CHEST LOOT") + "\n")
 	if item := m.engine.PendingLoot; item != nil {
 		b.WriteString("  " + stylePanelTitle.Render(item.Name) + itemBonusList(item) + "\n")
 	} else {
@@ -274,9 +276,7 @@ func (m Model) lootPanel() string {
 func (m Model) inventoryPanel() string {
 	var b strings.Builder
 	bag := m.engine.Player.Bag()
-	b.WriteString(stylePanelTitle.Render(
-		fmt.Sprintf("◈ BAG (%d/%d)", len(bag), entities.InventoryCapacity),
-	) + "\n")
+	b.WriteString(m.panelHeading(fmt.Sprintf("◈ BAG (%d/%d)", len(bag), entities.InventoryCapacity)) + "\n")
 	if len(bag) == 0 {
 		return b.String() + styleDim.Render("   (the bag is empty)")
 	}
@@ -305,7 +305,7 @@ func (m Model) merchantPanel() string {
 	bag := m.engine.Player.Bag()
 	rows := make([]string, 0, 1+len(stock)+1+max(1, len(bag)))
 
-	rows = append(rows, stylePanelTitle.Render("◈ MERCHANT"))
+	rows = append(rows, m.panelHeading("◈ MERCHANT"))
 	if len(stock) == 0 {
 		// The offer list empties as the hero buys; the shop stays open
 		// for selling (and leaving).
@@ -324,14 +324,25 @@ func (m Model) merchantPanel() string {
 	return strings.Join(rows, "\n")
 }
 
+// panelHeading keeps rejected-action feedback visible in decision screens
+// whose secondary column is used by inventory/equipment content, not the log.
+func (m Model) panelHeading(title string) string {
+	heading := stylePanelTitle.Render(title)
+	if m.feedback == "" {
+		return heading
+	}
+	room := max(0, mainColWidth-lipgloss.Width(title)-3)
+	return heading + " " + styleHurt.Render(truncateRunes(m.feedback, room))
+}
+
 // shopRow renders one selectable merchant row: the selection marker, the
 // item's label and the dim price suffix. The label yields to the price
 // when the row would overflow the left column — nothing here may lean
 // on slot() to be clipped.
 func (m Model) shopRow(index int, item *entities.Item, price string) string {
 	label := item.Name + itemBonusList(item)
-	if over := len([]rune(label)) + len([]rune(price)) + 2 - mainColWidth; over > 0 {
-		label = truncateRunes(label, len([]rune(label))-over)
+	if over := lipgloss.Width(label) + lipgloss.Width(price) + 2 - mainColWidth; over > 0 {
+		label = truncateRunes(label, lipgloss.Width(label)-over)
 	}
 	if index == m.merchantCursor() {
 		return styleSelected.Render("▶ "+label) + styleDim.Render(price)
@@ -361,10 +372,6 @@ const moveRowNameWidth = 20
 // CmdForget{Index}. [N] Decline resolves either step. The decision is
 // explicit-only (esc is a no-op), like the chest loot.
 //
-// The deprecated PendingMove mirror is never read: a legacy one-offer
-// construction (PendingMove alone, no PendingMoves/ChosenMove) renders
-// the silent guard, like an empty offer list.
-//
 // Height budget, worst case (16 rows): choosing = title + 2 dossiers ×2
 // lines = 5; forgetting = title + learning dossier 2 + label + 2 rows =
 // 6 — the panel always fits, never leaning on slot() to clip.
@@ -385,7 +392,7 @@ func (m Model) shrinePanel() string {
 // derivation the engine's allow-matrix uses). Offers without a choice
 // are the choosing step.
 func (m Model) learnForgetStep() bool {
-	return m.engine.ChosenMove != nil
+	return slices.Contains(m.engine.AvailableCommands(), engine.CmdForget)
 }
 
 // shrineChooseStep renders the pending offers as stacked dossiers, the
@@ -446,7 +453,7 @@ func (m Model) shrineForgetStep() string {
 	b.WriteString(styleDim.Render("  forget one of your moves:") + "\n")
 	width := 0
 	for _, mv := range learned {
-		width = max(width, len([]rune(mv.Name)))
+		width = max(width, runewidth.StringWidth(mv.Name))
 	}
 	width = min(width, moveRowNameWidth)
 	selected := min(max(m.bagCursor, 0), len(learned)-1)
@@ -480,11 +487,11 @@ func (m Model) gameOverPanel() string {
 	b.WriteString(styleDeath.Render("☠ YOU DIED — the tower claims another soul.") + "\n\n")
 	b.WriteString("  Reached " + styleLocation.Render(m.locationLabel()) + "\n")
 
-	summary := fmt.Sprintf("Level %d · %d XP gathered", level, p.Xp)
+	summary := fmt.Sprintf("Level %d · %d current XP", level, p.Xp)
 	if hasKills {
 		// Kills stay on the line only when the event carried a count:
 		// a legacy event doesn't turn into a suspicious "0 kills".
-		summary = fmt.Sprintf("Level %d · %d kills · %d XP gathered", level, kills, p.Xp)
+		summary = fmt.Sprintf("Level %d · %d kills · %d current XP", level, kills, p.Xp)
 	}
 	b.WriteString(styleDim.Render("  " + summary))
 	return b.String()
@@ -537,10 +544,11 @@ func (m Model) combatPanel() string {
 	if len(monsters) == 0 {
 		return b.String() + styleDim.Render("   (no enemies in sight)")
 	}
-	front := monsters[0]
-	b.WriteString("▶ " + stylePanelTitle.Render(truncateRunes(front.Name(), enemyNameWidth)) +
-		"  " + hpBar(front.CurrentHP, front.MaxHP()) + "\n")
-	b.WriteString("  " + statLine(front) + "\n")
+	combat := m.engine.CombatView()
+	stats := combat.Enemy.Stats
+	b.WriteString("▶ " + stylePanelTitle.Render(truncateRunes(combat.Enemy.Name, enemyNameWidth)) +
+		"  " + hpBar(stats.HP, stats.MaxHP) + "\n")
+	b.WriteString("  " + effectiveStatLine(stats) + "\n")
 	if rows := m.enemyStatusRows(); rows != "" {
 		b.WriteString(rows + "\n")
 	}
@@ -627,7 +635,7 @@ func (m Model) gridCell(moves []entities.Move, i int) (name, tags string) {
 			strings.Repeat(" ", gridCellWidth)
 	}
 	move := moves[i]
-	cooling := m.mirror.cooldownLeft(move.ID) > 0
+	cooling := m.cooldownLeft(move.ID) > 0
 	style := styleAction
 	name = "  " + move.Name
 	if cooling {
@@ -656,7 +664,7 @@ func (m Model) gridCell(moves []entities.Move, i int) (name, tags string) {
 // unusable.
 func (m Model) gridTags(move entities.Move, cooling bool, source string) string {
 	if cooling {
-		return fmt.Sprintf("   (%d turns)", m.mirror.cooldownLeft(move.ID))
+		return fmt.Sprintf("   (%d turns)", m.cooldownLeft(move.ID))
 	}
 	tags := []string{fmt.Sprintf("%d%%", move.DmgModifier)}
 	if move.HasStatus() {
@@ -698,7 +706,7 @@ func statusChips(statuses []combatStatus) []string {
 	return chips
 }
 
-// wrapChips lays chips into rows of at most maxWidth (lipgloss-aware
+// wrapChips lays chips into rows of at most maxWidth (terminal-cell-aware
 // widths), at most maxRows rows; chips that no longer fit — including a
 // single chip wider than a whole row — are dropped. The cap is the
 // documented display budget, never slot() clipping. It also reports HOW
@@ -734,6 +742,33 @@ func wrapChips(chips []string, maxWidth, maxRows int) (rows []string, shown int)
 	return rows, shown
 }
 
+// shownStatuses mirrors wrapChips' omission and row-cap rules so explanations
+// remain aligned with the chips that actually rendered.
+func shownStatuses(statuses []combatStatus, maxWidth, maxRows int) []combatStatus {
+	var shown []combatStatus
+	rowWidth, rows := 0, 0
+	for _, status := range statuses {
+		w := lipgloss.Width(statusChip(status))
+		if rowWidth > 0 {
+			w++
+		}
+		if rowWidth > 0 && rowWidth+w > maxWidth {
+			rows++
+			rowWidth = 0
+			w = lipgloss.Width(statusChip(status))
+			if rows == maxRows {
+				break
+			}
+		}
+		if w > maxWidth {
+			continue
+		}
+		shown = append(shown, status)
+		rowWidth += w
+	}
+	return shown
+}
+
 // enemyStatusRows is the enemy block's status rows: the engaged enemy's
 // active chips, wrapped to at most maxStatusRows rows inside the column
 // (the two-space indent is part of the budget), and ONE dim explanation
@@ -742,12 +777,13 @@ func wrapChips(chips []string, maxWidth, maxRows int) (rows []string, shown int)
 // title + name/HP + stats + 3 + the waiting counter = 7 of the 16 body
 // rows, grid included.
 func (m Model) enemyStatusRows() string {
-	chips := statusChips(m.mirror.enemyStatuses)
-	rows, shown := wrapChips(chips, mainColWidth-2, maxStatusRows)
+	statuses := combatStatuses(m.engine.CombatView().Enemy)
+	chips := statusChips(statuses)
+	rows, _ := wrapChips(chips, mainColWidth-2, maxStatusRows)
 	for i := range rows {
 		rows[i] = "  " + rows[i]
 	}
-	if expl := m.statusExplanation(m.mirror.enemyStatuses[:shown]); expl != "" {
+	if expl := m.statusExplanation(shownStatuses(statuses, mainColWidth-2, maxStatusRows)); expl != "" {
 		rows = append(rows, "  "+styleDim.Render(truncateRunes(expl, mainColWidth-2)))
 	}
 	return strings.Join(rows, "\n")
@@ -764,34 +800,35 @@ func statLine(mon entities.Monster) string {
 		mon.Damage(), mon.Defense(), mon.Speed(), mon.CritThreshold(), mon.Difficulty))
 }
 
-// maxNameWidth is the longest (rune-wise) monster name in the queue.
+func effectiveStatLine(stats engine.CombatStats) string {
+	return styleDim.Render(fmt.Sprintf("⚔ %d · ⛨ %d · » %d · ✦ %d%%",
+		stats.DMG, stats.DEF, stats.SPD, stats.Crit))
+}
+
+// maxNameWidth is the longest monster name in terminal cells.
 func maxNameWidth(monsters []entities.Monster) int {
 	width := 0
 	for i := range monsters {
-		if n := len([]rune(monsters[i].Name())); n > width {
+		if n := runewidth.StringWidth(monsters[i].Name()); n > width {
 			width = n
 		}
 	}
 	return width
 }
 
-// padRight pads s with spaces on the right up to width runes.
+// padRight pads s with spaces on the right up to width terminal cells.
 func padRight(s string, width int) string {
-	if pad := width - len([]rune(s)); pad > 0 {
+	if pad := width - lipgloss.Width(s); pad > 0 {
 		return s + strings.Repeat(" ", pad)
 	}
 	return s
 }
 
-// truncateRunes cuts s to at most width runes. A plain cut, no ellipsis:
+// truncateRunes cuts s to at most width terminal cells. A plain cut, no ellipsis:
 // keeping the row inside the column is what matters, and a filler glyph
 // risks the frame's byte-exactness.
 func truncateRunes(s string, width int) string {
-	r := []rune(s)
-	if len(r) <= width {
-		return s
-	}
-	return string(r[:max(width, 0)])
+	return runewidth.Truncate(s, max(width, 0), "")
 }
 
 // heroPanel is the player's vital stats: level, XP, HP and the derived
@@ -807,7 +844,11 @@ func (m Model) heroPanel() string {
 	b.WriteString(styleDim.Render(fmt.Sprintf("   XP %s %d/%d to Lv %d", xpBar(p), p.Xp, p.Xp+p.XpToLevel(), p.Lvl+1)))
 	b.WriteString("\n")
 	b.WriteString(m.heroHPRow() + "\n")
-	b.WriteString(fmt.Sprintf("  DMG %d · DEF %d · SPD %d · ", p.Damage(), p.Defense(), p.Speed()))
+	dmg, def, spd := p.Damage(), p.Defense(), p.Speed()
+	if combat := m.engine.CombatView(); combat.InCombat {
+		dmg, def, spd = combat.Hero.Stats.DMG, combat.Hero.Stats.DEF, combat.Hero.Stats.SPD
+	}
+	b.WriteString(fmt.Sprintf("  DMG %d · DEF %d · SPD %d · ", dmg, def, spd))
 	// The purse shares the stats line, dim like the panel's XP segment:
 	// the panel labels stay quiet, the log carries the gold-colored news.
 	b.WriteString(styleDim.Render(fmt.Sprintf("GOLD %d", p.Gold)))
@@ -825,16 +866,17 @@ func (m Model) heroPanel() string {
 func (m Model) heroHPRow() string {
 	p := m.engine.Player
 	row := fmt.Sprintf("  HP %s %d/%d", hpBarPlain(p.CurrentHP, p.MaxHP()), p.CurrentHP, p.MaxHP())
-	chips := statusChips(m.mirror.heroStatuses)
-	shown := 0
+	statuses := combatStatuses(m.engine.CombatView().Hero)
+	chips := statusChips(statuses)
+	var visible []combatStatus
 	for _, chip := range chips {
 		if lipgloss.Width(row)+1+lipgloss.Width(chip) > mainColWidth {
 			break
 		}
 		row += " " + chip
-		shown++
+		visible = append(visible, statuses[len(visible)])
 	}
-	if expl := m.statusExplanation(m.mirror.heroStatuses[:shown]); expl != "" {
+	if expl := m.statusExplanation(visible); expl != "" {
 		if room := mainColWidth - lipgloss.Width(row) - 1; room > 0 {
 			row += " " + styleDim.Render(truncateRunes(expl, room))
 		}

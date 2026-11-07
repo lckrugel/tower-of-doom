@@ -200,8 +200,6 @@ func (e *Engine) resolveEncounter(encounter Encounter) []Event {
 		// The deprecated TUI bridge: the current shrine screen renders
 		// ONE offer — mirror the first (the forgetting step re-points it
 		// at the chosen one).
-		first := offers[0]
-		e.PendingMove = &first
 		e.State = StateLearn
 		return []Event{NewShrineOffered(len(offers))}
 	default:

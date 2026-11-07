@@ -103,6 +103,29 @@ func TestAscendArmorRespectsTiers(t *testing.T) {
 	}
 }
 
+func TestSectionBoundaryAscendRewardUsesNewSectionTiers(t *testing.T) {
+	r, err := game.Load("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := NewEngine(r)
+	e.CurrentFloor = 13
+	e.CanAscend = true
+	e.rng = &stubRng{values: []int{0}}
+
+	events := e.Process(Command{Type: CmdAscend})
+	if got, want := eventTypes(events), []EventType{EventFloorEntered, EventLootFound}; !typesEqual(got, want...) {
+		t.Fatalf("boundary ascend events = %v, want %v", got, want)
+	}
+	if name := events[0].Data["section"]; name != "Underdark Reaches" {
+		t.Fatalf("entered section = %v, want new section Underdark Reaches", name)
+	}
+	item := events[1].Data["item"].(*entities.Item)
+	if item.Tier < 2 || item.Tier > 3 {
+		t.Errorf("section-boundary reward tier = %d, want new section tiers [2 3]", item.Tier)
+	}
+}
+
 // Unrestricted, the ascend armor pool reaches the tier-2 helmet (it is
 // sorted first), so the gating above is what kept it out.
 func TestAscendArmorUnrestrictedReachesEveryTier(t *testing.T) {

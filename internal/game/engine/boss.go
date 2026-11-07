@@ -90,6 +90,9 @@ func (e *Engine) appendBossVictory(events []Event) []Event {
 		panic(fmt.Sprintf("unreachable: boss victory on floor %d, whose section %q has no boss",
 			e.CurrentFloor, section.ID))
 	}
+	// The encounter queue is exhausted; rewards remain pending independently
+	// in StateLoot and CurrentEncounter is only live during combat/encounter.
+	e.CurrentEncounter = Encounter{}
 	if item := e.rollBossLoot(section); item != nil {
 		e.PendingLoot = item
 		e.State = StateLoot

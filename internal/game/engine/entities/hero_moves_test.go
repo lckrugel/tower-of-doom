@@ -238,15 +238,21 @@ func TestHeroEffectiveMoves(t *testing.T) {
 	})
 
 	t.Run("learned moves also respect the cap", func(t *testing.T) {
-		// learnBoth + ForgetMove-shaped flows can never exceed the cap,
-		// but the effective set guards it anyway (defense in depth).
+		// Normal learning enforces its own smaller cap. Corrupt the internal
+		// slice deliberately to exercise EffectiveMoves' independent total cap.
 		h := newBareHero()
 		learnBoth(h)
+		h.learnedMoves = append(h.learnedMoves, Move{ID: "c"}, Move{ID: "d"})
 
 		got := h.EffectiveMoves(nil)
 
-		if len(got) != MaxLearnedMoves {
-			t.Errorf("EffectiveMoves length = %d, want %d", len(got), MaxLearnedMoves)
+		if len(got) != MaxMoves {
+			t.Errorf("EffectiveMoves length = %d, want total cap %d", len(got), MaxMoves)
+		}
+		for i, want := range []string{"a", "b", "c", "d"} {
+			if i < len(got) && got[i].ID != want {
+				t.Errorf("EffectiveMoves[%d] = %q, want %q", i, got[i].ID, want)
+			}
 		}
 	})
 

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"maps"
 	"os"
 	"path/filepath"
@@ -24,10 +25,8 @@ import (
 // with: -ldflags "-X main.version=<version>".
 var version = "dev"
 
-// validateHorizon validates content coverage up to this floor.
-// The tower is infinite (sections with max_floor == -1 cover the rest),
-// so a large horizon is enough to guarantee valid content for everything
-// reachable in a game.
+// validateHorizon bounds floor-budget validation. Sections may describe an
+// infinite tower, but a finite walk cannot prove every future floor valid.
 const validateHorizon = 100_000
 
 // assetFiles are the flat overlay files a mod directory may provide. A
@@ -53,37 +52,45 @@ An empty or unusable env/default directory is ignored; an explicit
 exit codes: 0 ok · 1 invalid content · 2 usage error`
 
 func main() {
-	mods := flag.String("mods", "", "flat overlay directory of asset JSONs")
-	paths := flag.Bool("paths", false, "print the resolved paths and asset provenance, then exit")
-	showVersion := flag.Bool("version", false, "print the version and exit")
-	flag.Usage = func() { fmt.Fprintln(os.Stderr, usage) }
-	flag.Parse()
+	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr, os.Getenv, runGame))
+}
+
+func run(args []string, stdout, stderr io.Writer, getenv func(string) string, start func(*engine.Engine) error) int {
+	fs := flag.NewFlagSet("tower-of-doom", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	mods := fs.String("mods", "", "flat overlay directory of asset JSONs")
+	paths := fs.Bool("paths", false, "print the resolved paths and asset provenance, then exit")
+	showVersion := fs.Bool("version", false, "print the version and exit")
+	fs.Usage = func() { fmt.Fprintln(stderr, usage) }
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
 
 	// flag.Visit distinguishes an explicit (even empty) --mods from an
 	// absent one: only an explicit flag is a usage error when unusable.
 	modsSet := false
-	flag.Visit(func(f *flag.Flag) {
+	fs.Visit(func(f *flag.Flag) {
 		if f.Name == "mods" {
 			modsSet = true
 		}
 	})
 
-	if flag.NArg() > 0 {
-		usageError(fmt.Sprintf("unexpected argument %q", flag.Arg(0)))
+	if fs.NArg() > 0 {
+		return usageError(stderr, fmt.Sprintf("unexpected argument %q", fs.Arg(0)))
 	}
 	if *showVersion {
-		fmt.Printf("tower-of-doom %s\n", version)
-		return
+		fmt.Fprintf(stdout, "tower-of-doom %s\n", version)
+		return 0
 	}
 	if modsSet && *mods == "" {
-		usageError("--mods needs a directory")
+		return usageError(stderr, "--mods needs a directory")
 	}
 
 	// Precedence: flag > $TOD_MODS > the platform convention.
-	dir := resolveModsDir(*mods, os.Getenv)
+	dir := resolveModsDir(*mods, getenv)
 	if modsSet {
 		if err := checkModsDir(dir); err != nil {
-			usageError(err.Error())
+			return usageError(stderr, err.Error())
 		}
 	}
 
@@ -93,11 +100,11 @@ func main() {
 	if *paths {
 		registry, err := loadContent(modsLoadDir(dir))
 		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
+			fmt.Fprintln(stderr, err)
+			return 1
 		}
-		printPaths(dir, registry)
-		return
+		printPaths(stdout, dir, registry)
+		return 0
 	}
 
 	// Starting for real: create the conventional directory so the player
@@ -105,14 +112,14 @@ func main() {
 	// not stop the game; the warning says we carry on with embedded assets.
 	if dir != "" {
 		if err := os.MkdirAll(dir, 0o755); err != nil && !errors.Is(err, os.ErrExist) {
-			fmt.Fprintf(os.Stderr, "warning: cannot create mods directory %s: %v; using embedded assets\n", dir, err)
+			fmt.Fprintf(stderr, "warning: cannot create mods directory %s: %v; using embedded assets\n", dir, err)
 		}
 	}
 
 	registry, err := loadContent(modsLoadDir(dir))
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		fmt.Fprintln(stderr, err)
+		return 1
 	}
 
 	gameEngine := engine.NewEngine(registry)
@@ -120,18 +127,24 @@ func main() {
 	// WithAltScreen keeps the frame off the terminal scrollback: the game
 	// screen is redrawn in place, and quitting restores the shell as it
 	// was.
-	if _, err := tea.NewProgram(tui.New(gameEngine), tea.WithAltScreen()).Run(); err != nil {
-		fmt.Fprintln(os.Stderr, "error running the TUI:", err)
-		os.Exit(1)
+	if err := start(gameEngine); err != nil {
+		fmt.Fprintln(stderr, "error running the TUI:", err)
+		return 1
 	}
+	return 0
+}
+
+func runGame(gameEngine *engine.Engine) error {
+	_, err := tea.NewProgram(tui.New(gameEngine), tea.WithAltScreen()).Run()
+	return err
 }
 
 // usageError prints a command-line misuse message plus the usage block and
 // exits with the misuse code, mirroring cmd/validate.
-func usageError(message string) {
-	fmt.Fprintln(os.Stderr, message)
-	fmt.Fprintln(os.Stderr, usage)
-	os.Exit(2)
+func usageError(stderr io.Writer, message string) int {
+	fmt.Fprintln(stderr, message)
+	fmt.Fprintln(stderr, usage)
+	return 2
 }
 
 // resolveModsDir picks the mods directory: the --mods flag, then the
@@ -204,13 +217,13 @@ func loadContent(dir string) (*game.Registry, error) {
 // whether that directory exists, and where each asset file came from —
 // "assets: embedded" when everything is compiled in, otherwise one
 // "<name>: <source>" line per file, sorted by file name.
-func printPaths(dir string, registry *game.Registry) {
-	fmt.Printf("tower-of-doom %s\n", version)
+func printPaths(out io.Writer, dir string, registry *game.Registry) {
+	fmt.Fprintf(out, "tower-of-doom %s\n", version)
 
 	if dir == "" {
-		fmt.Println("mods dir: (none)")
+		fmt.Fprintln(out, "mods dir: (none)")
 	} else {
-		fmt.Printf("mods dir: %s (%s)\n", dir, dirState(dir))
+		fmt.Fprintf(out, "mods dir: %s (%s)\n", dir, dirState(dir))
 	}
 
 	provenance := registry.Provenance()
@@ -224,11 +237,11 @@ func printPaths(dir string, registry *game.Registry) {
 		}
 	}
 	if allEmbedded {
-		fmt.Println("assets: embedded")
+		fmt.Fprintln(out, "assets: embedded")
 		return
 	}
 	for _, name := range names {
-		fmt.Printf("%s: %s\n", strings.TrimSuffix(name, ".json"), provenance[name])
+		fmt.Fprintf(out, "%s: %s\n", strings.TrimSuffix(name, ".json"), provenance[name])
 	}
 }
 

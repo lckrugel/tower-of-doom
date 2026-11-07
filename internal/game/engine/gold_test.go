@@ -115,7 +115,8 @@ func TestChestGold(t *testing.T) {
 	})
 
 	t.Run("item chest keeps the loot decision (40 boundary excluded)", func(t *testing.T) {
-		e := chestEngine(0) // rng [20 chest, 50 ≥ 40 item, 0 pick]
+		e := chestEngine(0) // rng [20 chest, 40 is not < 40, 0 pick]
+		e.rng = &stubRng{values: []int{20, 40, 0}}
 
 		events := e.Process(Command{Type: CmdExplore})
 

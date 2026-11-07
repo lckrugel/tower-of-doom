@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/lckrugel/tower-of-doom/internal/game"
@@ -97,10 +98,15 @@ func TestStatusLoreReturnsTheRegistryStatuses(t *testing.T) {
 		}
 		// A fresh slice: growing or mutating the return never reaches the
 		// registry.
+		originalName := lore[0].Name
+		originalID := lore[0].ID
 		lore = append(lore, game.StatusAsset{ID: "injected"})
 		lore[0].Name = "mangled"
 		if _, ok := e.reg.Statuses["injected"]; ok {
 			t.Error("mutating StatusLore's return reached the registry")
+		}
+		if got := e.reg.Statuses[originalID].Name; got != originalName {
+			t.Errorf("mutating StatusLore's returned element changed registry name to %q; want %q", got, originalName)
 		}
 	})
 
@@ -301,6 +307,41 @@ func TestStatusTicksAtRoundEnd(t *testing.T) {
 	}
 }
 
+func TestMultipleStatusExpirationAndLethalDoTOrdering(t *testing.T) {
+	poison := entities.NewStatusFromAsset(testStatuses()["poison"])
+	poison.Duration = 1
+	guard := entities.NewStatusFromAsset(testStatuses()["guard"])
+	guard.Duration = 1
+
+	t.Run("expiration follows application order", func(t *testing.T) {
+		target := entities.NewMonsterFromAsset(game.MonsterAsset{ID: "rat", Name: "Rat", HP: 10})
+		state := newCombatantState()
+		state.applyStatus(poison)
+		state.applyStatus(guard)
+		events, dead := tickStatuses(&state, &target)
+		if dead || !typesEqual(eventTypes(events), EventStatusDamage, EventStatusExpired, EventStatusExpired) {
+			t.Fatalf("tick events = %v, dead=%v", eventTypes(events), dead)
+		}
+		if events[1].Data["status"] != "Poison" || events[2].Data["status"] != "Guard" || len(state.statuses) != 0 {
+			t.Errorf("expiration order/state = %v / %+v", []any{events[1].Data["status"], events[2].Data["status"]}, state.statuses)
+		}
+	})
+
+	t.Run("lethal dot stops later status ticks and expirations", func(t *testing.T) {
+		target := entities.NewMonsterFromAsset(game.MonsterAsset{ID: "rat", Name: "Rat", HP: 2})
+		state := newCombatantState()
+		state.applyStatus(poison)
+		state.applyStatus(guard)
+		events, dead := tickStatuses(&state, &target)
+		if !dead || !typesEqual(eventTypes(events), EventStatusDamage) {
+			t.Fatalf("lethal tick events = %v, dead=%v; want only the first DoT", eventTypes(events), dead)
+		}
+		if len(state.statuses) != 2 || state.statuses[1].turnsLeft != 1 {
+			t.Errorf("later status was ticked after lethal DoT: %+v", state.statuses)
+		}
+	})
+}
+
 // DoT damage is a plain clamp (no mitigation) and CAN kill: a monster
 // dying to poison goes through the normal defeat path (XP, gold,
 // queue/victory).
@@ -332,6 +373,35 @@ func TestDoTKillsTheMonster(t *testing.T) {
 	}
 	if e.Player.Xp != 4 { // round(4 × 1^1.5) = 4
 		t.Errorf("xp = %d, want 4 (the kill XP was granted)", e.Player.Xp)
+	}
+}
+
+// A DoT defeat happens after both sides acted, so it advances existing hero
+// cooldowns while still giving the move used that round its full cooldown.
+func TestDoTKillAdvancesExistingCooldowns(t *testing.T) {
+	e := statusesEngine(0, 99, 0, 0, 0, 99, 0, 99, 0, 0, 0, 99)
+	heroWithDamage(e, 0)
+	learn(e, "sure_poison", "guard_strike")
+	monster := entities.NewMonsterFromAsset(game.MonsterAsset{
+		ID: "fleabane", Name: "Fleabane", Difficulty: 1, HP: 7, Damage: 0, Speed: 5,
+	})
+	startEncounter(e, monster)
+	e.Process(Command{Type: CmdFight})
+	e.Process(Command{Type: CmdMove, Index: 0}) // poison; tick leaves the monster at 3 HP
+	if hp := e.CurrentEncounter.Monsters[0].CurrentHP; hp != 3 {
+		t.Fatalf("monster HP after poison setup round = %d, want 3", hp)
+	}
+	e.heroCombat.cooldowns["prior_move"] = 2
+
+	events := e.Process(Command{Type: CmdMove, Index: 1}) // guard strike + lethal poison tick
+	if !slices.Contains(eventTypes(events), EventEnemyDefeated) {
+		t.Fatalf("events = %v, want a DoT enemy defeat", eventTypes(events))
+	}
+	if got := e.heroCombat.cooldowns["prior_move"]; got != 1 {
+		t.Errorf("existing cooldown after completed DoT-kill round = %d, want 1", got)
+	}
+	if got := e.heroCombat.cooldowns["guard_strike"]; got != 2 {
+		t.Errorf("move used in DoT-kill round cooldown = %d, want full cooldown 2", got)
 	}
 }
 
@@ -379,11 +449,14 @@ func TestStatModStatuses(t *testing.T) {
 	})
 
 	t.Run("weaken cannot floor the hero's damage below 1", func(t *testing.T) {
+		// The goblin's weaken move applies to the hero; its damage modifier
+		// must clamp the hero's zero base DMG to one.
 		e := statusesEngine(1, 50, 0, 0, 1, 50)
 		heroWithDamage(e, 0) // 0 − 3 → clamped to 1
-		learn(e, "sure_weaken")
-		startEncounter(e, monsterFromFixture("goblin"))
+		startEncounter(e, spitterWithMove("sure_weaken", 1))
 		e.Process(Command{Type: CmdFight})
+		// The monster applies Weaken, then the hero's turn computes effective
+		// DMG with the debuff active.
 		e.Process(Command{Type: CmdMove, Index: 0})
 
 		if got := e.heroStat(entities.StatDMG); got != 1 {
@@ -397,7 +470,7 @@ func TestStatModStatuses(t *testing.T) {
 		// spitter's 10 — the spitter acts first.
 		// r1: hero [spread, crit] + spitter [pick, spread, crit, status];
 		// r2: spitter first [pick, spread, crit, status] + hero [spread, crit].
-		e := statusesEngine(1, 50, 0, 1, 50, 0, 0, 1, 50, 1, 50, 50)
+		e := statusesEngine(1, 50, 0, 1, 50, 0, 0, 1, 50, 1, 1, 1)
 		heroWithDamage(e, 5)
 		startEncounter(e, spitterWithMove("sure_slow", 1))
 		e.Process(Command{Type: CmdFight})
@@ -451,6 +524,10 @@ func TestStatusesResetPerEncounter(t *testing.T) {
 	}
 
 	// A new combat resets everything.
+	e.heroCombat.startCooldown(entities.Move{ID: "sure_poison", Cooldown: 2})
+	if !e.heroCombat.onCooldown("sure_poison") {
+		t.Fatal("test setup: sure_poison cooldown was not started")
+	}
 	startEncounter(e, monsterFromFixture("orc"))
 	e.startCombat()
 	if got := len(e.enemyCombat.statuses) + len(e.heroCombat.statuses); got != 0 {

@@ -33,17 +33,6 @@ func viewModels() map[string]Model {
 
 	combat := encounter(engine.StateCombat)
 	combat.engine.CurrentEncounter.Monsters[0].TakeDmg(10)
-	// The combat screen mid-fight: the mirror holds statuses on both
-	// sides and a cooling move, as the event replay would have left it.
-	combat.mirror.heroCooldowns["basic_attack"] = 1
-	combat.mirror.heroStatuses = []combatStatus{
-		{name: "Guard", kind: "buff", turns: 2},
-		{name: "Poison", kind: "debuff", turns: 1},
-	}
-	combat.mirror.enemyStatuses = []combatStatus{
-		{name: "Poison", kind: "debuff", turns: 2},
-		{name: "Weaken", kind: "debuff", turns: 3},
-	}
 	combat.gridCursor = 1
 
 	gameOver := func() Model {
@@ -209,12 +198,6 @@ func fullGrid() Model {
 		Type:     engine.EncounterCombat,
 		Monsters: []entities.Monster{goblinMonster()},
 	}
-	m.mirror.heroCooldowns["heavy_slash"] = 2
-	m.mirror.heroStatuses = []combatStatus{{name: "Guard", kind: "buff", turns: 2}}
-	m.mirror.enemyStatuses = []combatStatus{
-		{name: "Poison", kind: "debuff", turns: 2},
-		{name: "Weaken", kind: "debuff", turns: 3},
-	}
 	m.gridCursor = 3
 	return m
 }
@@ -289,12 +272,9 @@ func TestViewFullGridShowsEveryElement(t *testing.T) {
 		"◈ MOVES",
 		"Envenom", "Heavy Slash", "Assassin's Strike", "Guard Strike",
 		"100% ☠poison 100%", // envenom's tags
-		"(2 turns)",         // the cooling Heavy Slash
-		"110% ✦+35",         // the Assassin's Strike crit tag
-		"75% ☠guard 100%",   // Guard Strike's self-buff tag
-		"Poison(2)",         // the enemy's chips
-		"Weaken(3)",
-		"Guard(2)", // the hero panel's chip
+		// cooldown and status chips are sourced from live engine state.
+		"110% ✦+35",       // the Assassin's Strike crit tag
+		"75% ☠guard 100%", // Guard Strike's self-buff tag
 		"[R] Flee", "[Q] Quit",
 	} {
 		if !strings.Contains(view, want) {

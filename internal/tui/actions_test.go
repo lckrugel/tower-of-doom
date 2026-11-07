@@ -77,7 +77,7 @@ func TestActionsPerState(t *testing.T) {
 		{"loot", engine.StateLoot, false, false, []string{"w", "b", "d", "q"}},
 		{"inventory", engine.StateInventory, true, false, []string{"w", "x", "c", "q"}},
 		{"merchant", engine.StateMerchant, true, true, []string{"p", "v", "l", "q"}},
-		{"learn", engine.StateLearn, false, false, []string{"l", "f", "n", "q"}},
+		{"learn choosing", engine.StateLearn, false, false, []string{"l", "n", "q"}},
 		{"game over", engine.StateGameOver, false, false, []string{"q"}},
 	}
 	for _, tt := range tests {

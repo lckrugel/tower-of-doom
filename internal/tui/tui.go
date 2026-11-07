@@ -43,15 +43,13 @@ type Model struct {
 	// cancels back. Arming is TUI-internal (no engine call); the flag
 	// never survives a dispatch, so any state change restores the bar.
 	confirmQuit bool
-	// mirror is the combat mirror — the model-side picture of the
-	// engine's unexported combat-scoped state (move cooldowns, active
-	// statuses), rebuilt from the event stream. See combat.go for the
-	// round-tracking and reset rules.
-	mirror combatMirror
+	// feedback is the most recent engine message, surfaced in the active
+	// decision screen as well as the event log.
+	feedback string
 	// gridCursor is the selected cell of the combat move grid (0-3,
 	// row-major: [0 1 / 2 3]). The four arrows walk it with wraparound
 	// while in combat; it only ever rests on a real move (never on a
-	// placeholder) and resets to the first cell with the mirror, on
+	// placeholder) and resets to the first cell on
 	// every combat entry.
 	gridCursor int
 	// overlay marks the '?' lore overlay: a TUI-internal pure view mode
@@ -69,7 +67,6 @@ func New(e *engine.Engine) Model {
 		log: []string{
 			styleDim.Render("Welcome to the Tower of Doom! Climb as you dare."),
 		},
-		mirror: newCombatMirror(),
 	}
 }
 
@@ -155,6 +152,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.engine.State == engine.StateCombat {
 			return m.dispatchMove()
 		}
+		if m.engine.State == engine.StateMerchant && m.selectableRows() > 0 {
+			return m.dispatch(m.merchantRowAction())
+		}
 		return m.confirmOrDispatch(m.selectedAction())
 	default:
 		// Single-key shortcuts: '?' toggles the lore overlay; digits
@@ -179,6 +179,21 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
+}
+
+// merchantRowAction maps Enter on the combined stock-then-bag list to the
+// transaction appropriate for the selected row.
+func (m Model) merchantRowAction() action {
+	var cmd engine.CommandType = engine.CmdBuy
+	if m.bagCursor >= len(m.engine.MerchantStock) {
+		cmd = engine.CmdSell
+	}
+	for _, a := range m.barActions() {
+		if a.cmd == cmd {
+			return a
+		}
+	}
+	return action{cmd: cmd, enabled: true, usesIndex: true}
 }
 
 // gridDigit resolves a digit key to a zero-based grid cell index.
@@ -326,23 +341,27 @@ func (m Model) dispatch(a action) (tea.Model, tea.Cmd) {
 		}
 	}
 	prevState := m.engine.State
+	m.feedback = ""
 	events := m.engine.Process(cmd)
-	// A combat boundary crossed by this dispatch resets the mirror (and
-	// the grid cursor with it): on entry BEFORE the batch is absorbed (a
-	// failed sneak's free turn tracks on a clean slate), on exit after it
-	// — the reset is idempotent, and nothing outside a live fight renders
-	// the mirror.
-	if (prevState == engine.StateCombat) != (m.engine.State == engine.StateCombat) {
-		m.mirror.reset()
+	enteredCombat := prevState != engine.StateCombat && m.engine.State == engine.StateCombat
+	exitedCombat := prevState == engine.StateCombat && m.engine.State != engine.StateCombat
+	// A new fight resets only the grid cursor; combat details come directly
+	// from the engine snapshot, including failed-sneak free turns.
+	if enteredCombat {
 		m.gridCursor = 0
 	}
 	for _, ev := range events {
 		m.absorb(ev)
+		if ev.Type == engine.EventMessage {
+			m.feedback, _ = ev.Data["message"].(string)
+		}
 		if ev.Type == engine.EventQuit {
 			quit = true
 		}
 	}
-	m.mirror.endBatch()
+	if exitedCombat {
+		m.gridCursor = 0
+	}
 	m.log = trimLog(m.log)
 	m.cursor = 0    // the action bar is rebuilt for the (possibly new) state
 	m.bagCursor = 0 // re-entering the bag (or the shop) selects the first row again
@@ -354,11 +373,10 @@ func (m Model) dispatch(a action) (tea.Model, tea.Cmd) {
 }
 
 // absorb records one engine event's consequences on the model: the
-// rendered log line, the combat mirror's update, plus anything a later
-// view needs (the defeat event's run stats feed the game-over recap).
+// rendered log line plus anything a later view needs (the defeat event's
+// run stats feed the game-over recap).
 func (m *Model) absorb(ev engine.Event) {
 	m.log = append(m.log, renderEvent(ev))
-	m.mirror.absorb(ev, m.engine)
 	if ev.Type == engine.EventHeroDefeated {
 		m.recap = recapFromEvent(ev)
 	}

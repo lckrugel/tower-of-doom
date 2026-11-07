@@ -45,7 +45,7 @@ func renderMoveSpanned(ev engine.Event) (string, bool) {
 	switch ev.Type {
 	case engine.EventMoveUsed:
 		t := tones{base: toneOf(ev), accent: styleHurt}
-		if user, _ := ev.Data["user"].(string); user == heroName {
+		if isHeroEvent(ev.Data) {
 			t.accent = styleXP
 		}
 		return moveUsedText(ev.Data, t), true
@@ -399,6 +399,13 @@ func itemBonusList(item *entities.Item) string {
 	if item.BonusSPD != 0 {
 		parts = append(parts, fmt.Sprintf("%+d SPD", item.BonusSPD))
 	}
+	if moves := item.GrantedMoves(); len(moves) > 0 {
+		names := make([]string, 0, len(moves))
+		for _, move := range moves {
+			names = append(names, move.Name)
+		}
+		parts = append(parts, "grants "+strings.Join(names, ", "))
+	}
 	if len(parts) == 0 {
 		return ""
 	}
@@ -408,15 +415,19 @@ func itemBonusList(item *entities.Item) string {
 // moveUsedText renders a move use: "You use Power Slash!" for the hero,
 // "The Goblin uses Venom Bite!" for monsters. The move NAME carries the
 // accent span (the tones); the hero is recognized by its fixed name
-// (heroName — the same constant the combat mirror keys its hero-side
-// bookkeeping on).
+// Combat side metadata is authoritative; display names are narrative only.
 func moveUsedText(data map[string]any, t tones) string {
 	user, _ := data["user"].(string)
 	move, _ := data["move"].(string)
-	if user == heroName {
+	if isHeroEvent(data) {
 		return t.base.Render("You use ") + t.accent.Render(move) + t.base.Render("!")
 	}
 	return t.base.Render(fmt.Sprintf("The %s uses ", user)) + t.accent.Render(move) + t.base.Render("!")
+}
+
+func isHeroEvent(data map[string]any) bool {
+	side, _ := data["side"].(engine.ActorSide)
+	return side == engine.ActorHero
 }
 
 // statusAppliedText renders a status landing (fresh or refreshed —
@@ -428,7 +439,7 @@ func statusAppliedText(data map[string]any) string {
 	status, _ := data["status"].(string)
 	turns, _ := data["turns"].(int)
 	verb := statusVerb(data)
-	if target == "Hero" {
+	if side, _ := data["side"].(engine.ActorSide); side == engine.ActorHero {
 		return fmt.Sprintf("You %s %s (%d turns).", verb, status, turns)
 	}
 	return fmt.Sprintf("The %s %ss %s (%d turns).", target, verb, status, turns)

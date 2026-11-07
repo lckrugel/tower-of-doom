@@ -94,6 +94,9 @@ func TestFinalFloorVictoryUnlocksTheBossChallenge(t *testing.T) {
 	if e.State != StateExploring {
 		t.Errorf("state = %v, want StateExploring", e.State)
 	}
+	if e.CurrentEncounter.Type != EncounterCombat || e.CurrentEncounter.Boss || e.CurrentEncounter.Monsters != nil {
+		t.Errorf("CurrentEncounter after boss unlock = %+v, want zero value", e.CurrentEncounter)
+	}
 }
 
 // A section without a boss block keeps the old behavior on its final
@@ -327,6 +330,9 @@ func TestBossVictoryRewards(t *testing.T) {
 		}
 		if e.BossUnlocked {
 			t.Error("the boss victory left the challenge unlocked")
+		}
+		if e.CurrentEncounter.Type != EncounterCombat || e.CurrentEncounter.Boss || e.CurrentEncounter.Monsters != nil {
+			t.Errorf("CurrentEncounter after boss victory = %+v, want zero value", e.CurrentEncounter)
 		}
 		// Exactly the strike (spread + crit) plus the ONE loot roll.
 		if got := e.rng.(*stubRng).calls; got != 3 {

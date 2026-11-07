@@ -94,7 +94,11 @@ const (
 	EventShrineOffered
 )
 
-// `Event` é o que o jogo envia após processar um `Command`.
+// Event is a synchronous command notification. Data is a fresh map, and
+// scalar/value entries are emission-time values. Pointer and slice entries
+// intentionally refer to live engine objects/storage (for example, item
+// pointers and encounter monster slices); consumers must treat them as
+// read-only and must not retain events as immutable history or replay data.
 type Event struct {
 	Type EventType
 	Data map[string]any
@@ -239,12 +243,19 @@ func NewDamageTakenWithMove(hero Combatant, dmgTaken int, crit bool, move string
 //   - "user": the striker's name.
 //   - "move": the move's name.
 func NewMoveUsed(user, move string) Event {
+	return NewMoveUsedOnSide(user, move, "")
+}
+
+// NewMoveUsedOnSide includes stable actor-side identity for consumers that
+// style or interpret combat events; names remain narrative only.
+func NewMoveUsedOnSide(user, move string, side ActorSide) Event {
+	data := map[string]any{"user": user, "move": move}
+	if side != "" {
+		data["side"] = side
+	}
 	return Event{
 		Type: EventMoveUsed,
-		Data: map[string]any{
-			"user": user,
-			"move": move,
-		},
+		Data: data,
 	}
 }
 
@@ -257,6 +268,7 @@ func NewMoveUsed(user, move string) Event {
 //   - "status": the status's name.
 //   - "turns": rounds the status now has left.
 //   - "kind": "buff" or "debuff" (additive; lets UIs tone the line).
+//   - "side": stable hero/enemy identity; target's display name is narrative only.
 func NewStatusApplied(target Combatant, status entities.Status, turns int) Event {
 	return Event{
 		Type: EventStatusApplied,
@@ -265,6 +277,7 @@ func NewStatusApplied(target Combatant, status entities.Status, turns int) Event
 			"status": status.Name,
 			"turns":  turns,
 			"kind":   string(status.Kind),
+			"side":   combatantSide(target),
 		},
 	}
 }
@@ -282,6 +295,7 @@ func NewStatusExpired(target Combatant, status entities.Status) Event {
 			"target": target.Name(),
 			"status": status.Name,
 			"kind":   string(status.Kind),
+			"side":   combatantSide(target),
 		},
 	}
 }
@@ -307,8 +321,16 @@ func NewStatusDamage(target Combatant, status entities.Status, amount int) Event
 			"target_hp_exact": target.HP(),
 			"target_max_hp":   target.MaxHP(),
 			"kind":            string(status.Kind),
+			"side":            combatantSide(target),
 		},
 	}
+}
+
+func combatantSide(target Combatant) ActorSide {
+	if _, ok := target.(*entities.Hero); ok {
+		return ActorHero
+	}
+	return ActorEnemy
 }
 
 func NewSneakFailed() Event {

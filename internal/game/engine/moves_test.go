@@ -27,6 +27,39 @@ func movesEngine(rngValues ...int) *Engine {
 	return e
 }
 
+func TestCanonicalBasicAttackUsesRegistryDefinitionInEngine(t *testing.T) {
+	e := movesEngine()
+	asset := game.MoveAsset{
+		ID: "basic_attack", Name: "Modded Basic", Type: "both", Tier: 1,
+		DmgModifier: 135, CritBonus: 7, Cooldown: 1, Weight: 25,
+	}
+	e.reg.Moves[asset.ID] = asset
+	e.Player.ForgetMove(entities.Punch().ID)
+
+	heroMoves := e.CombatMoves()
+	if len(heroMoves) != 1 || heroMoves[0].Name != "Modded Basic" || heroMoves[0].DmgModifier != 135 || heroMoves[0].Cooldown != 1 {
+		t.Fatalf("hero fallback = %+v, want registry-defined basic attack", heroMoves)
+	}
+	monsterMoves, err := e.monsterMoves(game.MonsterAsset{ID: "rat"})
+	if err != nil || len(monsterMoves) != 1 || monsterMoves[0].Name != "Modded Basic" || monsterMoves[0].Weight != 25 {
+		t.Fatalf("monster fallback = %+v, err %v; want registry-defined basic attack", monsterMoves, err)
+	}
+
+	locked := entities.NewMoveFromAsset(game.MoveAsset{
+		ID: "locked", Name: "Locked", Type: "both", Tier: 1,
+		DmgModifier: 100, Cooldown: 2, Weight: 1,
+	})
+	startEncounter(e, entities.NewMonsterFromAsset(game.MonsterAsset{
+		ID: "rat", Name: "Rat", Difficulty: 1, HP: 20,
+	}, locked))
+	e.State = StateCombat
+	e.enemyCombat = newCombatantState()
+	e.enemyCombat.cooldowns[locked.ID] = 2
+	if got := e.enemyTurnMove(); got.ID != asset.ID || got.Name != asset.Name || got.DmgModifier != asset.DmgModifier {
+		t.Errorf("all-locked enemy fallback = %+v, want registry-defined basic attack", got)
+	}
+}
+
 // learn teaches the hero the named fixture moves in order (learning
 // order = the effective-set order the CmdMove index points into).
 func learn(e *Engine, ids ...string) {
@@ -273,7 +306,7 @@ func TestKillRoundLocksWithoutTicking(t *testing.T) {
 // The hero's opening move set: Punch PRE-LEARNED (learned slot 1 of 2)
 // plus the starter sword's explicit Basic Strike grant. With the punch
 // in the learned set the effective set is never empty for a fresh hero —
-// the basic_attack fallback below stays depth-only.
+// the registry-defined basic_attack is reserved for empty move sets.
 func TestFreshHeroStartsWithThePunch(t *testing.T) {
 	// starterEngine builds an engine whose registry carries the starter
 	// sword (equipped by id) and the move its grant references.
@@ -505,8 +538,8 @@ func TestMonsterAllMovesLockedUsesBasicAttackWithoutRng(t *testing.T) {
 	if got := eventTypes(events); !typesEqual(got, EventMoveUsed, EventCombatDamageDealt, EventMoveUsed, EventCombatDamageTaken) {
 		t.Fatalf("events = %v, want [move-used dealt move-used taken]", got)
 	}
-	if move := events[2].Data["move"]; move != "Basic Strike" {
-		t.Errorf("monster move = %v, want the basic_attack fallback", move)
+	if move := events[2].Data["move"]; move != "Basic Attack" {
+		t.Errorf("monster move = %v, want registry-defined basic_attack name", move)
 	}
 	// The fallback saves the PICK roll: two strikes' worth of rolls
 	// (spread + crit each) — one less than a picked turn would consume.
@@ -518,7 +551,7 @@ func TestMonsterAllMovesLockedUsesBasicAttackWithoutRng(t *testing.T) {
 // A locked fallback never traps the monster: cooldowns tick at round
 // end, so the locked moves free up again.
 func TestMonsterCooldownsRecover(t *testing.T) {
-	e := movesEngine(1, 50, 0, 1, 50)
+	e := movesEngine(1, 2, 0)
 	heroWithDamage(e, 5)
 	startEncounter(e, monsterWithMoves(
 		game.MonsterAsset{ID: "brute", Name: "Brute", Difficulty: 3, HP: 900, Damage: 2, Speed: 10},

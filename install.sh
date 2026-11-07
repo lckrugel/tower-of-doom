@@ -54,7 +54,9 @@ fetch() {
 
 # install_bin copies a verified binary into BIN_DIR atomically: it is staged
 # under a temporary name on the same filesystem and renamed into place, so a
-# failure never leaves a half-written or non-executable binary behind.
+# failure never leaves that binary half-written or non-executable. The two
+# binaries are installed independently; failure on the second can leave the
+# first updated, so the pair as a whole is not transactional.
 install_bin() {
 	src=$1
 	dest=$2

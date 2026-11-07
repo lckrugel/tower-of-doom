@@ -6,6 +6,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
@@ -16,10 +17,9 @@ import (
 // time with: -ldflags "-X main.version=<version>".
 var version = "dev"
 
-// validateHorizon validates content coverage up to this floor.
-// Mirrors cmd/cli: the tower is infinite (a tail section with
-// max_floor == -1 covers the rest), so a large horizon is enough to
-// guarantee valid content for everything reachable in a game.
+// validateHorizon bounds floor-budget validation. An unbounded tail section
+// describes coverage beyond this point, but this finite walk does not verify
+// every future floor's difficulty budget.
 const validateHorizon = 100_000
 
 const usage = `usage: validate [--version] [path]
@@ -36,15 +36,20 @@ misuse.
 exit codes: 0 valid · 1 invalid content · 2 usage error`
 
 func main() {
-	args := os.Args[1:]
+	os.Exit(run(os.Args[1:], os.Stdout, os.Stdout))
+}
+
+// run validates command-line input and writes diagnostics without exiting the
+// process, making argument and exit-code behavior directly testable.
+func run(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 1 && (args[0] == "--version" || args[0] == "-version") {
-		fmt.Printf("tower-validate %s\n", version)
-		return
+		fmt.Fprintf(stdout, "tower-validate %s\n", version)
+		return 0
 	}
 	// At most one positional path; any flag or extra argument is misuse.
 	if len(args) > 1 || (len(args) == 1 && strings.HasPrefix(args[0], "-")) {
-		fmt.Fprintln(os.Stderr, usage)
-		os.Exit(2)
+		fmt.Fprintln(stderr, usage)
+		return 2
 	}
 	dir := ""
 	if len(args) == 1 {
@@ -56,9 +61,9 @@ func main() {
 	// error, exit 1 — NOT a silent fallback to the embedded assets.
 	if dir != "" {
 		if info, err := os.Stat(dir); err != nil {
-			fail(fmt.Errorf("reading asset directory %s: %w", dir, err))
+			return fail(stdout, fmt.Errorf("reading asset directory %s: %w", dir, err))
 		} else if !info.IsDir() {
-			fail(fmt.Errorf("asset path %s is not a directory", dir))
+			return fail(stdout, fmt.Errorf("asset path %s is not a directory", dir))
 		}
 	}
 
@@ -66,55 +71,47 @@ func main() {
 	// bad JSON) are content bugs the modder must fix: exit 1, not 2.
 	registry, err := game.Load(dir)
 	if err != nil {
-		fail(err)
+		return fail(stdout, err)
 	}
 	if err := registry.Validate(validateHorizon); err != nil {
-		fail(err)
+		return fail(stdout, err)
 	}
 
-	printDigest(registry)
+	printDigest(stdout, registry)
+	return 0
 }
 
 // fail prints the error report — every fault on its own line — and
 // exits with the invalid-content code. The report goes to stdout: it
 // is the command's product (pipe it, redirect it), not a malfunction.
-func fail(err error) {
+func fail(out io.Writer, err error) int {
 	lines := strings.Split(strings.TrimSpace(err.Error()), "\n")
 	for _, line := range lines {
-		fmt.Println(line)
+		fmt.Fprintln(out, line)
 	}
-	fmt.Printf("FAILED (%d errors)\n", len(lines))
-	os.Exit(1)
+	fmt.Fprintf(out, "FAILED (%d errors)\n", len(lines))
+	return 1
 }
 
-// printDigest summarizes valid content: where each asset file came
-// from, how much of it there is, the covered floor span and the tier
+// printDigest summarizes valid content: where each asset file came from,
+// how much of it there is, the finite floor-validation horizon and the tier
 // ladders. Plain lines, one fact each, ending in OK.
-func printDigest(r *game.Registry) {
+func printDigest(out io.Writer, r *game.Registry) {
 	provenance := r.Provenance()
 	for _, name := range []string{"monsters", "items", "moves", "statuses", "sections"} {
-		fmt.Printf("%s: %s\n", name, provenance[name+".json"])
+		fmt.Fprintf(out, "%s: %s\n", name, provenance[name+".json"])
 	}
-	fmt.Printf("monsters: %d\n", len(r.Monsters))
-	fmt.Printf("items: %d\n", len(r.Items))
-	fmt.Printf("moves: %d\n", len(r.Moves))
-	fmt.Printf("statuses: %d\n", len(r.Statuses))
-	fmt.Printf("sections: %d\n", len(r.Sections))
+	fmt.Fprintf(out, "monsters: %d\n", len(r.Monsters))
+	fmt.Fprintf(out, "items: %d\n", len(r.Items))
+	fmt.Fprintf(out, "moves: %d\n", len(r.Moves))
+	fmt.Fprintf(out, "statuses: %d\n", len(r.Statuses))
+	fmt.Fprintf(out, "sections: %d\n", len(r.Sections))
 
-	// The validated span starts at floor 1 and reaches the horizon — or
-	// forever, when a tail section (max_floor == -1) has no end.
-	last := fmt.Sprint(validateHorizon)
-	for _, s := range r.Sections {
-		if s.MaxFloor == -1 {
-			last = "∞"
-			break
-		}
-	}
-	fmt.Printf("floors: 1-%s\n", last)
+	fmt.Fprintf(out, "validated floors: 1-%d (finite validation horizon)\n", validateHorizon)
 
-	fmt.Printf("item tiers: %s\n", tierSpan(r.Items, func(i game.ItemAsset) int { return i.Tier }))
-	fmt.Printf("move tiers: %s\n", tierSpan(r.Moves, func(m game.MoveAsset) int { return m.Tier }))
-	fmt.Println("OK")
+	fmt.Fprintf(out, "item tiers: %s\n", tierSpan(r.Items, func(i game.ItemAsset) int { return i.Tier }))
+	fmt.Fprintf(out, "move tiers: %s\n", tierSpan(r.Moves, func(m game.MoveAsset) int { return m.Tier }))
+	fmt.Fprintln(out, "OK")
 }
 
 // tierSpan formats the tier ladder present among the assets as

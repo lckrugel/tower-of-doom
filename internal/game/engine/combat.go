@@ -47,9 +47,18 @@ func (e *Engine) currentEnemy() *entities.Monster {
 func (e *Engine) CombatMoves() []entities.Move {
 	moves := e.Player.EffectiveMoves(e.Player.Weapon)
 	if len(moves) == 0 {
-		return []entities.Move{entities.BasicAttack()}
+		return []entities.Move{e.basicAttack()}
 	}
 	return moves
+}
+
+// basicAttack resolves the canonical fallback from the active registry. The
+// entity-level value remains a safe fallback for unvalidated/minimal registries.
+func (e *Engine) basicAttack() entities.Move {
+	if asset, ok := e.reg.MoveByID(entities.BasicAttack().ID); ok {
+		return entities.NewMoveFromAsset(asset)
+	}
+	return entities.BasicAttack()
 }
 
 // MoveCooldown reports how many more rounds the hero's move stays
@@ -178,7 +187,7 @@ func (e *Engine) rollMoveDamage(effDmg int, move *entities.Move, critThreshold i
 func (e *Engine) heroStrike(move *entities.Move) []Event {
 	enemy := e.currentEnemy()
 	swing, crit := e.rollMoveDamage(e.heroStat(entities.StatDMG), move, e.Player.CritThreshold())
-	events := []Event{NewMoveUsed(e.Player.Name(), move.Name)}
+	events := []Event{NewMoveUsedOnSide(e.Player.Name(), move.Name, ActorHero)}
 	events = append(events, NewDamageDealtWithMove(enemy,
 		enemy.TakeDmg(effectiveDamage(swing, e.enemyStat(entities.StatDEF))), crit, move.Name))
 	events = append(events, e.applyStrikeStatus(move, e.Player, enemy)...)
@@ -233,7 +242,7 @@ func (e *Engine) enemyTurnMove() *entities.Move {
 		weights = append(weights, m.Weight)
 	}
 	if len(filtered) == 0 {
-		basic := entities.BasicAttack()
+		basic := e.basicAttack()
 		return &basic
 	}
 	picked := weightedPick(e.rng, filtered, weights)
@@ -246,7 +255,7 @@ func (e *Engine) enemyTurnMove() *entities.Move {
 func (e *Engine) enemyStrike(move *entities.Move) []Event {
 	enemy := e.currentEnemy()
 	swing, crit := e.rollMoveDamage(e.enemyStat(entities.StatDMG), move, enemy.CritThreshold())
-	events := []Event{NewMoveUsed(enemy.Name(), move.Name)}
+	events := []Event{NewMoveUsedOnSide(enemy.Name(), move.Name, ActorEnemy)}
 	events = append(events, NewDamageTakenWithMove(e.Player,
 		e.Player.TakeDmg(effectiveDamage(swing, e.heroStat(entities.StatDEF))), crit, move.Name))
 	events = append(events, e.applyStrikeStatus(move, enemy, e.Player)...)
@@ -282,8 +291,10 @@ func (e *Engine) endRound(events []Event, heroMove, enemyMove *entities.Move) []
 	tickEvents, enemyDead := tickStatuses(&e.enemyCombat, e.currentEnemy())
 	events = append(events, tickEvents...)
 	if enemyDead {
-		// The poison kill is still a kill: XP, gold, queue advance —
-		// and the hero's used move locks for its full cooldown.
+		// Both sides completed the round before the poison tick, so existing
+		// hero cooldowns advance. appendEnemyDefeat then applies the move used
+		// this round at its full cooldown, after that completed-round tick.
+		e.heroCombat.tickCooldowns()
 		return e.appendEnemyDefeat(events, heroMove)
 	}
 
@@ -341,10 +352,12 @@ func (e *Engine) appendEnemyDefeat(events []Event, heroMove *entities.Move) []Ev
 		if section := e.currentSection(); section.Boss != nil && e.reg.IsSectionEnd(e.CurrentFloor) {
 			e.BossUnlocked = true
 			e.State = StateExploring
+			e.CurrentEncounter = Encounter{}
 			return append(events, NewBossUnlocked())
 		}
 		e.CanAscend = true
 		e.State = StateExploring
+		e.CurrentEncounter = Encounter{}
 		events = append(events, NewVictory())
 	}
 	return events
@@ -354,7 +367,9 @@ func (e *Engine) appendEnemyDefeat(events []Event, heroMove *entities.Move) []Ev
 // floor reached, hero level and enemies defeated so far.
 func (e *Engine) appendHeroDefeat(events []Event) []Event {
 	e.State = StateGameOver
-	return append(events, NewHeroDefeatedWithStats(e.CurrentFloor, e.Player.Lvl, e.kills))
+	events = append(events, NewHeroDefeatedWithStats(e.CurrentFloor, e.Player.Lvl, e.kills))
+	e.CurrentEncounter = Encounter{}
+	return events
 }
 
 // defCurveK tunes the defense mitigation curve — mitigation per hit is

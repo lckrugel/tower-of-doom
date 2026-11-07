@@ -134,6 +134,14 @@ helpers are for non-engine use only (e.g. item durability).
   resolves as an automatic RECOVER round (a message, the enemy acts,
   ticks run) — never a soft-lock; picking one locked move while another
   is ready is only a blocking message with no state change.
+- **Read-only combat view:** `Engine.CombatView()` is a value-copy snapshot
+  for rendering. Actor side and monster ID are identity; display names are
+  narrative only. Moves/statuses carry registry IDs and live cooldown or
+  duration values, and actor stats are effective combat stats. Events remain
+  responsible for narrative and logs, not reconstructing combat timing.
+- **Event payload ownership:** `Event.Data` is a fresh map, but pointer and
+  slice entries intentionally reference live engine objects/storage. Treat
+  them as read-only notifications, not immutable history or replay records.
 - **SNEAK:** 50/50 (`Intn(2)`), no stats involved.
 - **FLEE:** chance = `50% + 5% × (hero SPD − enemy SPD)`, clamped to [5, 95].
 
@@ -264,6 +272,16 @@ older mods keep working.
     - `BuyPrice` = full value — what a merchant charges.
     - `SellValue` = half the value, floored at 1 — what a merchant pays
       (even junk sells for something).
+- **Durability status — unfinished:** items have durability fields and
+  `Item.Use()` contains a dormant wear calculation, but the engine does not
+  call it. Generated items start at maximum durability and gameplay does not
+  currently consume durability. Do not activate wear by adding incidental
+  calls; it needs an intentional mechanic design.
+- **Durability status — unfinished:** items have durability fields and
+  `Item.Use()` contains a dormant wear calculation, but the engine does not
+  call it. Generated items start at maximum durability and gameplay does not
+  currently consume durability. Do not activate wear by adding incidental
+  calls; it needs an intentional mechanic design.
 - **Merchant flow** — EXPLORE opens the shop (StateMerchant) with the
   offers held in `Engine.MerchantStock`:
     - `BUY <stock index>` — not enough gold: `event-message`, no change;
@@ -473,12 +491,15 @@ below documents the shipped behavior.
   declares its moves explicitly: an absent or EMPTY `moves` list on a
   weapon is a validation error** (BREAKING for mods — move-less weapons
   no longer load; they no longer keep the fallback). Non-weapon slots
-  still may not carry moves. The canonical fallback move's NAME is
-  **Basic Strike** (its id stays `basic_attack`). With the rule in place
+  still may not carry moves. The embedded fallback move's NAME is
+  **Basic Strike** (its id stays `basic_attack`); mods may replace the
+  definition under that canonical ID. With the rule in place
   every reachable hero turn has a ready move, so the automatic RECOVER
   round below is content-unreachable — kept as defense in depth (a mod
   could still ship it; validation would catch it at startup).
-- **The `basic_attack` fallback, exactly two cases**: a MONSTER whose
+- **The `basic_attack` fallback, exactly two cases**: it resolves from the
+  active registry's `basic_attack` asset (the hardcoded entity value is
+  only a safety fallback for minimal registries). A MONSTER whose
   asset lists no moves (the older-assets/mods rule above), and a HERO
   with NO equipped weapon and an empty learned set (the depth
   guarantee). With the punch pre-learned the fresh hero's set is never
@@ -527,8 +548,8 @@ below documents the shipped behavior.
 - The round-end tick order is deterministic: the HERO's statuses first,
   then the enemy's, each in application order; a status deals its DoT
   then counts its round down, expiring at 0 with an event.
-- Events: `event-move-used{user, move}`, `event-status-applied{target,
-  status, turns, kind}`, `event-status-expired{target, status, kind}`,
+- Events: `event-move-used{user, move, side}`, `event-status-applied{target,
+  status, turns, kind, side}`, `event-status-expired{target, status, kind, side}`,
   `event-status-damage{target, status, amount, target_hp_exact,
   target_max_hp, kind}`; the damage-dealt/taken payloads also carry the
   additive `move` key.
@@ -571,9 +592,10 @@ below documents the shipped behavior.
 - **The step-dependent command surface**: the CHOOSING step allows
   `[CHOOSE, DECLINE, QUIT]`, the FORGETTING step
   `[FORGET, DECLINE, QUIT]` — the engine enforces the per-step matrix
-  (`isValidCommand` over `allowedCommands`). The package-level
-  `AllowedCommands` — the TUI's view, which cannot see the internal
-  step — returns the UNION of both steps.
+  (`isValidCommand` over `allowedCommands`), and
+  `Engine.AvailableCommands()` returns that instance-specific set.
+  Package-level `AllowedCommands(state)` is state-only and returns the
+  union for StateLearn.
 - **The offer rng contract**: ONE `Intn` PER offer (1–2 total) at
   shrine resolution, over the filtered pool SHRINKING per pick (each
   pick removes its move's id — the offers never duplicate; fewer offers
@@ -596,17 +618,11 @@ below documents the shipped behavior.
   fresh copy of value assets — mutating the return never reaches the
   registry; empty-registry safe) for lore/UI consumers such as the
   TUI's `?` overlay.
-- The deprecated bridge: `Engine.PendingMove` (the old one-offer field)
-  survives as a read-only mirror for the CURRENT shrine screen — the
-  first offer while StateLearn is choosing, the chosen offer once the
-  forgetting step opens; cleared on every exit path. New consumers read
-  `PendingMoves` (and `ChosenMove`); `event-shrine-found` is likewise
-  superseded by `event-shrine-offered` (no longer emitted).
-- The TUI (this phase): the ◈ SHRINE screen still renders the OLD
-  one-offer flow from the `PendingMove` mirror — its bar offers only
-  DECLINE/QUIT while choosing (the CHOOSE action and the two-offer
-  dossiers land with the shrine screen rework; the log prints one
-  unhandled-event line for `event-shrine-offered` until then).
+- `Engine.PendingMoves` and `Engine.ChosenMove` are the sole shrine
+  workflow state. `Engine.AvailableCommands()` exposes the active step's
+  exact command set; the TUI does not infer choosing/forgetting from
+  compatibility state. The old `event-shrine-found` constructor remains
+  dormant; runtime encounters emit `event-shrine-offered`.
 - Shrines are non-combat kinds: the no-triple pacing rule covers them
   (three shrines in a row is impossible) and they never unlock ASCEND.
 - Embedded content: every section carries a `shrine` weight (11-13% of
@@ -801,3 +817,8 @@ so the spam stays a weighted choice on both sides.
    groups reference existing monsters — their members fight with
    authored move sets since the shrine content pass; the shrines ship
    with the flow documented in "Shrines")
+5. ~~Combat view and screen accuracy~~ (shipped: combat snapshots are
+   engine-owned; TUI rendering no longer reconstructs timing from events)
+6. ~~Contract and ownership simplification~~ (shipped: active commands,
+   event payload ownership, canonical fallback resolution, and shared
+   item construction are documented above)

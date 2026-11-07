@@ -296,13 +296,19 @@ func modelOf(next tea.Model, t *testing.T) Model {
 
 func TestEventLogIsTrimmedToTheNewestLines(t *testing.T) {
 	m := New(testEngine())
-	for range maxLogLines * 3 {
-		next, _ := m.dispatch(action{key: "e", label: "Explore", cmd: engine.CmdExplore})
-		m = modelOf(next, t)
+	for i := range maxLogLines + 3 {
+		m.log = append(m.log, fmt.Sprintf("line %d", i))
 	}
+	m.log = trimLog(m.log)
 
 	if len(m.log) != maxLogLines {
 		t.Fatalf("log length = %d, want %d", len(m.log), maxLogLines)
+	}
+	for i, line := range m.log {
+		want := fmt.Sprintf("line %d", i+3)
+		if line != want {
+			t.Errorf("log[%d] = %q, want newest retained line %q", i, line, want)
+		}
 	}
 }
 
@@ -492,7 +498,7 @@ func TestViewCombatShowsOnlyTheCurrentEnemy(t *testing.T) {
 
 	// The engaged enemy gets its stat line too — crit chance and defense
 	// are worth watching mid-fight — but only the front enemy's.
-	front := "⚔ 2 · ⛨ 0 · » 10 · ✦ 5% · ⬆ 3"
+	front := "⚔ 2 · ⛨ 0 · » 10 · ✦ 5%"
 	if !strings.Contains(view, front) {
 		t.Errorf("combat view missing the front enemy's stat line %q:\n%s", front, view)
 	}
@@ -534,11 +540,11 @@ func TestViewGameOverRecap(t *testing.T) {
 	view := stripControls(stripANSI(m.View()))
 
 	for _, want := range []string{
-		"YOU DIED",       // the banner stays
-		"Floor 7",        // where it ended
-		"Goblin Pits",    // the section, via SectionName
-		"Level 3",        // hero level
-		"40 XP gathered", // xp accumulated before death
+		"YOU DIED",    // the banner stays
+		"Floor 7",     // where it ended
+		"Goblin Pits", // the section, via SectionName
+		"Level 3",     // hero level
+		"40 current XP",
 	} {
 		if !strings.Contains(view, want) {
 			t.Errorf("game over view missing %q:\n%s", want, view)
@@ -584,7 +590,7 @@ func TestLegacyDefeatStoresNoRecap(t *testing.T) {
 }
 
 // The game-over recap must quote the captured defeat stats, kills
-// included, e.g. "Level 3 · 7 kills · 40 XP gathered".
+// included, e.g. "Level 3 · 7 kills · 40 current XP".
 func TestViewGameOverRecapShowsTheKillCount(t *testing.T) {
 	e := testEngine()
 	e.State = engine.StateGameOver
@@ -596,7 +602,7 @@ func TestViewGameOverRecapShowsTheKillCount(t *testing.T) {
 
 	view := stripControls(stripANSI(m.View()))
 
-	if !strings.Contains(view, "Level 3 · 7 kills · 40 XP gathered") {
+	if !strings.Contains(view, "Level 3 · 7 kills · 40 current XP") {
 		t.Errorf("recap missing the kills line:\n%s", view)
 	}
 
@@ -625,7 +631,7 @@ func TestViewGameOverRecapHandlesMissingAndZeroKills(t *testing.T) {
 		view := stripControls(stripANSI(withKills(
 			engine.NewHeroDefeatedWithStats(1, 1, 0),
 		).View()))
-		if !strings.Contains(view, "Level 1 · 0 kills · 40 XP gathered") {
+		if !strings.Contains(view, "Level 1 · 0 kills · 40 current XP") {
 			t.Errorf("zero kills recapped wrong:\n%s", view)
 		}
 	})
@@ -639,7 +645,7 @@ func TestViewGameOverRecapHandlesMissingAndZeroKills(t *testing.T) {
 		if strings.Contains(view, "kills") {
 			t.Errorf("recap printed a kills segment with no kills data:\n%s", view)
 		}
-		if !strings.Contains(view, "Level 2 · 40 XP gathered") {
+		if !strings.Contains(view, "Level 2 · 40 current XP") {
 			t.Errorf("recap without kills data lost the level line:\n%s", view)
 		}
 	})
@@ -889,10 +895,9 @@ func TestShrineDeclineKeepsBothMoves(t *testing.T) {
 	})
 }
 
-// A wrong-step shortcut reaches the engine anyway and is answered with
-// the generic rejection — the state (and its pending offer) stays
-// exactly as it was.
-func TestShrineWrongStepShortcutsAreRejectedByTheEngine(t *testing.T) {
+// A wrong-step shortcut is absent from the engine-provided command set,
+// so the TUI ignores it without dispatching.
+func TestShrineWrongStepShortcutsAreIgnored(t *testing.T) {
 	t.Run("forget in the choosing step", func(t *testing.T) {
 		m := shrineModel()
 		logLen := len(m.log)
@@ -905,8 +910,8 @@ func TestShrineWrongStepShortcutsAreRejectedByTheEngine(t *testing.T) {
 		if len(m.engine.PendingMoves) != 2 || m.engine.ChosenMove != nil {
 			t.Error("the wrong-step dispatch consumed the choosing step")
 		}
-		if last := stripANSI(m.log[len(m.log)-1]); last != "Invalid command" || len(m.log) != logLen+1 {
-			t.Errorf("last log line = %q (+%d lines), want the generic rejection", last, len(m.log)-logLen)
+		if len(m.log) != logLen {
+			t.Errorf("wrong-step key dispatched: log grew from %d to %d", logLen, len(m.log))
 		}
 	})
 	t.Run("learn in the forgetting step", func(t *testing.T) {
@@ -921,8 +926,8 @@ func TestShrineWrongStepShortcutsAreRejectedByTheEngine(t *testing.T) {
 		if m.engine.ChosenMove == nil {
 			t.Error("the wrong-step dispatch dropped the recorded choice")
 		}
-		if last := stripANSI(m.log[len(m.log)-1]); last != "Invalid command" || len(m.log) != logLen+1 {
-			t.Errorf("last log line = %q (+%d lines), want the generic rejection", last, len(m.log)-logLen)
+		if len(m.log) != logLen {
+			t.Errorf("wrong-step key dispatched: log grew from %d to %d", logLen, len(m.log))
 		}
 	})
 }

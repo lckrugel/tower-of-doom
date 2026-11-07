@@ -411,13 +411,13 @@ func TestEventText(t *testing.T) {
 		},
 		{
 			"hero uses a move",
-			engine.NewMoveUsed("Hero", "Power Slash"),
+			engine.NewMoveUsedOnSide("Hero", "Power Slash", engine.ActorHero),
 			"You use Power Slash!",
 			nil,
 		},
 		{
 			"monster uses a move",
-			engine.NewMoveUsed("Goblin", "Venom Bite"),
+			engine.NewMoveUsedOnSide("Goblin", "Venom Bite", engine.ActorEnemy),
 			"The Goblin uses Venom Bite!",
 			nil,
 		},
@@ -470,7 +470,7 @@ func TestEventText(t *testing.T) {
 		{
 			"buff lands on the hero",
 			engine.Event{Type: engine.EventStatusApplied, Data: map[string]any{
-				"target": "Hero", "status": "Guard", "turns": 2, "kind": "buff",
+				"target": "Hero", "status": "Guard", "turns": 2, "kind": "buff", "side": engine.ActorHero,
 			}},
 			"You gain Guard (2 turns).",
 			nil,
@@ -478,7 +478,7 @@ func TestEventText(t *testing.T) {
 		{
 			"debuff lands on the hero",
 			engine.Event{Type: engine.EventStatusApplied, Data: map[string]any{
-				"target": "Hero", "status": "Poison", "turns": 3, "kind": "debuff",
+				"target": "Hero", "status": "Poison", "turns": 3, "kind": "debuff", "side": engine.ActorHero,
 			}},
 			"You suffer Poison (3 turns).",
 			nil,
@@ -593,6 +593,19 @@ func TestEventText(t *testing.T) {
 
 // Status tones follow the status KIND: debuffs render soft-red, buffs
 // green — regardless of which side they landed on.
+func TestItemBonusListIncludesSignedBonusesAndGrantedMoves(t *testing.T) {
+	item := entities.NewItemFromAsset(game.ItemAsset{
+		ID: "test_blade", Name: "Test Blade", Slot: "weapon",
+		BonusHP: -5, BonusDMG: 3, BonusSPD: -2,
+	}, entities.Move{ID: "jab", Name: "Jab"}, entities.Move{ID: "heavy", Name: "Heavy Slash"})
+	got := itemBonusList(&item)
+	for _, want := range []string{"-5 HP", "+3 DMG", "-2 SPD", "grants Jab, Heavy Slash"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("item bonus list %q missing %q", got, want)
+		}
+	}
+}
+
 func TestStatusTonesFollowKind(t *testing.T) {
 	withKind := func(kind string) engine.Event {
 		return engine.Event{Type: engine.EventStatusApplied, Data: map[string]any{"kind": kind}}
@@ -626,7 +639,7 @@ func TestShrineOfferedTone(t *testing.T) {
 // byte-identical either way; a legacy payload without the move key
 // keeps the unspanned whole-tone line.
 func TestMoveNamesRenderAsAccentSpans(t *testing.T) {
-	hero := engine.NewMoveUsed("Hero", "Power Slash")
+	hero := engine.NewMoveUsedOnSide("Hero", "Power Slash", engine.ActorHero)
 	want := styleDim.Render("You use ") + styleXP.Render("Power Slash") + styleDim.Render("!")
 	if got := renderEvent(hero); got != want {
 		t.Errorf("hero move line = %q, want %q", got, want)
@@ -635,7 +648,7 @@ func TestMoveNamesRenderAsAccentSpans(t *testing.T) {
 		t.Errorf("hero move line stripped = %q, want the plain text", plain)
 	}
 
-	enemy := engine.NewMoveUsed("Goblin", "Venom Bite")
+	enemy := engine.NewMoveUsedOnSide("Goblin", "Venom Bite", engine.ActorEnemy)
 	want = styleDim.Render("The Goblin uses ") + styleHurt.Render("Venom Bite") + styleDim.Render("!")
 	if got := renderEvent(enemy); got != want {
 		t.Errorf("enemy move line = %q, want %q", got, want)

@@ -1,10 +1,12 @@
 package game
 
 import (
+	"bytes"
 	"embed"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"maps"
 	"os"
 	"path/filepath"
@@ -20,6 +22,13 @@ var embeddedAssets embed.FS
 // weaponSlot is the only equipment slot allowed to grant Combat 2.0
 // moves (the entities package owns the typed slot constants).
 const weaponSlot = "weapon"
+
+// Equipment slots accepted by the runtime Hero. Keep this list aligned with
+// entities.Hero's slots; validation prevents accepted content from silently
+// disappearing when equipped.
+var equipmentSlots = map[string]struct{}{
+	"weapon": {}, "helmet": {}, "body_armor": {}, "boots": {}, "ring": {}, "amulet": {},
+}
 
 // Define um asset para item.
 //
@@ -477,13 +486,18 @@ func (r *Registry) Validate(topFloor int) error {
 		errs = append(errs, fmt.Errorf("content validation: "+format, args...))
 	}
 
-	// Item tiers must be real. Load defaults the absent field to 1, so a
+	// Item tiers and equipment slots must be valid. Load defaults the absent
+	// tier field to 1, so a
 	// non-positive tier here is a content bug, not a missing field.
 	for _, id := range sortedIDs(r.Items) {
 		item := r.Items[id]
 		if item.Tier < 1 {
 			fail("item %q has tier %d, want >= 1 (absent/0 defaults to tier 1)",
 				item.ID, item.Tier)
+		}
+		if _, ok := equipmentSlots[item.Slot]; !ok {
+			fail("item %q has unknown slot %q", item.ID, item.Slot)
+			continue
 		}
 	}
 
@@ -652,11 +666,27 @@ func (r *Registry) Validate(topFloor int) error {
 		}
 	}
 
-	// Monster schema rules (difficulty/defense/crit) are checked through
-	// the spawn-table walk below — the same walk the encounter generator
-	// uses — at most once per monster id: the same monster referenced by
-	// many sections is one fault, not one per spawn entry.
-	schemaChecked := make(map[string]bool)
+	// Monster intrinsic schema is checked registry-wide, including monsters
+	// referenced only by boss groups. Spawn tables validate references and
+	// weights separately below.
+	for _, id := range sortedIDs(r.Monsters) {
+		m := r.Monsters[id]
+		if m.Difficulty < 1 {
+			fail("monster %q has difficulty %d, want >= 1 (ensures encounter generation terminates)",
+				m.ID, m.Difficulty)
+		}
+		if m.HP < 1 {
+			fail("monster %q has hp %d, want >= 1", m.ID, m.HP)
+		}
+		if m.Defense < 0 {
+			fail("monster %q has def %d, want >= 0 (negative defense would amplify incoming damage)",
+				m.ID, m.Defense)
+		}
+		if m.Crit < 0 || m.Crit > 100 {
+			fail("monster %q has crit %d, want within [0, 100] (percentage)",
+				m.ID, m.Crit)
+		}
+	}
 
 	for _, s := range r.Sections {
 		if len(s.Spawns) == 0 {
@@ -730,7 +760,7 @@ func (r *Registry) Validate(topFloor int) error {
 			}
 		}
 		for _, spawn := range s.Spawns {
-			m, ok := r.Monsters[spawn.MonsterID]
+			_, ok := r.Monsters[spawn.MonsterID]
 			if !ok {
 				fail("section %q references unknown monster %q", s.ID, spawn.MonsterID)
 				continue
@@ -738,24 +768,6 @@ func (r *Registry) Validate(topFloor int) error {
 			if spawn.Weight < 1 {
 				fail("section %q spawn for monster %q has weight %d, want >= 1",
 					s.ID, spawn.MonsterID, spawn.Weight)
-			}
-			if schemaChecked[spawn.MonsterID] {
-				continue
-			}
-			schemaChecked[spawn.MonsterID] = true
-			if m.Difficulty < 1 {
-				fail("monster %q has difficulty %d, want >= 1 "+
-					"(garante que geração de encontros termina)",
-					m.ID, m.Difficulty)
-			}
-			if m.Defense < 0 {
-				fail("monster %q has def %d, want >= 0 "+
-					"(negative defense would amplify incoming damage)",
-					m.ID, m.Defense)
-			}
-			if m.Crit < 0 || m.Crit > 100 {
-				fail("monster %q has crit %d, want within [0, 100] (percentage)",
-					m.ID, m.Crit)
 			}
 		}
 	}
@@ -789,8 +801,39 @@ func (r *Registry) Validate(topFloor int) error {
 				floor, section.ID, budget, r.cheapestSpawnName(section), cheapest)
 		}
 	}
+	if err := r.validateEquipmentHP(); err != nil {
+		fail("%v", err)
+	}
 
 	return errors.Join(errs...)
+}
+
+// validateEquipmentHP allows signed bonuses but rejects a registry whose
+// worst-case combination of one item per slot could remove all hero max HP.
+func (r *Registry) validateEquipmentHP() error {
+	minimumHPBonusBySlot := make(map[string]int64, len(equipmentSlots))
+	for _, id := range sortedIDs(r.Items) {
+		item := r.Items[id]
+		if _, ok := equipmentSlots[item.Slot]; !ok {
+			continue
+		}
+		bonus := int64(item.BonusHP)
+		if bonus < minimumHPBonusBySlot[item.Slot] {
+			minimumHPBonusBySlot[item.Slot] = bonus
+		}
+	}
+	worstCaseHPBonus := int64(0)
+	for slot := range equipmentSlots {
+		bonus := minimumHPBonusBySlot[slot]
+		if bonus >= 0 {
+			continue
+		}
+		if bonus <= -int64(StartingHeroMaxHP)-worstCaseHPBonus {
+			return fmt.Errorf("equipment HP penalties could reduce the hero's maximum HP to 0 or less")
+		}
+		worstCaseHPBonus += bonus
+	}
+	return nil
 }
 
 // sortedIDs returns the map's ids in sorted order: validation walks the
@@ -868,8 +911,17 @@ func loadJSON[T any](externalDir, filename string) ([]T, string, error) {
 		raw = r
 	}
 
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
 	var items []T
-	if err := json.Unmarshal(raw, &items); err != nil {
+	if err := decoder.Decode(&items); err != nil {
+		return nil, "", fmt.Errorf("parsing %s: %w", filename, err)
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		if err == nil {
+			return nil, "", fmt.Errorf("parsing %s: multiple JSON values", filename)
+		}
 		return nil, "", fmt.Errorf("parsing %s: %w", filename, err)
 	}
 	return items, source, nil

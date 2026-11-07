@@ -139,6 +139,47 @@ func TestBuyPurchasesTheSelectedOffer(t *testing.T) {
 	}
 }
 
+func TestRejectedBuyFeedbackRemainsVisibleOnMerchantScreen(t *testing.T) {
+	m := New(merchantEngine(1, 0, 0))
+	m, _ = press(m, "p")
+	if got := stripANSI(m.log[len(m.log)-1]); got != "Not enough gold." {
+		t.Fatalf("rejection log = %q, want actionable feedback", got)
+	}
+	if !strings.Contains(stripANSI(m.View()), "Not enough gold.") {
+		t.Fatalf("merchant screen hid the rejected-action feedback:\n%s", stripANSI(m.View()))
+	}
+}
+
+func TestEnterActsOnTheSelectedMerchantRow(t *testing.T) {
+	t.Run("stock row buys", func(t *testing.T) {
+		m := New(merchantEngine(1, 0, 500))
+		offer := m.engine.MerchantStock[0]
+
+		m, _ = press(m, "enter")
+
+		if m.engine.Player.Gold != 400 || len(m.engine.MerchantStock) != 0 {
+			t.Errorf("Enter on stock row: gold=%d stock=%d, want 400/0", m.engine.Player.Gold, len(m.engine.MerchantStock))
+		}
+		if bag := m.engine.Player.Bag(); len(bag) != 1 || bag[0] != offer {
+			t.Errorf("bag after Enter buy = %v, want the selected offer", bag)
+		}
+	})
+
+	t.Run("bag row sells", func(t *testing.T) {
+		m := New(merchantEngine(1, 1, 0))
+		m, _ = press(m, "right") // skip the stock row
+
+		m, _ = press(m, "enter")
+
+		if m.engine.Player.Gold != 25 || len(m.engine.Player.Bag()) != 0 {
+			t.Errorf("Enter on bag row: gold=%d bag=%d, want 25/0", m.engine.Player.Gold, len(m.engine.Player.Bag()))
+		}
+		if m.engine.State != engine.StateMerchant {
+			t.Errorf("state after Enter sell = %v, want StateMerchant", m.engine.State)
+		}
+	})
+}
+
 // Pressing v on a bag row sells that item: its SellValue moves to the
 // purse and the item is destroyed.
 func TestSellSellsTheSelectedBagItem(t *testing.T) {

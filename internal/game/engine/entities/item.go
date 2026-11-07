@@ -74,14 +74,20 @@ func (i *Item) GrantedMoves() []Move {
 // O valor varia conforme os status do item e a sua durabilidade atual.
 func (i *Item) Value() float32 {
 	maxValue := float32((i.BonusHP + i.BonusDMG + i.BonusDEF + i.BonusSPD) * 50)
+	value := maxValue
 	// Items with non-positive max durability (e.g. indestructible rings/amulets)
 	// are always worth their full value.
-	if i.MaxDurability <= 0 {
-		return maxValue
+	if i.MaxDurability > 0 {
+		value *= float32(i.CurrentDurability) / float32(i.MaxDurability)
 	}
-	return maxValue * (float32(i.CurrentDurability) / float32(i.MaxDurability))
+	// Signed bonuses are valid content, but a negative net bonus (or an
+	// over-worn item) must never turn a purchase into a gold grant.
+	return max(float32(0), value)
 }
 
+// Use applies the unfinished durability wear roll. It is intentionally not
+// called by engine gameplay; durability remains dormant until that mechanic
+// is designed and enabled as a separate change.
 func (i *Item) Use() {
 	if i.Slot != amulet && i.Slot != ring {
 		roll := game.RollD20()
@@ -95,7 +101,7 @@ func (i *Item) Use() {
 
 // BuyPrice is what a merchant charges for the item: its full value.
 func (i *Item) BuyPrice() int {
-	return int(i.Value())
+	return max(0, int(i.Value()))
 }
 
 // SellValue is what a merchant pays for the item: half its value, floored
