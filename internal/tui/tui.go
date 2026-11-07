@@ -155,6 +155,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.engine.State == engine.StateCombat {
 			return m.dispatchMove()
 		}
+		if m.engine.State == engine.StateMerchant && m.selectableRows() > 0 {
+			return m.dispatch(m.merchantRowAction())
+		}
 		return m.confirmOrDispatch(m.selectedAction())
 	default:
 		// Single-key shortcuts: '?' toggles the lore overlay; digits
@@ -179,6 +182,21 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
+}
+
+// merchantRowAction maps Enter on the combined stock-then-bag list to the
+// transaction appropriate for the selected row.
+func (m Model) merchantRowAction() action {
+	var cmd engine.CommandType = engine.CmdBuy
+	if m.bagCursor >= len(m.engine.MerchantStock) {
+		cmd = engine.CmdSell
+	}
+	for _, a := range m.barActions() {
+		if a.cmd == cmd {
+			return a
+		}
+	}
+	return action{cmd: cmd, enabled: true, usesIndex: true}
 }
 
 // gridDigit resolves a digit key to a zero-based grid cell index.
