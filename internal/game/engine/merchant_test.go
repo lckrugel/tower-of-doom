@@ -309,6 +309,33 @@ func TestMerchantBuy(t *testing.T) {
 	})
 }
 
+func TestSequentialMerchantBuySellBuy(t *testing.T) {
+	e := merchantEngine(stockOffers...)
+	e.Player.Gold = 1000
+	e.Process(Command{Type: CmdExplore})
+
+	first := e.MerchantStock[0]
+	if got := eventTypes(e.Process(Command{Type: CmdBuy, Index: 0})); !typesEqual(got, EventItemBought) {
+		t.Fatalf("first buy events = %v", got)
+	}
+	if e.Player.Gold != 1000-first.BuyPrice() || len(e.MerchantStock) != 3 {
+		t.Fatalf("after first buy: gold=%d stock=%d", e.Player.Gold, len(e.MerchantStock))
+	}
+	if got := eventTypes(e.Process(Command{Type: CmdSell, Index: 0})); !typesEqual(got, EventItemSold) {
+		t.Fatalf("sell events = %v", got)
+	}
+	if e.Player.Gold != 1000-first.BuyPrice()+first.SellValue() || len(e.Player.Bag()) != 0 {
+		t.Fatalf("after sell: gold=%d bag=%d", e.Player.Gold, len(e.Player.Bag()))
+	}
+	second := e.MerchantStock[0]
+	if got := eventTypes(e.Process(Command{Type: CmdBuy, Index: 0})); !typesEqual(got, EventItemBought) {
+		t.Fatalf("second buy events = %v", got)
+	}
+	if e.Player.Gold != 1000-first.BuyPrice()+first.SellValue()-second.BuyPrice() || len(e.Player.Bag()) != 1 || len(e.MerchantStock) != 2 || e.State != StateMerchant {
+		t.Errorf("sequential transactions diverged: gold=%d bag=%d stock=%d state=%v", e.Player.Gold, len(e.Player.Bag()), len(e.MerchantStock), e.State)
+	}
+}
+
 // CmdSell pays the SellValue into the purse and destroys the bag item.
 func TestMerchantSell(t *testing.T) {
 	e := merchantEngine(stockOffers...)

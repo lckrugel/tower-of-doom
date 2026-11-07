@@ -307,6 +307,41 @@ func TestStatusTicksAtRoundEnd(t *testing.T) {
 	}
 }
 
+func TestMultipleStatusExpirationAndLethalDoTOrdering(t *testing.T) {
+	poison := entities.NewStatusFromAsset(testStatuses()["poison"])
+	poison.Duration = 1
+	guard := entities.NewStatusFromAsset(testStatuses()["guard"])
+	guard.Duration = 1
+
+	t.Run("expiration follows application order", func(t *testing.T) {
+		target := entities.NewMonsterFromAsset(game.MonsterAsset{ID: "rat", Name: "Rat", HP: 10})
+		state := newCombatantState()
+		state.applyStatus(poison)
+		state.applyStatus(guard)
+		events, dead := tickStatuses(&state, &target)
+		if dead || !typesEqual(eventTypes(events), EventStatusDamage, EventStatusExpired, EventStatusExpired) {
+			t.Fatalf("tick events = %v, dead=%v", eventTypes(events), dead)
+		}
+		if events[1].Data["status"] != "Poison" || events[2].Data["status"] != "Guard" || len(state.statuses) != 0 {
+			t.Errorf("expiration order/state = %v / %+v", []any{events[1].Data["status"], events[2].Data["status"]}, state.statuses)
+		}
+	})
+
+	t.Run("lethal dot stops later status ticks and expirations", func(t *testing.T) {
+		target := entities.NewMonsterFromAsset(game.MonsterAsset{ID: "rat", Name: "Rat", HP: 2})
+		state := newCombatantState()
+		state.applyStatus(poison)
+		state.applyStatus(guard)
+		events, dead := tickStatuses(&state, &target)
+		if !dead || !typesEqual(eventTypes(events), EventStatusDamage) {
+			t.Fatalf("lethal tick events = %v, dead=%v; want only the first DoT", eventTypes(events), dead)
+		}
+		if len(state.statuses) != 2 || state.statuses[1].turnsLeft != 1 {
+			t.Errorf("later status was ticked after lethal DoT: %+v", state.statuses)
+		}
+	})
+}
+
 // DoT damage is a plain clamp (no mitigation) and CAN kill: a monster
 // dying to poison goes through the normal defeat path (XP, gold,
 // queue/victory).
