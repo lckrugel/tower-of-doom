@@ -584,12 +584,13 @@ func TestViewGridShowsPlaceholdersForMissingMoves(t *testing.T) {
 	m := enterCombat(t, e)
 
 	view := stripControls(stripANSI(m.View()))
+	grid := stripControls(stripANSI(m.moveGrid()))
 
 	if !strings.Contains(view, "Envenom") {
 		t.Errorf("the single move is missing from the grid:\n%s", view)
 	}
-	if !strings.Contains(view, "—") {
-		t.Errorf("the empty cells render no placeholder:\n%s", view)
+	if !strings.Contains(grid, "—") {
+		t.Errorf("the move grid's empty cells render no placeholder:\n%s", grid)
 	}
 	if strings.Contains(view, "Basic Attack") {
 		t.Errorf("the grid invented a move:\n%s", view)
@@ -853,8 +854,9 @@ func TestGridCursorResetsWithTheMirror(t *testing.T) {
 
 	m = useMove(t, m, 0)
 	m.engine.CurrentEncounter.Monsters[0].CurrentHP = 1
-	m = useMove(t, m, 0) // the spitter falls → the goblin steps up
-	m = useMove(t, m, 0) // the goblin falls → victory
+	m = useMove(t, m, 0)     // the spitter falls → the goblin steps up
+	m, _ = press(m, "right") // move away from the first cell before victory
+	m = useMove(t, m, 0)     // the goblin falls → victory
 	if m.engine.State != engine.StateExploring {
 		t.Fatalf("setup: state = %v, want StateExploring (victory)", m.engine.State)
 	}
@@ -1023,9 +1025,9 @@ func TestStatusChipsToneByKind(t *testing.T) {
 // row fits the column, the rest is dropped.
 func TestEnemyStatusRowsCap(t *testing.T) {
 	m := New(combatEngine())
-	for i := range 6 {
+	for i := range 12 {
 		m.mirror.enemyStatuses = append(m.mirror.enemyStatuses, combatStatus{
-			name: fmt.Sprintf("Status %d", i), kind: "debuff", turns: 3,
+			name: fmt.Sprintf("Status %02d long", i), kind: "debuff", turns: 3,
 		})
 	}
 
@@ -1034,6 +1036,12 @@ func TestEnemyStatusRowsCap(t *testing.T) {
 	if len(rows) > maxStatusRows+1 {
 		t.Errorf("enemy statuses occupy %d rows, want at most %d chip rows + 1 explanation",
 			len(rows), maxStatusRows)
+	}
+	if len(rows) == 0 || !strings.Contains(strings.Join(rows, "\n"), "Status 00") {
+		t.Fatalf("no status chips rendered:\n%s", strings.Join(rows, "\n"))
+	}
+	if strings.Contains(strings.Join(rows, "\n"), "Status 11") {
+		t.Errorf("status chips were not capped; final status is visible:\n%s", strings.Join(rows, "\n"))
 	}
 	for i, row := range rows {
 		if w := ansiLen(row); w > mainColWidth {

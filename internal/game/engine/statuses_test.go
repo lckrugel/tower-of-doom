@@ -97,10 +97,15 @@ func TestStatusLoreReturnsTheRegistryStatuses(t *testing.T) {
 		}
 		// A fresh slice: growing or mutating the return never reaches the
 		// registry.
+		originalName := lore[0].Name
+		originalID := lore[0].ID
 		lore = append(lore, game.StatusAsset{ID: "injected"})
 		lore[0].Name = "mangled"
 		if _, ok := e.reg.Statuses["injected"]; ok {
 			t.Error("mutating StatusLore's return reached the registry")
+		}
+		if got := e.reg.Statuses[originalID].Name; got != originalName {
+			t.Errorf("mutating StatusLore's returned element changed registry name to %q; want %q", got, originalName)
 		}
 	})
 
@@ -379,11 +384,14 @@ func TestStatModStatuses(t *testing.T) {
 	})
 
 	t.Run("weaken cannot floor the hero's damage below 1", func(t *testing.T) {
+		// The goblin's weaken move applies to the hero; its damage modifier
+		// must clamp the hero's zero base DMG to one.
 		e := statusesEngine(1, 50, 0, 0, 1, 50)
 		heroWithDamage(e, 0) // 0 − 3 → clamped to 1
-		learn(e, "sure_weaken")
-		startEncounter(e, monsterFromFixture("goblin"))
+		startEncounter(e, spitterWithMove("sure_weaken", 1))
 		e.Process(Command{Type: CmdFight})
+		// The monster applies Weaken, then the hero's turn computes effective
+		// DMG with the debuff active.
 		e.Process(Command{Type: CmdMove, Index: 0})
 
 		if got := e.heroStat(entities.StatDMG); got != 1 {
@@ -397,7 +405,7 @@ func TestStatModStatuses(t *testing.T) {
 		// spitter's 10 — the spitter acts first.
 		// r1: hero [spread, crit] + spitter [pick, spread, crit, status];
 		// r2: spitter first [pick, spread, crit, status] + hero [spread, crit].
-		e := statusesEngine(1, 50, 0, 1, 50, 0, 0, 1, 50, 1, 50, 50)
+		e := statusesEngine(1, 50, 0, 1, 50, 0, 0, 1, 50, 1, 1, 1)
 		heroWithDamage(e, 5)
 		startEncounter(e, spitterWithMove("sure_slow", 1))
 		e.Process(Command{Type: CmdFight})
@@ -451,6 +459,10 @@ func TestStatusesResetPerEncounter(t *testing.T) {
 	}
 
 	// A new combat resets everything.
+	e.heroCombat.startCooldown(entities.Move{ID: "sure_poison", Cooldown: 2})
+	if !e.heroCombat.onCooldown("sure_poison") {
+		t.Fatal("test setup: sure_poison cooldown was not started")
+	}
 	startEncounter(e, monsterFromFixture("orc"))
 	e.startCombat()
 	if got := len(e.enemyCombat.statuses) + len(e.heroCombat.statuses); got != 0 {

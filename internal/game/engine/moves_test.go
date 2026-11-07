@@ -518,7 +518,7 @@ func TestMonsterAllMovesLockedUsesBasicAttackWithoutRng(t *testing.T) {
 // A locked fallback never traps the monster: cooldowns tick at round
 // end, so the locked moves free up again.
 func TestMonsterCooldownsRecover(t *testing.T) {
-	e := movesEngine(1, 50, 0, 1, 50)
+	e := movesEngine(1, 2, 0)
 	heroWithDamage(e, 5)
 	startEncounter(e, monsterWithMoves(
 		game.MonsterAsset{ID: "brute", Name: "Brute", Difficulty: 3, HP: 900, Damage: 2, Speed: 10},

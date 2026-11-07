@@ -296,13 +296,19 @@ func modelOf(next tea.Model, t *testing.T) Model {
 
 func TestEventLogIsTrimmedToTheNewestLines(t *testing.T) {
 	m := New(testEngine())
-	for range maxLogLines * 3 {
-		next, _ := m.dispatch(action{key: "e", label: "Explore", cmd: engine.CmdExplore})
-		m = modelOf(next, t)
+	for i := range maxLogLines + 3 {
+		m.log = append(m.log, fmt.Sprintf("line %d", i))
 	}
+	m.log = trimLog(m.log)
 
 	if len(m.log) != maxLogLines {
 		t.Fatalf("log length = %d, want %d", len(m.log), maxLogLines)
+	}
+	for i, line := range m.log {
+		want := fmt.Sprintf("line %d", i+3)
+		if line != want {
+			t.Errorf("log[%d] = %q, want newest retained line %q", i, line, want)
+		}
 	}
 }
 

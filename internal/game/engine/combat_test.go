@@ -867,7 +867,7 @@ func TestKillsCounter(t *testing.T) {
 
 // EventHeroDefeated reports the run state at the moment of death.
 func TestHeroDefeatedEventCarriesRunStats(t *testing.T) {
-	e := newTestEngine(1, 50) // average spread (no crit) per strike, cycling
+	e := newTestEngine(1, 0) // valid spread (no crit) per strike, cycling
 	e.CurrentFloor = 3
 	e.Player.Lvl = 7
 	heroWithDamage(e, 40)
@@ -882,6 +882,7 @@ func TestHeroDefeatedEventCarriesRunStats(t *testing.T) {
 
 	heroWithDamage(e, 5) // weak hits never kill the orc
 	e.Player.CurrentHP = 1
+	e.rng = &stubRng{values: []int{1, 0}}        // restart at valid spread/crit values
 	startEncounter(e, monsterFromFixture("orc")) // dmg 8, slower than hero
 	e.State = StateCombat
 	events := e.Process(Command{Type: CmdMove, Index: 0})

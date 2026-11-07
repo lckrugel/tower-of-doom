@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/lckrugel/tower-of-doom/internal/game"
@@ -8,15 +9,24 @@ import (
 )
 
 // stubRng devolve os valores pré-programados em sequência, voltando ao
-// início quando acaba. Os valores devem ser válidos para cada chamada
-// (os testes abaixo usam valores menores que o total de cada sorteio).
+// início quando acaba. It fails fast if a scripted value could not be
+// returned by Intn(n).
 type stubRng struct {
 	values []int
 	calls  int
 }
 
 func (s *stubRng) Intn(n int) int {
+	if n <= 0 {
+		panic("stubRng.Intn called with non-positive bound")
+	}
+	if len(s.values) == 0 {
+		panic("stubRng has no scripted values")
+	}
 	v := s.values[s.calls%len(s.values)]
+	if v < 0 || v >= n {
+		panic(fmt.Sprintf("stubRng scripted value %d at call %d outside Intn(%d) bound", v, s.calls, n))
+	}
 	s.calls++
 	return v
 }

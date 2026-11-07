@@ -116,6 +116,17 @@ func TestNewStatusFromAsset(t *testing.T) {
 // values; they must never drift apart.
 func TestBasicAttack(t *testing.T) {
 	basic := BasicAttack()
+	registry, err := game.Load("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	asset, ok := registry.MoveByID(basic.ID)
+	if !ok {
+		t.Fatal("embedded assets do not define basic_attack")
+	}
+	if got := NewMoveFromAsset(asset); got != basic {
+		t.Errorf("BasicAttack constructor = %+v, embedded asset = %+v", basic, got)
+	}
 
 	if basic.ID != "basic_attack" || basic.Name != "Basic Strike" ||
 		basic.Tier != 1 || basic.DmgModifier != 100 || basic.CritBonus != 0 ||
@@ -161,6 +172,17 @@ func TestMoveUsabilityByType(t *testing.T) {
 // these values; they must never drift apart.
 func TestPunch(t *testing.T) {
 	punch := Punch()
+	registry, err := game.Load("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	asset, ok := registry.MoveByID(punch.ID)
+	if !ok {
+		t.Fatal("embedded assets do not define punch")
+	}
+	if got := NewMoveFromAsset(asset); got != punch {
+		t.Errorf("Punch constructor = %+v, embedded asset = %+v", punch, got)
+	}
 
 	if punch.ID != "punch" || punch.Name != "Punch" ||
 		punch.Tier != 1 || punch.DmgModifier != 60 || punch.CritBonus != 0 ||
@@ -234,7 +256,7 @@ func TestFilterUnknownMoves(t *testing.T) {
 	})
 
 	t.Run("a known basic_attack is redundant with the always-drop", func(t *testing.T) {
-		got := FilterUnknownMoves(pool, nil)
+		got := FilterUnknownMoves(pool, []Move{{ID: "basic_attack"}})
 
 		if len(got) != 3 {
 			t.Errorf("FilterUnknownMoves = %+v, want 3 moves (basic_attack still dropped)", got)
