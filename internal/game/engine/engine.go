@@ -69,6 +69,10 @@ type Engine struct {
 	// decideEncounterKind), so a sanctuary/chest/merchant can never open
 	// a run. Per run: ascension does not reset it.
 	firstExploreDone bool
+	// encounterMisses counts eligible exploration encounters since each
+	// non-combat type was last visited. It survives ascension; unavailable
+	// types do not accrue misses.
+	encounterMisses [EncounterShrine + 1]int
 	// recentKinds holds the encounter kinds resolved by the last two kind
 	// decisions (recentKinds[1] is the most recent), feeding the "no
 	// three identical non-combat kinds in a row" pacing rule. The zero

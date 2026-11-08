@@ -344,8 +344,9 @@ an extra roll):
   decision of a run skips the kind roll entirely (zero rng consumed), so
   a sanctuary, chest or merchant can never open a run. The flag is per
   run — ascending does not reset it — and every later explore rolls the
-  kind table exactly as before the rule existed. The forced combat is
-  the first entry of the history below.
+  kind table, adjusted by the drought protection below. The forced combat
+  counts as a missed visit for each available non-combat kind and is the
+  first entry of the history below.
 - **No three identical non-combat kinds in a row.** The engine records
   the kinds of the last two resolved kind decisions; when a roll lands
   on a non-combat kind equal to BOTH of them, the result is overridden
@@ -355,6 +356,18 @@ an extra roll):
   kinds feed this history — monster picks, chest gold rolls and merchant
   stock are never affected — and an override is recorded as what
   actually happened (combat), so it naturally breaks the streak.
+- **Unlucky protection gradually raises encounter weights.** For each
+  non-combat kind with a positive weight in the current section, the engine
+  tracks eligible exploration encounters since that kind was last visited.
+  The first four misses leave its authored weight unchanged; after that,
+  each additional miss adds 10% of its authored weight (rounded up). There
+  is no gameplay cap or forced selection: even a long drought remains
+  possible, but increasingly unlikely. Visiting a kind resets its counter;
+  a sanctuary counts even at full health. Kinds with zero weight do not
+  accrue misses, and counters are preserved across ascension. Counters use
+  the encounter that actually happened after the no-three-identical rule,
+  not an overridden roll. Ordinary selection still consumes one kind-roll
+  `Intn`.
 
 - **COMBAT** — enemies spawn per the section spawn table:
     - The Hero can FIGHT (StateCombat) or SNEAK past it (50/50)

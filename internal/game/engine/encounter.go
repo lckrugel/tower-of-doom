@@ -66,6 +66,12 @@ type Encounter struct {
 // restores, as a percentage.
 const sanctuaryHealPercent = 50
 
+// Encounter weights start increasing after this many eligible visits
+// without seeing that type. Each additional miss adds 10% of its base
+// weight (rounded up), with no gameplay cap.
+const encounterDroughtGraceVisits = 4
+const encounterDroughtIncreasePercent = 10
+
 // chestGoldChance is the chance (percentage) that a chest pays out gold
 // instead of holding an item.
 const chestGoldChance = 40
@@ -96,8 +102,8 @@ func (e *Engine) rollEncounterType(w game.EncounterTypeWeights) EncounterType {
 }
 
 // decideEncounterKind resolves one encounter-kind decision (the EXPLORE
-// path) on top of the raw weighted roll (rollEncounterType), applying two
-// engine-level pacing rules:
+// path) on top of the raw weighted roll (rollEncounterType), applying the
+// run's drought protection and encounter-streak pacing rules:
 //
 //   - The FIRST explore of a run is forced combat: the kind roll is
 //     skipped entirely — zero rng consumed, so a sanctuary, chest or
@@ -109,25 +115,90 @@ func (e *Engine) rollEncounterType(w game.EncounterTypeWeights) EncounterType {
 //     identical non-combat kinds in a row remain possible. Every
 //     non-combat kind is covered — sanctuaries, chests, merchants and
 //     shrines alike.
+//   - Available non-combat kinds accrue a missed visit whenever another
+//     kind actually happens. After four misses, each further miss adds 10%
+//     of that kind's authored weight (rounded up). A visit resets its
+//     counter; unavailable kinds freeze. There is no forced selection.
 //
 // Every resolved kind — combat included, the forced first one too — is
-// recorded into the two-slot history that feeds the streak rule, so an
-// override is recorded as what actually happened. Only kind decisions
-// feed the history: monster picks, gold rolls and merchant stock never
-// touch it.
+// recorded into the two-slot history and drought counters, so an override
+// records what actually happened. Only kind decisions update pacing state:
+// monster picks, gold rolls and merchant stock never touch it.
 func (e *Engine) decideEncounterKind(w game.EncounterTypeWeights) EncounterType {
 	if !e.firstExploreDone {
 		e.firstExploreDone = true
 		e.recordEncounterKind(EncounterCombat)
+		e.recordEncounterVisit(EncounterCombat, w)
 		return EncounterCombat
 	}
-	kind := e.rollEncounterType(w)
+	kind := e.rollEncounterType(e.encounterWeightsWithProtection(w))
 	if kind != EncounterCombat &&
 		e.recentKinds[0] == kind && e.recentKinds[1] == kind {
 		kind = EncounterCombat
 	}
 	e.recordEncounterKind(kind)
+	e.recordEncounterVisit(kind, w)
 	return kind
+}
+
+// encounterWeightsWithProtection gently raises a non-combat encounter's
+// weight after its grace period. Zero-weight types stay unavailable; their
+// counters are frozen by recordEncounterVisit until a section enables them.
+func (e *Engine) encounterWeightsWithProtection(w game.EncounterTypeWeights) game.EncounterTypeWeights {
+	weights := [EncounterShrine + 1]int{w.Combat, w.Sanctuary, w.Chest, w.Merchant, w.Shrine}
+	for kind := EncounterSanctuary; kind <= EncounterShrine; kind++ {
+		weights[kind] = increaseEncounterWeight(weights[kind], e.encounterMisses[kind])
+	}
+	return game.EncounterTypeWeights{
+		Combat:    weights[EncounterCombat],
+		Sanctuary: weights[EncounterSanctuary],
+		Chest:     weights[EncounterChest],
+		Merchant:  weights[EncounterMerchant],
+		Shrine:    weights[EncounterShrine],
+	}
+}
+
+// increaseEncounterWeight adds a rounded-up 10% of the authored weight for
+// every eligible miss beyond the grace period. Saturation is only an integer
+// overflow safeguard, not a gameplay cap.
+func increaseEncounterWeight(base, misses int) int {
+	if base <= 0 || misses <= encounterDroughtGraceVisits {
+		return base
+	}
+	step := base / 100 * encounterDroughtIncreasePercent
+	step += (base%100*encounterDroughtIncreasePercent + 99) / 100
+	if step < 1 {
+		step = 1
+	}
+	maxInt := int(^uint(0) >> 1)
+	maxWeight := maxInt / int(EncounterShrine+1)
+	if base >= maxWeight {
+		return maxWeight
+	}
+	extraMisses := misses - encounterDroughtGraceVisits
+	if extraMisses > (maxWeight-base)/step {
+		return maxWeight
+	}
+	return base + extraMisses*step
+}
+
+// recordEncounterVisit advances protection counters from the encounter
+// actually selected after pacing overrides. Every available non-combat type
+// missed by this visit accrues one; the visited type resets to zero. A full-
+// health sanctuary still counts because selection, not healing, is the visit.
+func (e *Engine) recordEncounterVisit(visited EncounterType, available game.EncounterTypeWeights) {
+	weights := [EncounterShrine + 1]int{available.Combat, available.Sanctuary, available.Chest, available.Merchant, available.Shrine}
+	maxInt := int(^uint(0) >> 1)
+	for kind := EncounterSanctuary; kind <= EncounterShrine; kind++ {
+		if weights[kind] <= 0 {
+			continue
+		}
+		if kind == visited {
+			e.encounterMisses[kind] = 0
+		} else if e.encounterMisses[kind] < maxInt {
+			e.encounterMisses[kind]++
+		}
+	}
 }
 
 // recordEncounterKind slides a resolved kind into the last-two-kinds
