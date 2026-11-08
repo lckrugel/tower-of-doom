@@ -139,6 +139,30 @@ func TestBuyPurchasesTheSelectedOffer(t *testing.T) {
 	}
 }
 
+func TestMerchantPotionOfferUsesSeparatePurchaseAction(t *testing.T) {
+	e := merchantEngine(0, 0, 200)
+	e.MerchantConsumable = &game.ConsumableAsset{
+		ID: "healing_potion", Name: "Healing Potion", HealPercent: 25, Price: 100,
+	}
+	m := New(e)
+	view := stripANSI(m.View())
+	if !strings.Contains(view, "[O] Healing Potion +25% 100g") {
+		t.Fatalf("merchant panel does not show its potion offer:\n%s", view)
+	}
+	if a := actionWith(t, m.barActions(), engine.CmdBuyConsumable); !a.enabled {
+		t.Fatal("potion purchase action disabled with an offer and free capacity")
+	}
+
+	m, _ = press(m, "o")
+
+	if e.Player.Gold != 100 || e.Player.ConsumableCount("healing_potion") != 1 || e.MerchantConsumable != nil {
+		t.Errorf("after buying potion: gold=%d carried=%d offer=%+v, want 100/1/nil", e.Player.Gold, e.Player.ConsumableCount("healing_potion"), e.MerchantConsumable)
+	}
+	if last := stripANSI(m.log[len(m.log)-1]); last != "You buy a Healing Potion for 100 gold." {
+		t.Errorf("last log line = %q, want potion purchase feedback", last)
+	}
+}
+
 func TestRejectedBuyFeedbackRemainsVisibleOnMerchantScreen(t *testing.T) {
 	m := New(merchantEngine(1, 0, 0))
 	m, _ = press(m, "p")

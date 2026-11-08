@@ -42,11 +42,12 @@ type Engine struct {
 	// chest opens and cleared on every resolution path; it is meaningful
 	// only while State == StateLoot.
 	PendingLoot *entities.Item
-	// MerchantStock holds the merchant's offers while State ==
-	// StateMerchant (like PendingLoot for chests). Buying removes an
-	// offer; leaving discards them all; it is meaningful only while the
-	// shop is open.
+	// MerchantStock holds the merchant's equipment offers while State ==
+	// StateMerchant. Buying removes an offer; leaving discards them all.
 	MerchantStock []*entities.Item
+	// MerchantConsumable is the shop's single optional consumable offer.
+	// It is removed on purchase and cleared when the player leaves.
+	MerchantConsumable *game.ConsumableAsset
 	// PendingMoves holds the moves a shrine offered (ONE or TWO), waiting
 	// in StateLearn's choosing step: the player picks one with
 	// CmdChooseOffer. Set when the shrine is found and cleared on every
@@ -172,6 +173,8 @@ func (e *Engine) handleExploring(cmd Command) []Event {
 		e.CurrentEncounter = encounter
 		e.State = StateEncounter
 		return []Event{NewEncounterFound(encounter.Monsters)}
+	case CmdUseConsumable:
+		return e.useConsumable()
 	case CmdChallengeBoss:
 		return e.challengeBoss()
 	case CmdInventory:
@@ -271,6 +274,15 @@ func (e *Engine) handleCombat(cmd Command) []Event {
 		return e.resolveRound(&move)
 	case CmdFlee:
 		return e.resolveFlee()
+	case CmdUseConsumable:
+		potion, ok := e.nextConsumableAsset()
+		if !ok {
+			return []Event{NewMessage("You have no usable consumables.")}
+		}
+		if e.Player.CurrentHP >= e.Player.MaxHP() {
+			return []Event{NewMessage("You are already at full health.")}
+		}
+		return e.resolveConsumableRound(potion)
 	default:
 		return []Event{NewMessage("Unhandled command")}
 	}
@@ -344,6 +356,8 @@ func (e *Engine) handleInventory(cmd Command) []Event {
 	case CmdClose:
 		e.State = StateExploring
 		return []Event{NewMessage("You close your bag.")}
+	case CmdUseConsumable:
+		return e.useConsumable()
 	default:
 		return []Event{NewMessage("Unhandled command")}
 	}
@@ -624,6 +638,14 @@ func (e *Engine) StatusLore() []game.StatusAsset {
 	return e.reg.AllStatuses()
 }
 
+// ConsumableByID reports a consumable definition for UI details.
+func (e *Engine) ConsumableByID(id string) (game.ConsumableAsset, bool) {
+	if e.reg == nil {
+		return game.ConsumableAsset{}, false
+	}
+	return e.reg.ConsumableByID(id)
+}
+
 // currentSection returns the section covering the current floor. The error
 // is unreachable: the floor was just resolved or validated at startup, and
 // Validate guarantees full coverage up to the infinite top floor.
@@ -680,6 +702,12 @@ func (e *Engine) isValidCommand(cmd Command) bool {
 		if cmd.Index < 0 || cmd.Index >= len(e.CombatMoves()) {
 			return false
 		}
+	}
+	if cmd.Type == CmdUseConsumable && e.Player.ConsumableCount("healing_potion") == 0 {
+		return false
+	}
+	if cmd.Type == CmdBuyConsumable && e.MerchantConsumable == nil {
+		return false
 	}
 	return true
 }

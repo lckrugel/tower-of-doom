@@ -20,6 +20,172 @@ func heroWithDamage(e *Engine, dmg int) {
 	e.Player.BaseDMG = dmg
 }
 
+func potionEngine() *Engine {
+	e := newTestEngine()
+	e.reg.Consumables = map[string]game.ConsumableAsset{
+		"healing_potion": {ID: "healing_potion", Name: "Healing Potion", HealPercent: 25, Price: 100},
+	}
+	e.Player.AddConsumable("healing_potion")
+	return e
+}
+
+func TestUseHealingPotionOutsideCombat(t *testing.T) {
+	e := potionEngine()
+	e.Player.CurrentHP = 50
+
+	events := e.Process(Command{Type: CmdUseConsumable})
+
+	if got := eventTypes(events); !typesEqual(got, EventConsumableUsed) {
+		t.Fatalf("events = %v, want [consumable-used]", got)
+	}
+	if got := e.Player.CurrentHP; got != 75 {
+		t.Errorf("HP after potion = %d, want 75 (25%% of base max HP)", got)
+	}
+	if got := e.Player.ConsumableCount("healing_potion"); got != 0 {
+		t.Errorf("potion count after use = %d, want 0", got)
+	}
+	if e.State != StateExploring {
+		t.Errorf("state after out-of-combat potion = %v, want StateExploring", e.State)
+	}
+}
+
+func TestUseHealingPotionFromInventoryKeepsTheInventoryOpen(t *testing.T) {
+	e := potionEngine()
+	e.Player.CurrentHP = 50
+	e.State = StateInventory
+	stub := &stubRng{values: []int{0}}
+	e.rng = stub
+
+	events := e.Process(Command{Type: CmdUseConsumable})
+
+	if got := eventTypes(events); !typesEqual(got, EventConsumableUsed) {
+		t.Fatalf("events = %v, want [consumable-used]", got)
+	}
+	if e.State != StateInventory || e.Player.CurrentHP != 75 || stub.calls != 0 {
+		t.Errorf("inventory use changed state/time: state=%v HP=%d rng calls=%d", e.State, e.Player.CurrentHP, stub.calls)
+	}
+}
+
+func TestHealingPotionUsesBaseMaxHPAndClamps(t *testing.T) {
+	tests := []struct {
+		name      string
+		baseHP    int
+		currentHP int
+		gearHP    int
+		wantHP    int
+	}{
+		{"equipment bonus does not increase healing", 200, 50, 100, 100},
+		{"healing clamps at max HP", 100, 95, 0, 100},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e := potionEngine()
+			e.Player.BaseMaxHP = tt.baseHP
+			if tt.gearHP != 0 {
+				gear := entities.NewItemFromAsset(game.ItemAsset{ID: "hp_gear", Name: "HP Gear", Slot: "body_armor", BonusHP: tt.gearHP})
+				e.Player.EquipItem(&gear)
+			}
+			e.Player.CurrentHP = tt.currentHP
+
+			if got := eventTypes(e.Process(Command{Type: CmdUseConsumable})); !typesEqual(got, EventConsumableUsed) {
+				t.Fatalf("events = %v, want [consumable-used]", got)
+			}
+			if got := e.Player.CurrentHP; got != tt.wantHP {
+				t.Errorf("HP after potion = %d, want %d", got, tt.wantHP)
+			}
+		})
+	}
+}
+
+func TestFullHealthPotionUseIsRejectedWithoutSpending(t *testing.T) {
+	e := potionEngine()
+	before := e.Player.CurrentHP
+
+	events := e.Process(Command{Type: CmdUseConsumable})
+
+	if got := eventTypes(events); !typesEqual(got, EventMessage) {
+		t.Fatalf("events = %v, want [message]", got)
+	}
+	if e.Player.CurrentHP != before || e.Player.ConsumableCount("healing_potion") != 1 {
+		t.Error("rejected full-health use changed HP or consumed the potion")
+	}
+}
+
+func TestFullHealthCombatPotionUseDoesNotAdvanceTheRound(t *testing.T) {
+	e := potionEngine()
+	monster := entities.NewMonsterFromAsset(game.MonsterAsset{
+		ID: "enemy", Name: "Enemy", Difficulty: 1, HP: 100, Damage: 2, Speed: 12,
+	})
+	startEncounter(e, monster)
+	e.State = StateCombat
+	stub := &stubRng{values: []int{0}}
+	e.rng = stub
+
+	events := e.Process(Command{Type: CmdUseConsumable})
+
+	if got := eventTypes(events); !typesEqual(got, EventMessage) {
+		t.Fatalf("events = %v, want [message]", got)
+	}
+	if e.Player.ConsumableCount("healing_potion") != 1 || e.CurrentEncounter.Monsters[0].HP() != 100 || stub.calls != 0 {
+		t.Error("full-health rejection consumed the potion or advanced combat")
+	}
+}
+
+func TestHealingPotionConsumesCombatActionInInitiativeOrder(t *testing.T) {
+	tests := []struct {
+		name      string
+		enemySPD  int
+		wantOrder []EventType
+	}{
+		{"hero acts first", 10, []EventType{EventConsumableUsed, EventMoveUsed, EventCombatDamageTaken}},
+		{"enemy acts first", 12, []EventType{EventMoveUsed, EventCombatDamageTaken, EventConsumableUsed}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e := potionEngine()
+			e.Player.CurrentHP = 50
+			e.rng = &stubRng{values: []int{0, 2, 99}}
+			monster := entities.NewMonsterFromAsset(game.MonsterAsset{
+				ID: "enemy", Name: "Enemy", Difficulty: 1, HP: 100, Damage: 2, Speed: tt.enemySPD,
+			})
+			startEncounter(e, monster)
+			e.State = StateCombat
+
+			events := e.Process(Command{Type: CmdUseConsumable})
+
+			if got := eventTypes(events); !typesEqual(got, tt.wantOrder...) {
+				t.Fatalf("events = %v, want %v", got, tt.wantOrder)
+			}
+			if got := e.Player.CurrentHP; got != 72 {
+				t.Errorf("HP after the combat round = %d, want 72 (potion heals 25, enemy hits for 3)", got)
+			}
+			if got := e.Player.ConsumableCount("healing_potion"); got != 0 {
+				t.Errorf("potion count = %d, want 0", got)
+			}
+		})
+	}
+}
+
+func TestEnemyCanKillHeroBeforePotionAction(t *testing.T) {
+	e := potionEngine()
+	e.Player.CurrentHP = 1
+	e.rng = &stubRng{values: []int{0, 2, 99}}
+	monster := entities.NewMonsterFromAsset(game.MonsterAsset{
+		ID: "enemy", Name: "Enemy", Difficulty: 1, HP: 100, Damage: 10, Speed: 12,
+	})
+	startEncounter(e, monster)
+	e.State = StateCombat
+
+	events := e.Process(Command{Type: CmdUseConsumable})
+
+	if got := eventTypes(events); !typesEqual(got, EventMoveUsed, EventCombatDamageTaken, EventHeroDefeated) {
+		t.Fatalf("events = %v, want enemy turn and defeat before potion use", got)
+	}
+	if got := e.Player.ConsumableCount("healing_potion"); got != 1 {
+		t.Errorf("potion count after death before use = %d, want retained 1", got)
+	}
+}
+
 // fightFirstRound engages the encounter (FIGHT) and resolves the first
 // round with the hero's first move — the Combat 2.0 flow: FIGHT only
 // opens the state, rounds advance from move choices.

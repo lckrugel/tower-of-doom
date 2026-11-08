@@ -28,6 +28,10 @@ const (
 // this constant lives here, next to the bag itself.
 const InventoryCapacity = 10
 
+// ConsumableCapacity is the shared number of expendables a Hero may carry,
+// separate from the equipment bag.
+const ConsumableCapacity = 3
+
 type Hero struct {
 	Lvl int
 	Xp  int
@@ -57,6 +61,9 @@ type Hero struct {
 	// NOT stored here — they ride the equipped weapon (EffectiveMoves).
 	// A fresh hero starts with the Punch pre-learned in slot 1.
 	learnedMoves []Move
+	// consumables holds expendable ids in acquisition order. It has a
+	// shared cap independent of the equipment bag.
+	consumables []string
 }
 
 func NewPlayer(starterItems ...*Item) *Hero {
@@ -201,6 +208,46 @@ func (h *Hero) Heal(heal int) int {
 	healDone := min(heal, h.MaxHP()-h.CurrentHP)
 	h.CurrentHP += healDone
 	return healDone
+}
+
+// Consumables returns a copy of the Hero's carried consumable ids in
+// acquisition order.
+func (h *Hero) Consumables() []string { return slices.Clone(h.consumables) }
+
+// ConsumableCount reports how many units of id the Hero carries.
+func (h *Hero) ConsumableCount(id string) int {
+	count := 0
+	for _, carried := range h.consumables {
+		if carried == id {
+			count++
+		}
+	}
+	return count
+}
+
+// HasConsumableRoom reports whether the shared consumable capacity has
+// an open slot.
+func (h *Hero) HasConsumableRoom() bool { return len(h.consumables) < ConsumableCapacity }
+
+// AddConsumable stores one consumable id unless the shared capacity is full.
+func (h *Hero) AddConsumable(id string) bool {
+	if !h.HasConsumableRoom() {
+		return false
+	}
+	h.consumables = append(h.consumables, id)
+	return true
+}
+
+// RemoveConsumable consumes one matching unit, preserving the relative
+// order of the remaining carried items.
+func (h *Hero) RemoveConsumable(id string) bool {
+	for i, carried := range h.consumables {
+		if carried == id {
+			h.consumables = slices.Delete(h.consumables, i, i+1)
+			return true
+		}
+	}
+	return false
 }
 
 // TakeDmg applies damage as a plain clamp: negative damage is ignored

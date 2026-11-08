@@ -55,8 +55,8 @@ const (
 	EventBagFull
 	// Gold was added to the hero's purse ("source": "kill" or "chest").
 	EventGoldGained
-	// A merchant was found and opened shop (StateMerchant): the offers
-	// are held in Engine.MerchantStock.
+	// A merchant was found and opened shop (StateMerchant): item offers are
+	// held in Engine.MerchantStock, and its optional potion offer separately.
 	EventMerchantFound
 	// An item was bought from a merchant (it lands in the hero bag).
 	EventItemBought
@@ -94,6 +94,12 @@ const (
 	// Engine.PendingMoves and the player must choose one (StateLearn's
 	// choosing step — the TUI reads PendingMoves for the dossiers).
 	EventShrineOffered
+	// The Hero drank a consumable and its effect resolved.
+	EventConsumableUsed
+	// The Hero bought one consumable from a merchant.
+	EventConsumableBought
+	// A merchant consumable purchase was rejected because shared capacity is full.
+	EventConsumableStorageFull
 )
 
 // Event is a synchronous command notification. Data is a fresh map, and
@@ -564,10 +570,10 @@ func NewBossChallenge(monsters []entities.Monster) Event {
 }
 
 // NewMerchantFound reports a merchant encounter: the shop is open in
-// StateMerchant with its offers held in Engine.MerchantStock.
+// StateMerchant with its offers held in the Engine.
 //
 // Payload:
-//   - "count": how many offers the merchant stocks.
+//   - "count": total item and consumable offers.
 func NewMerchantFound(count int) Event {
 	return Event{
 		Type: EventMerchantFound,
@@ -590,6 +596,31 @@ func NewItemBought(item *entities.Item, price int) Event {
 			"price": price,
 		},
 	}
+}
+
+// NewConsumableUsed reports a consumed potion and the amount actually healed.
+func NewConsumableUsed(name string, healed int, hero Combatant) Event {
+	return Event{
+		Type: EventConsumableUsed,
+		Data: map[string]any{
+			"name": name, "healed": healed, "hp": hero.HP(), "max_hp": hero.MaxHP(),
+		},
+	}
+}
+
+// NewConsumableBought reports a potion stored in the Hero's separate
+// consumable inventory.
+func NewConsumableBought(consumableID, name string, price int) Event {
+	return Event{
+		Type: EventConsumableBought,
+		Data: map[string]any{"id": consumableID, "name": name, "price": price},
+	}
+}
+
+// NewConsumableStorageFull reports a failed purchase without mutating stock
+// or the Hero's gold.
+func NewConsumableStorageFull() Event {
+	return Event{Type: EventConsumableStorageFull, Data: map[string]any{}}
 }
 
 // NewItemSold reports an item sold to a merchant.

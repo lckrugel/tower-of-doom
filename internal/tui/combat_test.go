@@ -136,6 +136,60 @@ func TestStatusOmissionKeepsDescriptionsAligned(t *testing.T) {
 	}
 }
 
+func TestHealingPotionIsAnActionInCombatAndTurnFreeWhileExploring(t *testing.T) {
+	r, err := game.Load("")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("exploring use is free and visible", func(t *testing.T) {
+		e := engine.NewEngine(r)
+		e.Player.CurrentHP = 50
+		e.Player.AddConsumable("healing_potion")
+		m := New(e)
+		if got := stripANSI(m.View()); !strings.Contains(got, "POT 1/3") {
+			t.Fatalf("hero panel does not show potion count:\n%s", got)
+		}
+		if got := stripANSI(m.View()); !strings.Contains(got, "restores 25% of base max HP") {
+			t.Fatalf("exploration view does not explain potion healing:\n%s", got)
+		}
+
+		m, _ = press(m, "h")
+
+		if e.Player.CurrentHP != 75 || e.Player.ConsumableCount("healing_potion") != 0 {
+			t.Errorf("after out-of-combat use: HP=%d potions=%d, want 75/0", e.Player.CurrentHP, e.Player.ConsumableCount("healing_potion"))
+		}
+		if e.State != engine.StateExploring {
+			t.Errorf("state = %v, want exploring (no time/state advance)", e.State)
+		}
+		if last := stripANSI(m.log[len(m.log)-1]); !strings.Contains(last, "drink the Healing Potion") {
+			t.Errorf("last log line = %q, want potion-use feedback", last)
+		}
+	})
+
+	t.Run("combat use spends the turn", func(t *testing.T) {
+		e := engine.NewEngine(r)
+		e.Player.AddConsumable("healing_potion")
+		m := enterCombat(t, e)
+		e.Player.CurrentHP = 50
+		if a := actionWith(t, m.barActions(), engine.CmdUseConsumable); !a.enabled {
+			t.Fatal("potion action disabled while wounded and carrying one")
+		}
+
+		m, _ = press(m, "h")
+
+		if e.Player.ConsumableCount("healing_potion") != 0 {
+			t.Error("combat potion action did not consume the potion")
+		}
+		if !strings.Contains(joinedLog(m), "drink the Healing Potion") {
+			t.Errorf("combat log missing potion use:\n%s", joinedLog(m))
+		}
+		if !strings.Contains(joinedLog(m), "damage") {
+			t.Errorf("combat log missing enemy's turn after potion use:\n%s", joinedLog(m))
+		}
+	})
+}
+
 func TestTextSizingUsesTerminalCells(t *testing.T) {
 	if got := truncateRunes("界界x", 3); got != "界" {
 		t.Errorf("truncateRunes = %q, want one wide glyph in a 3-cell budget", got)

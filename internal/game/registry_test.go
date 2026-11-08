@@ -1105,6 +1105,21 @@ func TestLoadEmbeddedMovesAndStatuses(t *testing.T) {
 	}
 }
 
+func TestLoadEmbeddedHealingPotion(t *testing.T) {
+	r, err := Load("")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	potion, ok := r.ConsumableByID("healing_potion")
+	if !ok {
+		t.Fatal("healing_potion is missing from the embedded assets")
+	}
+	want := ConsumableAsset{ID: "healing_potion", Name: "Healing Potion", HealPercent: 25, Price: 100}
+	if potion != want {
+		t.Errorf("healing potion = %+v, want %+v", potion, want)
+	}
+}
+
 // A move without a tier field defaults to tier 1 after Load, mirroring
 // items — tier-less moves in mods keep working.
 func TestLoadDefaultsAbsentMoveTierToOne(t *testing.T) {
@@ -1196,7 +1211,7 @@ func TestLoadRejectsDuplicateMoveAndStatusIDs(t *testing.T) {
 // rules: an existing external file wins, a missing one falls back to
 // the compiled-in assets. Provenance() hands that record out read-only.
 func TestLoadProvenance(t *testing.T) {
-	files := []string{"monsters.json", "items.json", "moves.json", "statuses.json", "sections.json"}
+	files := []string{"monsters.json", "items.json", "moves.json", "statuses.json", "consumables.json", "sections.json"}
 
 	t.Run("no external dir: everything is embedded", func(t *testing.T) {
 		r, err := Load("")
@@ -1241,7 +1256,7 @@ func TestLoadProvenance(t *testing.T) {
 				t.Errorf("provenance[%q] = %q, want \"external (%s)\"", file, got, dir)
 			}
 		}
-		for _, file := range []string{"items.json", "moves.json", "statuses.json"} {
+		for _, file := range []string{"items.json", "moves.json", "statuses.json", "consumables.json"} {
 			if got := prov[file]; got != "embedded" {
 				t.Errorf("provenance[%q] = %q, want \"embedded\" (file missing from the dir)", file, got)
 			}

@@ -41,6 +41,14 @@ func merchantEngine(rngValues ...int) *Engine {
 	return pastFirstExplore(e)
 }
 
+func merchantEngineWithPotion(rngValues ...int) *Engine {
+	e := merchantEngine(rngValues...)
+	e.reg.Consumables = map[string]game.ConsumableAsset{
+		"healing_potion": {ID: "healing_potion", Name: "Healing Potion", HealPercent: 25, Price: 100},
+	}
+	return e
+}
+
 // stockOffers is the rng for finding a merchant with an all-tier-1 stock
 // of 4 distinct offers: the picks drain the sorted tier-1 pool
 // [t1_helm, t1_mail, t1_ring, t1_sword] as [t1_sword, t1_helm, t1_mail,
@@ -309,6 +317,75 @@ func TestMerchantBuy(t *testing.T) {
 	})
 }
 
+func TestMerchantOffersOneHealingPotionPerVisit(t *testing.T) {
+	e := merchantEngineWithPotion(stockOffers...)
+	e.Player.Gold = 500
+	events := e.Process(Command{Type: CmdExplore})
+	if got := events[0].Data["count"]; got != 5 {
+		t.Errorf("merchant offer count = %v, want 5 (four items and one potion)", got)
+	}
+	if e.MerchantConsumable == nil || e.MerchantConsumable.ID != "healing_potion" {
+		t.Fatalf("merchant potion offer = %+v, want healing_potion", e.MerchantConsumable)
+	}
+
+	events = e.Process(Command{Type: CmdBuyConsumable})
+	if got := eventTypes(events); !typesEqual(got, EventConsumableBought) {
+		t.Fatalf("buy events = %v, want [consumable-bought]", got)
+	}
+	if got := e.Player.Gold; got != 400 {
+		t.Errorf("gold after potion purchase = %d, want 400", got)
+	}
+	if got := e.Player.ConsumableCount("healing_potion"); got != 1 {
+		t.Errorf("potion count = %d, want 1", got)
+	}
+	if e.MerchantConsumable != nil {
+		t.Errorf("potion offer after purchase = %+v, want removed for this visit", e.MerchantConsumable)
+	}
+	if got := eventTypes(e.Process(Command{Type: CmdBuyConsumable})); !typesEqual(got, EventMessage) {
+		t.Errorf("repeat buy events = %v, want invalid-command message", got)
+	}
+	if e.Player.Gold != 400 || e.Player.ConsumableCount("healing_potion") != 1 {
+		t.Error("a repeated purchase changed gold or potion storage")
+	}
+
+	e.Process(Command{Type: CmdLeave})
+	e.Process(Command{Type: CmdExplore}) // the next merchant visit can offer one again
+	if e.MerchantConsumable == nil || e.MerchantConsumable.ID != "healing_potion" {
+		t.Errorf("new merchant visit offer = %+v, want one healing potion", e.MerchantConsumable)
+	}
+}
+
+func TestMerchantPotionPurchaseRejectsGoldOrFullConsumableStorage(t *testing.T) {
+	t.Run("not enough gold", func(t *testing.T) {
+		e := merchantEngineWithPotion(stockOffers...)
+		e.Player.Gold = 99
+		e.Process(Command{Type: CmdExplore})
+
+		if got := eventTypes(e.Process(Command{Type: CmdBuyConsumable})); !typesEqual(got, EventMessage) {
+			t.Fatalf("events = %v, want [message]", got)
+		}
+		if e.Player.Gold != 99 || e.Player.ConsumableCount("healing_potion") != 0 || e.MerchantConsumable == nil {
+			t.Error("rejected purchase changed gold/storage or removed the offer")
+		}
+	})
+
+	t.Run("storage full", func(t *testing.T) {
+		e := merchantEngineWithPotion(stockOffers...)
+		e.Player.Gold = 500
+		for range entities.ConsumableCapacity {
+			e.Player.AddConsumable("healing_potion")
+		}
+		e.Process(Command{Type: CmdExplore})
+
+		if got := eventTypes(e.Process(Command{Type: CmdBuyConsumable})); !typesEqual(got, EventConsumableStorageFull) {
+			t.Fatalf("events = %v, want [consumable-storage-full]", got)
+		}
+		if e.Player.Gold != 500 || e.Player.ConsumableCount("healing_potion") != entities.ConsumableCapacity || e.MerchantConsumable == nil {
+			t.Error("rejected full-storage purchase changed gold/storage or removed the offer")
+		}
+	})
+}
+
 func TestSequentialMerchantBuySellBuy(t *testing.T) {
 	e := merchantEngine(stockOffers...)
 	e.Player.Gold = 1000
@@ -379,6 +456,9 @@ func TestMerchantLeave(t *testing.T) {
 	}
 	if e.MerchantStock != nil {
 		t.Errorf("stock = %v, want discarded", e.MerchantStock)
+	}
+	if e.MerchantConsumable != nil {
+		t.Errorf("consumable offer = %+v, want discarded", e.MerchantConsumable)
 	}
 	if e.State != StateExploring {
 		t.Errorf("state = %v, want StateExploring", e.State)

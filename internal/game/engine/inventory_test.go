@@ -16,12 +16,12 @@ func TestAllowedCommandsMatrix(t *testing.T) {
 		state GameState
 		want  []CommandType
 	}{
-		{"exploring", StateExploring, []CommandType{CmdExplore, CmdAscend, CmdChallengeBoss, CmdInventory, CmdQuit}},
+		{"exploring", StateExploring, []CommandType{CmdExplore, CmdAscend, CmdChallengeBoss, CmdInventory, CmdUseConsumable, CmdQuit}},
 		{"encounter", StateEncounter, []CommandType{CmdFight, CmdSneak, CmdQuit}},
-		{"combat", StateCombat, []CommandType{CmdMove, CmdFlee, CmdQuit}},
+		{"combat", StateCombat, []CommandType{CmdMove, CmdFlee, CmdUseConsumable, CmdQuit}},
 		{"loot decision", StateLoot, []CommandType{CmdWear, CmdStashLoot, CmdDiscardLoot, CmdQuit}},
-		{"inventory", StateInventory, []CommandType{CmdWear, CmdDrop, CmdClose, CmdQuit}},
-		{"merchant", StateMerchant, []CommandType{CmdBuy, CmdSell, CmdLeave, CmdQuit}},
+		{"inventory", StateInventory, []CommandType{CmdWear, CmdDrop, CmdClose, CmdUseConsumable, CmdQuit}},
+		{"merchant", StateMerchant, []CommandType{CmdBuy, CmdSell, CmdLeave, CmdBuyConsumable, CmdQuit}},
 		// StateLearn's row is the UNION of its two steps (the package
 		// surface cannot see the internal step — see
 		// TestStateLearnStepCommandMatrix for the engine's per-step view).

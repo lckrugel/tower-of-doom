@@ -55,6 +55,37 @@ func TestNewPlayerStartsWithNoGold(t *testing.T) {
 	}
 }
 
+func TestHeroConsumablesUseSeparateBoundedStorage(t *testing.T) {
+	h := NewPlayer()
+	if len(h.Bag()) != 0 || len(h.Consumables()) != 0 {
+		t.Fatalf("fresh inventory: bag=%d consumables=%v, want both empty", len(h.Bag()), h.Consumables())
+	}
+	h.StashItem(newTestItem(game.ItemAsset{ID: "gear", Name: "Gear", Slot: "ring"}))
+	for range ConsumableCapacity {
+		if !h.AddConsumable("healing_potion") {
+			t.Fatal("failed to add potion before reaching capacity")
+		}
+	}
+	if h.HasConsumableRoom() || h.ConsumableCount("healing_potion") != ConsumableCapacity {
+		t.Errorf("full consumable storage = %v, room=%v", h.Consumables(), h.HasConsumableRoom())
+	}
+	if got := len(h.Bag()); got != 1 {
+		t.Errorf("equipment bag length = %d, want 1 independently of the full consumable pouch", got)
+	}
+	if h.AddConsumable("healing_potion") {
+		t.Fatal("added potion beyond shared capacity")
+	}
+	if !h.RemoveConsumable("healing_potion") || h.ConsumableCount("healing_potion") != ConsumableCapacity-1 {
+		t.Errorf("removing potion did not free one slot: %v", h.Consumables())
+	}
+	if !h.HasConsumableRoom() {
+		t.Error("removing a potion did not free capacity")
+	}
+	if h.RemoveConsumable("missing") {
+		t.Error("removed a consumable not carried")
+	}
+}
+
 func TestHeroGiveXP_DeadHeroIsNoOp(t *testing.T) {
 	h := NewPlayer()
 	h.TakeDmg(h.BaseMaxHP)

@@ -90,10 +90,10 @@ func (e *Engine) upgradedItem(base *entities.Item, inStock map[string]bool) *ent
 	return e.itemFromID(filtered[e.rng.Intn(len(filtered))])
 }
 
-// handleMerchant runs the shopping loop (StateMerchant). Buying moves
-// gold to the price and the item to the hero bag, removing the offer
-// from the stock; selling pays the SellValue into the purse and destroys
-// the bag item; leaving discards the stock and returns to exploring.
+// handleMerchant runs the shopping loop (StateMerchant). Equipment purchases
+// move items to the bag; consumable purchases enter the separate pouch;
+// selling destroys the bag item. Leaving discards all remaining offers and
+// returns to exploring.
 // Nothing here unlocks ASCEND — only combat victories do.
 func (e *Engine) handleMerchant(cmd Command) []Event {
 	switch cmd.Type {
@@ -113,6 +113,20 @@ func (e *Engine) handleMerchant(cmd Command) []Event {
 		e.Player.StashItem(item)
 		e.MerchantStock = slices.Delete(e.MerchantStock, cmd.Index, cmd.Index+1)
 		return []Event{NewItemBought(item, price)}
+	case CmdBuyConsumable:
+		offer := e.MerchantConsumable
+		if e.Player.Gold < offer.Price {
+			return []Event{NewMessage("Not enough gold.")}
+		}
+		if !e.Player.HasConsumableRoom() {
+			return []Event{NewConsumableStorageFull()}
+		}
+		if !e.Player.AddConsumable(offer.ID) {
+			return []Event{NewConsumableStorageFull()}
+		}
+		e.Player.Gold -= offer.Price
+		e.MerchantConsumable = nil
+		return []Event{NewConsumableBought(offer.ID, offer.Name, offer.Price)}
 	case CmdSell:
 		// Destroyed on the spot via the hero's existing drop: the
 		// merchant takes the item for its SellValue.
@@ -122,6 +136,7 @@ func (e *Engine) handleMerchant(cmd Command) []Event {
 		return []Event{NewItemSold(item, price)}
 	case CmdLeave:
 		e.MerchantStock = nil
+		e.MerchantConsumable = nil
 		e.State = StateExploring
 		return []Event{NewMessage("You leave the merchant to their wares.")}
 	default:

@@ -89,6 +89,11 @@ const (
 	// everything as it was — both learned moves and no choice — and
 	// exploring continues with nothing pending.
 	CmdDecline
+	// Uses the next carried consumable. In combat this spends the Hero's
+	// action; while exploring or viewing the bag it has no turn cost.
+	CmdUseConsumable
+	// Buys the merchant's single consumable offer (StateMerchant).
+	CmdBuyConsumable
 )
 
 // `Command` is an action taken.
