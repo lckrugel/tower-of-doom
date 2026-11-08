@@ -424,7 +424,7 @@ func (m Model) shrineDossier(move entities.Move, selected bool) string {
 	tier := truncateRunes(fmt.Sprintf("    tier %d · %s", move.Tier, tags), mainColWidth)
 	line := name + "\n" + styleDim.Render(tier) + "\n"
 	if expl := m.moveEffectsExplanation(move); expl != "" {
-		line += styleDim.Render(truncateRunes("    "+expl, mainColWidth)) + "\n"
+		line += styleDim.Render(truncateDescription("    "+expl, mainColWidth)) + "\n"
 	}
 	return line
 }
@@ -441,7 +441,7 @@ func (m Model) shrineForgetStep() string {
 		b.WriteString("  " + stylePanelTitle.Render(learning) + "\n")
 		b.WriteString(styleDim.Render(tier) + "\n")
 		if expl := m.moveEffectsExplanation(*chosen); expl != "" {
-			b.WriteString(styleDim.Render(truncateRunes("    "+expl, mainColWidth)) + "\n")
+			b.WriteString(styleDim.Render(truncateDescription("    "+expl, mainColWidth)) + "\n")
 		}
 	}
 	learned := m.engine.Player.LearnedMoves()
@@ -855,6 +855,15 @@ func padRight(s string, width int) string {
 // risks the frame's byte-exactness.
 func truncateRunes(s string, width int) string {
 	return runewidth.Truncate(s, max(width, 0), "")
+}
+
+// truncateDescription marks clipped effect text so a short dossier row
+// does not silently imply that the explanation is complete.
+func truncateDescription(s string, width int) string {
+	if runewidth.StringWidth(s) <= width {
+		return s
+	}
+	return truncateRunes(s, width-1) + "…"
 }
 
 // heroPanel is the player's vital stats: level, XP, HP and the derived
