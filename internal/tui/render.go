@@ -172,11 +172,11 @@ func damageDealtText(data map[string]any, t tones) string {
 	move, hasMove := moveNameOf(data)
 	if crit, _ := data["crit"].(bool); crit {
 		if hasMove {
-			b.WriteString(t.base.Render(fmt.Sprintf("You land a devastating blow on the %v with ", data["enemy"])))
+			b.WriteString(t.base.Render(fmt.Sprintf("CRIT! You hit the %v with ", data["enemy"])))
 			b.WriteString(t.accent.Render(move))
-			b.WriteString(t.base.Render(fmt.Sprintf(" — CRIT! %v damage", data["damage_dealt"])))
+			b.WriteString(t.base.Render(fmt.Sprintf(" for %v damage", data["damage_dealt"])))
 		} else {
-			fmt.Fprintf(&b, "You land a devastating blow on the %v — CRIT! %v damage", data["enemy"], data["damage_dealt"])
+			fmt.Fprintf(&b, "CRIT! You hit the %v for %v damage", data["enemy"], data["damage_dealt"])
 		}
 	} else if hasMove {
 		b.WriteString(t.base.Render(fmt.Sprintf("You hit the %v with ", data["enemy"])))

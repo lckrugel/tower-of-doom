@@ -7,6 +7,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/progress"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/mattn/go-runewidth"
 
 	"github.com/lckrugel/tower-of-doom/internal/game/engine"
@@ -922,7 +923,15 @@ func (m Model) heroHPRow() string {
 }
 
 func (m Model) logPanel() string {
-	return strings.Join(m.log, "\n")
+	rows := make([]string, 0, middleHeight)
+	for _, line := range m.log {
+		wrapped := ansi.Wrap(line, logColWidth-1, "")
+		rows = append(rows, strings.Split(wrapped, "\n")...)
+	}
+	if len(rows) > middleHeight {
+		rows = rows[len(rows)-middleHeight:]
+	}
+	return strings.Join(rows, "\n")
 }
 
 // equippedPanel is the right column during the trade states: every

@@ -310,6 +310,44 @@ func longLog() Model {
 	return m
 }
 
+func TestLogPanelWrapsLongStyledEntriesWithinViewport(t *testing.T) {
+	move := "Bash of the Unbroken Mountain"
+	ev := damagedGoblinWithMove(14, true, move)
+	m := New(testEngine())
+	m.log = []string{renderEvent(ev)}
+
+	panel := m.logPanel()
+	lines := strings.Split(panel, "\n")
+	if len(lines) < 2 {
+		t.Fatalf("long critical entry did not wrap: %q", stripANSI(panel))
+	}
+	for i, line := range lines {
+		if width := ansiLen(line); width > logColWidth-1 {
+			t.Errorf("wrapped line %d is %d columns wide, want at most %d: %q", i, width, logColWidth-1, line)
+		}
+	}
+	plain := strings.ReplaceAll(stripANSI(panel), "\n", " ")
+	if !strings.Contains(plain, "CRIT! You hit the Goblin with "+move+" for 14 damage") {
+		t.Errorf("wrapped entry lost part of the critical message:\n%s", plain)
+	}
+}
+
+func TestWrappedLogKeepsNewestRowsAtBottom(t *testing.T) {
+	m := New(testEngine())
+	for i := 0; i < middleHeight-1; i++ {
+		m.log = append(m.log, fmt.Sprintf("older %d", i))
+	}
+	m.log = append(m.log, renderEvent(damagedGoblinWithMove(14, true, "A Very Long Move Name That Wraps")))
+
+	lines := strings.Split(stripANSI(m.logPanel()), "\n")
+	if len(lines) != middleHeight {
+		t.Fatalf("log panel has %d rows, want %d", len(lines), middleHeight)
+	}
+	if !strings.Contains(lines[len(lines)-1], "damage") {
+		t.Errorf("newest log row is not at the bottom: %q", lines[len(lines)-1])
+	}
+}
+
 // viewLines is the plain-text view split into lines, ready for
 // width/height measuring.
 func viewLines(v string) []string {

@@ -153,7 +153,7 @@ func TestEventText(t *testing.T) {
 		{
 			"critical damage dealt",
 			withoutExact(damagedGoblin(10, true)),
-			"You land a devastating blow on the Goblin — CRIT! 10 damage",
+			"CRIT! You hit the Goblin for 10 damage",
 			nil,
 		},
 		{
@@ -185,7 +185,7 @@ func TestEventText(t *testing.T) {
 		{
 			"exact HP on a critical hit",
 			withEnemyExact(damagedGoblin(12, true), 8, 45),
-			"You land a devastating blow on the Goblin — CRIT! 12 damage",
+			"CRIT! You hit the Goblin for 12 damage",
 			nil,
 		},
 		{
@@ -462,7 +462,7 @@ func TestEventText(t *testing.T) {
 		{
 			"critical dealt names the move",
 			damagedGoblinWithMove(10, true, "Power Slash"),
-			"You land a devastating blow on the Goblin with Power Slash — CRIT! 10 damage",
+			"CRIT! You hit the Goblin with Power Slash for 10 damage",
 			nil,
 		},
 		{
