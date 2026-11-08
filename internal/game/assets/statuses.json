@@ -67,5 +67,57 @@
       "percent": -50
     },
     "duration": 2
+  },
+  {
+    "id": "burning",
+    "name": "Burning",
+    "kind": "debuff",
+    "effect": { "type": "dot", "amount": 8, "percent": 0 },
+    "duration": 2
+  },
+  {
+    "id": "frailty",
+    "name": "Frailty",
+    "kind": "debuff",
+    "effect": { "type": "stat", "stat": "dmg", "amount": -6, "percent": 0 },
+    "duration": 3
+  },
+  {
+    "id": "windstep",
+    "name": "Windstep",
+    "kind": "buff",
+    "effect": { "type": "stat", "stat": "spd", "amount": 5, "percent": 10 },
+    "duration": 3
+  },
+  {
+    "id": "deep_wound",
+    "name": "Deep Wound",
+    "kind": "debuff",
+    "effect": { "type": "dot", "amount": 1, "percent": 3 },
+    "duration": 3
+  },
+  {
+    "id": "titan_grip",
+    "name": "Titan's Grip",
+    "kind": "buff",
+    "effect": {
+      "type": "stat",
+      "stat": "dmg",
+      "amount": 0,
+      "percent": 25
+    },
+    "duration": 2
+  },
+  {
+    "id": "colossus_skin",
+    "name": "Colossus' Skin",
+    "kind": "buff",
+    "effect": {
+      "type": "stat",
+      "stat": "def",
+      "amount": 0,
+      "percent": 50
+    },
+    "duration": 2
   }
 ]

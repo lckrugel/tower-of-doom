@@ -898,6 +898,8 @@ func TestLoadEmbeddedMovesAndStatuses(t *testing.T) {
 		"skull_crusher": "creature", "bloodletter": "creature", "dragons_might": "both",
 		"field_dressing": "both", "venomous_feint": "both", "ironroot_guard": "both",
 		"sanguine_rupture": "creature", "brand_of_the_breach": "creature",
+		"cinderbite": "creature", "crippling_howl": "creature", "windstep": "both",
+		"deep_wound": "creature", "rallying_cut": "both",
 	}
 	for id, wantType := range wantTypes {
 		move, ok := r.MoveByID(id)
@@ -934,6 +936,25 @@ func TestLoadEmbeddedMovesAndStatuses(t *testing.T) {
 		"brand_of_the_breach": {"Brand of the Breach", 3, 3, 25, []MoveEffectAsset{
 			{Type: "status", Target: "self", Status: &MoveStatusEffectAsset{ID: "breachfire", Chance: 100}},
 			{Type: "status", Target: "self", Status: &MoveStatusEffectAsset{ID: "open_guard", Chance: 100}},
+		}},
+		"cinderbite": {"Cinderbite", 2, 3, 30, []MoveEffectAsset{
+			{Type: "damage", Target: "enemy", DmgModifier: ptr(90)},
+			{Type: "status", Target: "enemy", Status: &MoveStatusEffectAsset{ID: "burning", Chance: 70}},
+			{Type: "status", Target: "enemy", Status: &MoveStatusEffectAsset{ID: "weaken", Chance: 30}},
+		}},
+		"crippling_howl": {"Crippling Howl", 2, 3, 35, []MoveEffectAsset{
+			{Type: "status", Target: "enemy", Status: &MoveStatusEffectAsset{ID: "frailty", Chance: 100}},
+		}},
+		"windstep": {"Windstep", 2, 3, 35, []MoveEffectAsset{
+			{Type: "status", Target: "self", Status: &MoveStatusEffectAsset{ID: "windstep", Chance: 100}},
+		}},
+		"deep_wound": {"Deep Wound", 3, 3, 20, []MoveEffectAsset{
+			{Type: "damage", Target: "enemy", DmgModifier: ptr(100)},
+			{Type: "status", Target: "enemy", Status: &MoveStatusEffectAsset{ID: "deep_wound", Chance: 60}},
+		}},
+		"rallying_cut": {"Rallying Cut", 3, 3, 20, []MoveEffectAsset{
+			{Type: "damage", Target: "enemy", DmgModifier: ptr(110)},
+			{Type: "heal", Target: "self", Flat: ptr(3), Percent: ptr(3)},
 		}},
 	}
 	for id, want := range wantNew {
@@ -998,6 +1019,10 @@ func TestLoadEmbeddedMovesAndStatuses(t *testing.T) {
 	for _, want := range []StatusAsset{
 		{ID: "breachfire", Name: "Breachfire", Kind: "buff", Effect: StatusEffectAsset{Type: "stat", Stat: "dmg", Percent: 35}, Duration: 2},
 		{ID: "open_guard", Name: "Open Guard", Kind: "debuff", Effect: StatusEffectAsset{Type: "stat", Stat: "def", Percent: -50}, Duration: 2},
+		{ID: "burning", Name: "Burning", Kind: "debuff", Effect: StatusEffectAsset{Type: "dot", Amount: 8}, Duration: 2},
+		{ID: "frailty", Name: "Frailty", Kind: "debuff", Effect: StatusEffectAsset{Type: "stat", Stat: "dmg", Amount: -6}, Duration: 3},
+		{ID: "windstep", Name: "Windstep", Kind: "buff", Effect: StatusEffectAsset{Type: "stat", Stat: "spd", Amount: 5, Percent: 10}, Duration: 3},
+		{ID: "deep_wound", Name: "Deep Wound", Kind: "debuff", Effect: StatusEffectAsset{Type: "dot", Amount: 1, Percent: 3}, Duration: 3},
 	} {
 		got, ok := r.StatusByID(want.ID)
 		if !ok || !reflect.DeepEqual(got, want) {
@@ -1005,11 +1030,33 @@ func TestLoadEmbeddedMovesAndStatuses(t *testing.T) {
 		}
 	}
 
-	if got, want := len(r.Moves), 21; got != want {
-		t.Errorf("embedded moves = %d, want %d (basic attack + punch + the tier 1-4 set + steel_flurry)", got, want)
+	if got, want := len(r.Moves), 26; got != want {
+		t.Errorf("embedded moves = %d, want %d (basic attack + punch + tier moves + steel_flurry)", got, want)
 	}
-	if got, want := len(r.Statuses), 6; got != want {
-		t.Errorf("embedded statuses = %d, want %d (the starter set)", got, want)
+	if got, want := len(r.Statuses), 10; got != want {
+		t.Errorf("embedded statuses = %d, want %d", got, want)
+	}
+
+	wantMonsterMoves := map[string][]string{
+		"dragonling":    {"cinderbite", "skull_crusher"},
+		"hobgoblin":     {"crushing_blow", "crippling_howl"},
+		"ghoul":         {"venom_bite", "windstep"},
+		"orc_warlord":   {"crushing_blow", "deep_wound", "guard_strike"},
+		"vampire_spawn": {"assassins_strike", "rallying_cut"},
+	}
+	for id, want := range wantMonsterMoves {
+		monster, ok := r.Monsters[id]
+		if !ok {
+			t.Errorf("monster %q is missing", id)
+			continue
+		}
+		var got []string
+		for _, move := range monster.Moves {
+			got = append(got, move.ID)
+		}
+		if !slices.Equal(got, want) {
+			t.Errorf("monster %q moves = %v, want %v", id, got, want)
+		}
 	}
 	if got := r.MaxMoveTier(); got != 4 {
 		t.Errorf("embedded MaxMoveTier = %d, want 4", got)
