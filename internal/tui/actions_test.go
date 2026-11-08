@@ -76,8 +76,8 @@ func TestActionsPerState(t *testing.T) {
 		{"combat", engine.StateCombat, false, false, []string{"r", "q"}}, // moves live in the grid
 		{"loot", engine.StateLoot, false, false, []string{"w", "b", "d", "q"}},
 		{"inventory", engine.StateInventory, true, false, []string{"w", "x", "c", "q"}},
-		{"merchant", engine.StateMerchant, true, true, []string{"p", "v", "l", "q"}},
-		{"learn choosing", engine.StateLearn, false, false, []string{"l", "n", "q"}},
+		{"merchant", engine.StateMerchant, true, true, []string{"p", "v", "c", "q"}},
+		{"learn choosing", engine.StateLearn, false, false, []string{"l", "c", "q"}},
 		{"game over", engine.StateGameOver, false, false, []string{"q"}},
 	}
 	for _, tt := range tests {
@@ -108,6 +108,30 @@ func TestActionsPerState(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestBackActionIsConsistentAcrossMenus(t *testing.T) {
+	tests := []struct {
+		state engine.GameState
+		cmd   engine.CommandType
+	}{
+		{engine.StateInventory, engine.CmdClose},
+		{engine.StateMerchant, engine.CmdLeave},
+		{engine.StateLearn, engine.CmdDecline},
+	}
+	for _, tt := range tests {
+		e := testEngine()
+		e.State = tt.state
+		actions := actionsFor(e)
+		idx := slices.IndexFunc(actions, func(a action) bool { return a.key == "c" })
+		if idx < 0 {
+			t.Errorf("state %v: missing [C] Back action", tt.state)
+			continue
+		}
+		if a := actions[idx]; a.label != "Back" || a.cmd != tt.cmd {
+			t.Errorf("state %v: back action = %+v, want label Back and command %v", tt.state, a, tt.cmd)
+		}
 	}
 }
 
@@ -153,20 +177,13 @@ func TestBagActionsAreDisabledOnAnEmptyBag(t *testing.T) {
 	}
 }
 
-// No shortcut may change meaning across states: combat muscle memory
-// (spamming attack) must never leak into a different command.
-//
-// The ONE documented exception is the shrine's two decision screens:
-// [L] Learn (choosing step) reuses Leave's letter and [F] Forget
-// (forgetting step) reuses Fight's. The shrine is an explicit-only
-// screen (esc is a no-op there; no state flows into it mid-combat or
-// mid-shop) and its bar is rebuilt per STEP — each step's bar shows
-// only its own actions — so no on-screen bar ever carries both meanings
-// of a key.
+// No shortcut may change meaning across states except for contextual
+// navigation: [C] Back maps to each menu's own exit command, and [F]
+// Forget reuses Fight's letter on the shrine's separate step.
 func TestShortcutsAreGloballyUnique(t *testing.T) {
-	// Keys deliberately serving two commands across states.
+	// Keys deliberately serving different contextual commands across states.
 	reused := map[string]map[engine.CommandType]bool{
-		"l": {engine.CmdLeave: true, engine.CmdChooseOffer: true},
+		"c": {engine.CmdClose: true, engine.CmdLeave: true, engine.CmdDecline: true},
 		"f": {engine.CmdFight: true, engine.CmdForget: true},
 	}
 	byKey := make(map[string]engine.CommandType)

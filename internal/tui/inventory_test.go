@@ -296,7 +296,7 @@ func TestViewInventoryListsTheBag(t *testing.T) {
 	for _, want := range []string{
 		"◈ BAG (3/10)",
 		"Spare Charm",
-		"[W] Wear", "[X] Drop", "[C] Close", "[Q] Quit",
+		"[W] Wear", "[X] Drop", "[C] Back", "[Q] Quit",
 	} {
 		if !strings.Contains(view, want) {
 			t.Errorf("bag view missing %q:\n%s", want, view)

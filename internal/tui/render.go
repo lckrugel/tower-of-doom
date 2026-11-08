@@ -172,11 +172,11 @@ func damageDealtText(data map[string]any, t tones) string {
 	move, hasMove := moveNameOf(data)
 	if crit, _ := data["crit"].(bool); crit {
 		if hasMove {
-			b.WriteString(t.base.Render(fmt.Sprintf("You land a devastating blow on the %v with ", data["enemy"])))
+			b.WriteString(t.base.Render(fmt.Sprintf("CRIT! You hit the %v with ", data["enemy"])))
 			b.WriteString(t.accent.Render(move))
-			b.WriteString(t.base.Render(fmt.Sprintf(" — CRIT! %v damage", data["damage_dealt"])))
+			b.WriteString(t.base.Render(fmt.Sprintf(" for %v damage", data["damage_dealt"])))
 		} else {
-			fmt.Fprintf(&b, "You land a devastating blow on the %v — CRIT! %v damage", data["enemy"], data["damage_dealt"])
+			fmt.Fprintf(&b, "CRIT! You hit the %v for %v damage", data["enemy"], data["damage_dealt"])
 		}
 	} else if hasMove {
 		b.WriteString(t.base.Render(fmt.Sprintf("You hit the %v with ", data["enemy"])))
@@ -185,15 +185,7 @@ func damageDealtText(data map[string]any, t tones) string {
 	} else {
 		fmt.Fprintf(&b, "You hit the %v for %v damage", data["enemy"], data["damage_dealt"])
 	}
-	if alive, _ := data["enemy_alive"].(bool); alive {
-		// Absolute HP wins over the legacy floor percentage: knowing the
-		// enemy needs 2 more hits beats doing the math from 27%.
-		if cur, max, ok := exactHP(data, "enemy_hp_exact", "enemy_max_hp"); ok {
-			b.WriteString(t.base.Render(fmt.Sprintf(" (%d/%d HP left).", cur, max)))
-		} else {
-			b.WriteString(t.base.Render(fmt.Sprintf(" (%v%% HP left).", data["enemy_hp"])))
-		}
-	} else {
+	if alive, _ := data["enemy_alive"].(bool); !alive {
 		b.WriteString(t.base.Render(" — a killing blow!"))
 	}
 	return b.String()
@@ -212,17 +204,11 @@ func damageTakenText(data map[string]any, t tones) string {
 	if hasMove {
 		from = t.base.Render(" from ") + t.accent.Render(move)
 	}
-	if alive, _ := data["hero_alive"].(bool); alive {
-		// Same absolute-HP preference as the enemy side.
-		if cur, max, ok := exactHP(data, "hero_hp_exact", "hero_max_hp"); ok {
-			return t.base.Render(fmt.Sprintf("%vYou take %v damage", crit, data["damage_taken"])) + from +
-				t.base.Render(fmt.Sprintf(" (%d/%d HP left).", cur, max))
-		}
-		return t.base.Render(fmt.Sprintf("%vYou take %v damage", crit, data["damage_taken"])) + from +
-			t.base.Render(fmt.Sprintf(" (%v%% HP left).", data["hero_hp"]))
+	line := t.base.Render(fmt.Sprintf("%vYou take %v damage", crit, data["damage_taken"])) + from
+	if alive, _ := data["hero_alive"].(bool); !alive {
+		line += t.base.Render(" and your vision fades...")
 	}
-	return t.base.Render(fmt.Sprintf("%vYou take %v damage", crit, data["damage_taken"])) + from +
-		t.base.Render(" and your vision fades...")
+	return line
 }
 
 // exactHP reads an event's optional absolute HP pair (e.g.
@@ -254,17 +240,16 @@ func combatHealedText(data map[string]any) string {
 	target, _ := data["target"].(string)
 	move, _ := data["move"].(string)
 	healed, _ := data["healed"].(int)
-	cur, max, _ := exactHP(data, "hp_exact", "max_hp")
 	if data["side"] == engine.ActorHero {
 		if healed <= 0 {
-			return fmt.Sprintf("You use %s, but %s is already at full health (%d/%d HP).", move, target, cur, max)
+			return fmt.Sprintf("You use %s, but %s is already at full health.", move, target)
 		}
-		return fmt.Sprintf("You use %s and restore %d HP (%d/%d HP).", move, healed, cur, max)
+		return fmt.Sprintf("You use %s and restore %d HP.", move, healed)
 	}
 	if healed <= 0 {
-		return fmt.Sprintf("The %s uses %s, but it is already at full health (%d/%d HP).", target, move, cur, max)
+		return fmt.Sprintf("The %s uses %s, but it is already at full health.", target, move)
 	}
-	return fmt.Sprintf("The %s uses %s and restores %d HP (%d/%d HP).", target, move, healed, cur, max)
+	return fmt.Sprintf("The %s uses %s and restores %d HP.", target, move, healed)
 }
 
 // itemOf reads an event's item payload, treating a missing key and a

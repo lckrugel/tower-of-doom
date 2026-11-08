@@ -64,11 +64,8 @@ func TestExploreShortcutStartsEncounter(t *testing.T) {
 
 // The quit-confirmation tests live in quit_test.go.
 
-// esc quits everywhere except where it has a closer meaning: it closes
-// the bag (StateInventory) and is a deliberate no-op while a chest loot
-// decision is pending — quitting there would silently destroy the item —
-// and during combat, where the arrows are the move grid's navigation and
-// esc would be one stray finger from ending the run.
+// esc quits outside menus. The bag, merchant and shrine use it for their
+// shared Back action; loot and combat remain explicit-only decisions.
 func TestEscapeAlsoQuits(t *testing.T) {
 	for _, state := range []engine.GameState{
 		engine.StateExploring, engine.StateEncounter, engine.StateGameOver,
@@ -84,7 +81,7 @@ func TestEscapeAlsoQuits(t *testing.T) {
 	}
 }
 
-func TestEscapeClosesTheBag(t *testing.T) {
+func TestEscapeGoesBackFromTheBag(t *testing.T) {
 	e := testEngine()
 	stashTestItem(e)
 	e.State = engine.StateInventory
@@ -295,6 +292,9 @@ func modelOf(next tea.Model, t *testing.T) Model {
 }
 
 func TestEventLogIsTrimmedToTheNewestLines(t *testing.T) {
+	if maxLogLines != middleHeight {
+		t.Fatalf("log retention = %d lines, want the %d-row log viewport", maxLogLines, middleHeight)
+	}
 	m := New(testEngine())
 	for i := range maxLogLines + 3 {
 		m.log = append(m.log, fmt.Sprintf("line %d", i))
@@ -856,15 +856,15 @@ func TestShrineForgetForgetsTheSelectedMove(t *testing.T) {
 	}
 }
 
-// [N] declines in EITHER step: both learned moves kept, nothing pends.
+// [C] Back declines in EITHER step: both learned moves are kept, nothing pends.
 func TestShrineDeclineKeepsBothMoves(t *testing.T) {
 	t.Run("choosing step", func(t *testing.T) {
 		m := shrineModel()
 
-		m, _ = press(m, "n")
+		m, _ = press(m, "c")
 
 		if m.engine.State != engine.StateExploring {
-			t.Fatalf("state after 'n' = %v, want StateExploring", m.engine.State)
+			t.Fatalf("state after Back = %v, want StateExploring", m.engine.State)
 		}
 		if m.engine.PendingMoves != nil {
 			t.Error("the pending offers survived the decline")
@@ -880,10 +880,10 @@ func TestShrineDeclineKeepsBothMoves(t *testing.T) {
 	t.Run("forgetting step", func(t *testing.T) {
 		m := shrineChosenModel()
 
-		m, _ = press(m, "n")
+		m, _ = press(m, "c")
 
 		if m.engine.State != engine.StateExploring {
-			t.Fatalf("state after 'n' = %v, want StateExploring", m.engine.State)
+			t.Fatalf("state after Back = %v, want StateExploring", m.engine.State)
 		}
 		if m.engine.ChosenMove != nil {
 			t.Error("the recorded choice survived the decline")
@@ -996,43 +996,35 @@ func TestShrineEnterDispatchesTheStepAction(t *testing.T) {
 	})
 }
 
-// The shrine decision is explicit-only: esc neither quits nor resolves
-// the pending state — in either step the model stays exactly where it
-// was.
-func TestEscapeIsANoOpInTheShrine(t *testing.T) {
+// Esc uses the shared Back action in either shrine step, declining the
+// teaching without changing learned moves.
+func TestEscapeGoesBackFromTheShrine(t *testing.T) {
 	t.Run("choosing step", func(t *testing.T) {
 		m := shrineModel()
-		logLen := len(m.log)
-
 		m, cmd := press(m, "esc")
 
 		if cmd != nil {
 			t.Error("esc in StateLearn must not request a quit")
 		}
-		if m.engine.State != engine.StateLearn {
-			t.Errorf("state after esc = %v, want to stay in StateLearn", m.engine.State)
+		if m.engine.State != engine.StateExploring {
+			t.Errorf("state after esc = %v, want StateExploring", m.engine.State)
 		}
-		if len(m.engine.PendingMoves) != 2 || m.engine.ChosenMove != nil {
-			t.Error("esc consumed the pending offers")
-		}
-		if len(m.log) != logLen {
-			t.Error("esc wrote to the log in StateLearn")
+		if len(m.engine.PendingMoves) != 0 || m.engine.ChosenMove != nil {
+			t.Error("Back did not clear the pending shrine offers")
 		}
 	})
 	t.Run("forgetting step", func(t *testing.T) {
 		m := shrineChosenModel()
-		logLen := len(m.log)
-
 		m, cmd := press(m, "esc")
 
 		if cmd != nil {
 			t.Error("esc in StateLearn must not request a quit")
 		}
-		if m.engine.ChosenMove == nil {
-			t.Error("esc consumed the recorded choice")
+		if m.engine.State != engine.StateExploring || m.engine.ChosenMove != nil || len(m.engine.PendingMoves) != 0 {
+			t.Error("Back did not leave the shrine and clear its pending choice")
 		}
-		if len(m.log) != logLen {
-			t.Error("esc wrote to the log in StateLearn")
+		if !strings.Contains(joinedLog(m), "leave the shrine") {
+			t.Error("Back did not log the shrine exit")
 		}
 	})
 }
@@ -1054,7 +1046,7 @@ func TestViewShrineChoosingStepShowsBothOffers(t *testing.T) {
 		"☠poison 60% ◆",     // Venom Shot's tags: status + learned glyph
 		"damage 75% → enemy; ☠poison 60% → enemy —…", // clipped explanation is marked
 		"LEARN", // the badge
-		"[L] Learn", "[N] Decline", "[Q] Quit",
+		"[L] Learn", "[C] Back", "[Q] Quit",
 	} {
 		if !strings.Contains(view, want) {
 			t.Errorf("shrine choosing view missing %q:\n%s", want, view)
@@ -1087,7 +1079,7 @@ func TestViewShrineForgettingStepShowsTheLearning(t *testing.T) {
 		"Heavy Slash",
 		"100% ◆", // BOTH forget rows tag learned (the only forgettable moves)
 		"LEARN",  // the badge
-		"[F] Forget", "[N] Decline", "[Q] Quit",
+		"[F] Forget", "[C] Back", "[Q] Quit",
 	} {
 		if !strings.Contains(view, want) {
 			t.Errorf("shrine forgetting view missing %q:\n%s", want, view)

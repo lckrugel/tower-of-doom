@@ -63,8 +63,11 @@ func TestEquippedPanelStaysInTheTradeStates(t *testing.T) {
 		if strings.Contains(view, "◈ EQUIPPED") {
 			t.Errorf("%s: equipped panel leaked outside the trade states:\n%s", name, view)
 		}
-		if !strings.Contains(view, "Welcome to the Tower of Doom!") {
+		if name != "long log" && !strings.Contains(view, "Welcome to the Tower of Doom!") {
 			t.Errorf("%s: the log greeting vanished from the view:\n%s", name, view)
+		}
+		if name == "long log" && !strings.Contains(view, "log line 19") {
+			t.Errorf("long log: newest entry vanished from the view:\n%s", view)
 		}
 	}
 }

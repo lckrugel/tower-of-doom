@@ -10,7 +10,7 @@ import (
 )
 
 // maxLogLines bounds the event log panel to the most recent lines.
-const maxLogLines = 8
+const maxLogLines = middleHeight
 
 // Model wraps the game engine for bubbletea. It owns no game logic: every
 // action goes through engine.Process and the events drive the log.
@@ -87,10 +87,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // handleKey resolves a key press: ctrl+c always quits — immediately,
 // even out of the quit confirmation. While the confirmation is armed
 // every key but y cancels back to the normal bar. Otherwise esc quits —
-// except where it means something closer (it closes the bag; while a
-// chest loot is pending, the merchant is open, a fight is on or the
-// shrine's forget prompt waits it does nothing: those are explicit-only
-// decisions, and in combat the arrows are the move grid's navigation —
+// except where it means something closer: it goes back from the bag,
+// merchant or shrine. A chest loot decision and combat remain
+// explicit-only, and in combat the arrows are the move grid's navigation —
 // esc there would be one stray finger from ending the run). Arrows move
 // the action-bar cursor — or the state's row cursor while the bag, the
 // shop list or the shrine's forget rows are open, or the move grid's
@@ -122,9 +121,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
 		switch m.engine.State {
-		case engine.StateInventory:
-			return m.dispatch(closeAction())
-		case engine.StateLoot, engine.StateMerchant, engine.StateCombat, engine.StateLearn:
+		case engine.StateInventory, engine.StateMerchant, engine.StateLearn:
+			return m.dispatch(backAction(m.engine.State))
+		case engine.StateLoot, engine.StateCombat:
 			return m, nil
 		}
 		return m.dispatch(quitAction())
@@ -376,7 +375,12 @@ func (m Model) dispatch(a action) (tea.Model, tea.Cmd) {
 // rendered log line plus anything a later view needs (the defeat event's
 // run stats feed the game-over recap).
 func (m *Model) absorb(ev engine.Event) {
-	m.log = append(m.log, renderEvent(ev))
+	// Strike results name their move, so the separate announcement repeats
+	// information in the combat log. Keep the engine event for other
+	// consumers, but omit this presentation-only line.
+	if ev.Type != engine.EventMoveUsed {
+		m.log = append(m.log, renderEvent(ev))
+	}
 	if ev.Type == engine.EventHeroDefeated {
 		m.recap = recapFromEvent(ev)
 	}
