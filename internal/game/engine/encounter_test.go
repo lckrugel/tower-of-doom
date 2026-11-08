@@ -654,7 +654,7 @@ func TestShrineSkipsWeaponGrantedMoves(t *testing.T) {
 func TestShrineNeverOffersTheCanonicalBasicAttack(t *testing.T) {
 	e := shrineEngine(30)
 	e.reg.Moves = map[string]game.MoveAsset{
-		"basic_attack": {ID: "basic_attack", Name: "Basic Attack", Tier: 1, DmgModifier: 100, Weight: 100},
+		"basic_attack": {ID: "basic_attack", Name: "Basic Attack", Tier: 1, Effects: []game.MoveEffectAsset{{Type: "damage", Target: "enemy", DmgModifier: intPtr(100)}}, Weight: 100},
 	}
 
 	events := e.Process(Command{Type: CmdExplore})
@@ -715,7 +715,7 @@ func TestExploreShrineAtCapOpensTheChooseStep(t *testing.T) {
 	e := shrineEngine(30, 0)
 	learn(e, "quick_stab", "heavy_slash")
 	e.reg.Moves["power_surge"] = game.MoveAsset{
-		ID: "power_surge", Name: "Power Surge", Tier: 2, DmgModifier: 150, Weight: 10, Type: "both",
+		ID: "power_surge", Name: "Power Surge", Tier: 2, Effects: []game.MoveEffectAsset{{Type: "damage", Target: "enemy", DmgModifier: intPtr(150)}}, Weight: 10, Type: "both",
 	}
 
 	events := e.Process(Command{Type: CmdExplore})
@@ -750,7 +750,7 @@ func shrineAtCap() *Engine {
 	e := shrineEngine(30, 0)
 	learn(e, "quick_stab", "heavy_slash")
 	e.reg.Moves["power_surge"] = game.MoveAsset{
-		ID: "power_surge", Name: "Power Surge", Tier: 2, DmgModifier: 150, Weight: 10, Type: "both",
+		ID: "power_surge", Name: "Power Surge", Tier: 2, Effects: []game.MoveEffectAsset{{Type: "damage", Target: "enemy", DmgModifier: intPtr(150)}}, Weight: 10, Type: "both",
 	}
 	if events := e.Process(Command{Type: CmdExplore}); len(events) != 1 || events[0].Type != EventShrineOffered {
 		panic("test fixture: expected a shrine offer (StateLearn, choosing step)")
@@ -782,7 +782,7 @@ func shrineTwoOffersAtCap() *Engine {
 	e := shrineEngine(30, 0, 0)
 	learn(e, "quick_stab", "heavy_slash")
 	e.reg.Moves["power_surge"] = game.MoveAsset{
-		ID: "power_surge", Name: "Power Surge", Tier: 2, DmgModifier: 150, Weight: 10, Type: "both",
+		ID: "power_surge", Name: "Power Surge", Tier: 2, Effects: []game.MoveEffectAsset{{Type: "damage", Target: "enemy", DmgModifier: intPtr(150)}}, Weight: 10, Type: "both",
 	}
 	e.reg.Sections[0].MoveTiers = []int{1, 2, 3}
 	if events := e.Process(Command{Type: CmdExplore}); len(events) != 1 || events[0].Type != EventShrineOffered {
