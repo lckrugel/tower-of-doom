@@ -745,9 +745,8 @@ func TestViewBossCombatShowsTheBossBadge(t *testing.T) {
 // and a status carrier (the dossier's tag variety).
 func shrineOffers() []entities.Move {
 	return []entities.Move{
-		{ID: "power_slash", Name: "Power Slash", Tier: 2, DmgModifier: 175, Weight: 10},
-		{ID: "venom_shot", Name: "Venom Shot", Tier: 1, DmgModifier: 75, Weight: 10,
-			Status: entities.MoveStatus{ID: "poison", Chance: 60, Target: entities.TargetEnemy}},
+		{ID: "power_slash", Name: "Power Slash", Tier: 2, Effects: []entities.MoveEffect{{Type: "damage", Target: entities.TargetEnemy, DmgModifier: 175}}, Weight: 10},
+		{ID: "venom_shot", Name: "Venom Shot", Tier: 1, Effects: []entities.MoveEffect{{Type: "damage", Target: entities.TargetEnemy, DmgModifier: 75}, {Type: "status", Target: entities.TargetEnemy, Status: entities.MoveStatus{ID: "poison", Chance: 60}}}, Weight: 10},
 	}
 }
 
@@ -1053,7 +1052,7 @@ func TestViewShrineChoosingStepShowsBothOffers(t *testing.T) {
 		"tier 2",            // the dossier's tier line
 		"175% ◆",            // Power Slash's tags: modifier + learned glyph
 		"☠poison 60% ◆",     // Venom Shot's tags: status + learned glyph
-		"☠poison → enemy — 3 dmg/turn · 3 rounds", // the status tag's explanation
+		"damage 75% → enemy; ☠poison → enemy — 3 d…", // clipped explanation is marked
 		"LEARN", // the badge
 		"[L] Learn", "[N] Decline", "[Q] Quit",
 	} {

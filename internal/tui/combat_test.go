@@ -53,15 +53,15 @@ func combatEngine() *engine.Engine {
 // envenom is a deterministic status move: 100% poison on the enemy.
 func envenom(cooldown int) entities.Move {
 	return entities.Move{
-		ID: "envenom", Name: "Envenom", Tier: 1, DmgModifier: 100,
+		ID: "envenom", Name: "Envenom", Tier: 1,
 		Cooldown: cooldown, Weight: 10,
-		Status: entities.MoveStatus{ID: "poison", Chance: 100, Target: entities.TargetEnemy},
+		Effects: []entities.MoveEffect{{Type: "damage", Target: entities.TargetEnemy, DmgModifier: 100}, {Type: "status", Target: entities.TargetEnemy, Status: entities.MoveStatus{ID: "poison", Chance: 100}}},
 	}
 }
 
 // jab is a plain spamming move: neutral damage, no strings attached.
 func jab() entities.Move {
-	return entities.Move{ID: "jab", Name: "Jab", Tier: 1, DmgModifier: 100, Weight: 10}
+	return entities.Move{ID: "jab", Name: "Jab", Tier: 1, Effects: []entities.MoveEffect{{Type: "damage", Target: entities.TargetEnemy, DmgModifier: 100}}, Weight: 10}
 }
 
 // learnMove teaches the hero a hand-built runtime move (the registry is
@@ -164,16 +164,16 @@ func TestCombatRenderingReadsLiveEngineView(t *testing.T) {
 
 // heavy is the canonical cooldown move fixture (175%, locks 2 rounds).
 func heavy() entities.Move {
-	return entities.Move{ID: "heavy_slash", Name: "Heavy Slash", Tier: 2, DmgModifier: 175, Cooldown: 2, Weight: 10}
+	return entities.Move{ID: "heavy_slash", Name: "Heavy Slash", Tier: 2, Effects: []entities.MoveEffect{{Type: "damage", Target: entities.TargetEnemy, DmgModifier: 175}}, Cooldown: 2, Weight: 10}
 }
 
 // stoneEdge / wildSwing are plain damage moves for the weapon fixture.
 func stoneEdge() entities.Move {
-	return entities.Move{ID: "stone_edge", Name: "Stone Edge", Tier: 1, DmgModifier: 90, Weight: 10}
+	return entities.Move{ID: "stone_edge", Name: "Stone Edge", Tier: 1, Effects: []entities.MoveEffect{{Type: "damage", Target: entities.TargetEnemy, DmgModifier: 90}}, Weight: 10}
 }
 
 func wildSwing() entities.Move {
-	return entities.Move{ID: "wild_swing", Name: "Wild Swing", Tier: 1, DmgModifier: 110, Weight: 10}
+	return entities.Move{ID: "wild_swing", Name: "Wild Swing", Tier: 1, Effects: []entities.MoveEffect{{Type: "damage", Target: entities.TargetEnemy, DmgModifier: 110}}, Weight: 10}
 }
 
 // equipWeapon puts a weapon granting the given runtime moves on the hero
@@ -202,7 +202,7 @@ func fourMoveModel(t *testing.T) Model {
 func TestGridTruncatesModdedOverlongNames(t *testing.T) {
 	e := combatEngine()
 	learnMove(e, entities.Move{
-		ID: "modded", Name: "Super Calibrating Excalibur Strike", Tier: 1, DmgModifier: 100, Weight: 10,
+		ID: "modded", Name: "Super Calibrating Excalibur Strike", Tier: 1, Effects: []entities.MoveEffect{{Type: "damage", Target: entities.TargetEnemy, DmgModifier: 100}}, Weight: 10,
 	})
 	m := enterCombat(t, e)
 
@@ -340,6 +340,7 @@ func TestViewGridShowsTheBasicAttackFallback(t *testing.T) {
 // as a ◆ cell (learned slot 1) over the starter sword's explicitly
 // granted Basic Strike as a ⚔ cell.
 func TestViewFreshHeroGridShowsThePunchStart(t *testing.T) {
+	dmg := 100
 	e := engine.NewEngine(&game.Registry{
 		Monsters: map[string]game.MonsterAsset{
 			"goblin": {ID: "goblin", Name: "Goblin", Difficulty: 3, HP: 30, Damage: 2, Speed: 10, Crit: 5},
@@ -350,7 +351,7 @@ func TestViewFreshHeroGridShowsThePunchStart(t *testing.T) {
 		},
 		Moves: map[string]game.MoveAsset{
 			"basic_attack": {ID: "basic_attack", Name: "Basic Strike", Tier: 1,
-				DmgModifier: 100, Weight: 100, Type: "both"},
+				Effects: []game.MoveEffectAsset{{Type: "damage", Target: "enemy", DmgModifier: &dmg}}, Weight: 100, Type: "both"},
 		},
 		Sections: []game.SectionAsset{{
 			ID: "pits", Name: "Goblin Pits", MinFloor: 1, MaxFloor: -1,
