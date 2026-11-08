@@ -47,7 +47,7 @@ func (m Model) overlayPanel() string {
 
 	// The move-tag legend.
 	rows = append(rows, styleDim.Render("MOVE TAGS"))
-	rows = append(rows, styleDim.Render("  175% damage modifier · ✦+N crit bonus · ☠<status> N% status chance"))
+	rows = append(rows, styleDim.Render("  N% damage · +N HP / +N% HP healing · ✦+N crit · ☠<status> N% chance"))
 	rows = append(rows, styleDim.Render("  (N turns) move locked · ◆ learned · ⚔ weapon"))
 
 	// The live state's key map — the same chips the action bar shows.
@@ -75,9 +75,9 @@ func (m Model) overlayKeys() string {
 	return strings.Join(spots, " · ")
 }
 
-// overlayStatusLine is a lore entry: "Poison — 3 dmg/turn — 3 turns".
+// overlayStatusLine is a lore entry: "Poison — 3 dmg/turn — 3 rounds".
 func overlayStatusLine(a game.StatusAsset) string {
-	return fmt.Sprintf("%s — %s — %d turns", a.Name, statusEffectText(a), a.Duration)
+	return fmt.Sprintf("%s — %s — %d rounds", a.Name, statusEffectText(a), a.Duration)
 }
 
 // statusEffectText renders a status asset's effect: "3 dmg/turn" for a
@@ -132,10 +132,10 @@ func (m Model) statusExplanation(statuses []combatStatus) string {
 	parts := make([]string, 0, len(statuses))
 	for _, s := range statuses {
 		if lore, ok := m.statusLoreByID(s.id); ok {
-			parts = append(parts, fmt.Sprintf("%s — %s · %d turns left", s.name, statusEffectText(lore), s.turns))
+			parts = append(parts, fmt.Sprintf("%s — %s · %d rounds left", s.name, statusEffectText(lore), s.turns))
 			continue
 		}
-		parts = append(parts, fmt.Sprintf("%s · %d turns left", s.name, s.turns))
+		parts = append(parts, fmt.Sprintf("%s · %d rounds left", s.name, s.turns))
 	}
 	return strings.Join(parts, "; ")
 }
@@ -154,5 +154,40 @@ func (m Model) moveStatusExplanation(s entities.MoveStatus) string {
 	if !ok {
 		return tag
 	}
-	return fmt.Sprintf("%s — %s · %d turns", tag, statusEffectText(lore), lore.Duration)
+	return fmt.Sprintf("%s → %s — %s · %d rounds", tag, s.Target, statusEffectText(lore), lore.Duration)
+}
+
+// moveEffectsExplanation summarizes all effects in their authored order.
+func (m Model) moveEffectsExplanation(move entities.Move) string {
+	if len(move.Effects) == 0 {
+		return m.moveStatusExplanation(move.Status)
+	}
+	parts := make([]string, 0, len(move.Effects))
+	for _, effect := range move.Effects {
+		target := string(effect.Target)
+		switch effect.Type {
+		case "damage":
+			parts = append(parts, fmt.Sprintf("damage %d%% → %s", effect.DmgModifier, target))
+		case "heal":
+			var amounts []string
+			if effect.Flat != 0 {
+				amounts = append(amounts, fmt.Sprintf("%d HP", effect.Flat))
+			}
+			if effect.Percent != 0 {
+				amounts = append(amounts, fmt.Sprintf("%d%% HP", effect.Percent))
+			}
+			parts = append(parts, fmt.Sprintf("heal %s → %s", strings.Join(amounts, " + "), target))
+		case "status":
+			s := effect.Status
+			if s.ID == "" {
+				continue
+			}
+			if lore, ok := m.statusLoreByID(s.ID); ok {
+				parts = append(parts, fmt.Sprintf("☠%s %d%% → %s — %s · %d rounds", s.ID, s.Chance, target, statusEffectText(lore), lore.Duration))
+			} else {
+				parts = append(parts, fmt.Sprintf("☠%s %d%% → %s", s.ID, s.Chance, target))
+			}
+		}
+	}
+	return strings.Join(parts, "; ")
 }

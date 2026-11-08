@@ -1047,14 +1047,14 @@ func TestViewShrineChoosingStepShowsBothOffers(t *testing.T) {
 
 	for _, want := range []string{
 		"◈ SHRINE",
-		"choose a teaching",              // the step label
-		"Power Slash",                    // offer 1's dossier
-		"Venom Shot",                     // offer 2's dossier
-		"tier 2",                         // the dossier's tier line
-		"175% ◆",                         // Power Slash's tags: modifier + learned glyph
-		"☠poison 60% ◆",                  // Venom Shot's tags: status + learned glyph
-		"☠poison — 3 dmg/turn · 3 turns", // the status tag's explanation
-		"LEARN",                          // the badge
+		"choose a teaching", // the step label
+		"Power Slash",       // offer 1's dossier
+		"Venom Shot",        // offer 2's dossier
+		"tier 2",            // the dossier's tier line
+		"175% ◆",            // Power Slash's tags: modifier + learned glyph
+		"☠poison 60% ◆",     // Venom Shot's tags: status + learned glyph
+		"☠poison → enemy — 3 dmg/turn · 3 rounds", // the status tag's explanation
+		"LEARN", // the badge
 		"[L] Learn", "[N] Decline", "[Q] Quit",
 	} {
 		if !strings.Contains(view, want) {
@@ -1128,7 +1128,7 @@ func TestOverlayCapsTheStatusList(t *testing.T) {
 
 	view := stripControls(stripANSI(m.View()))
 
-	if !strings.Contains(view, "S09 — 1 dmg/turn — 2 turns") {
+	if !strings.Contains(view, "S09 — 1 dmg/turn — 2 rounds") {
 		t.Errorf("the overlay's capped list lost an in-budget status:\n%s", view)
 	}
 	if strings.Contains(view, "S10 — ") {
@@ -1157,9 +1157,9 @@ func TestOverlayTogglesOnQuestionMark(t *testing.T) {
 	for _, want := range []string{
 		"TOWER LORE",
 		"STATUS EFFECTS",
-		"Poison — 3 dmg/turn — 3 turns", // the lore: effect — duration
+		"Poison — 3 dmg/turn — 3 rounds", // the lore: effect — duration
 		"MOVE TAGS",
-		"175% damage modifier", "✦+N crit bonus", "☠<status> N% status chance",
+		"N% damage", "+N HP / +N% HP healing", "✦+N crit", "☠<status> N% chance",
 		"(N turns) move locked", "◆ learned", "⚔ weapon",
 		"KEYS — EXPLORING",
 		"[E] Explore", "[Q] Quit",
@@ -1175,7 +1175,7 @@ func TestOverlayTogglesOnQuestionMark(t *testing.T) {
 		}
 	}
 	// Lore lines tone by kind: buffs green.
-	if !strings.Contains(m.View(), styleHeal.Render("Guard — +5 DEF — 2 turns")) {
+	if !strings.Contains(m.View(), styleHeal.Render("Guard — +5 DEF — 2 rounds")) {
 		t.Error("the buff lore line must take the green tone")
 	}
 

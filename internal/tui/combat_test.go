@@ -248,6 +248,34 @@ func TestViewCombatShowsTheMoveGrid(t *testing.T) {
 	}
 }
 
+func TestGridTagsRenderOrderedMoveEffects(t *testing.T) {
+	m := Model{}
+	cases := []struct {
+		name string
+		move entities.Move
+		want []string
+		omit []string
+	}{
+		{"utility", entities.Move{Effects: []entities.MoveEffect{{Type: "heal", Target: entities.TargetSelf, Flat: 8}, {Type: "status", Target: entities.TargetSelf, Status: entities.MoveStatus{ID: "guard", Chance: 75}}}}, []string{"+8 HP", "☠guard 75%"}, []string{"100%"}},
+		{"percent heal", entities.Move{Effects: []entities.MoveEffect{{Type: "heal", Target: entities.TargetSelf, Percent: 20}}}, []string{"+20% HP"}, []string{"100%"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := m.gridTags(tc.move, false, "")
+			for _, want := range tc.want {
+				if !strings.Contains(got, want) {
+					t.Errorf("gridTags = %q, missing %q", got, want)
+				}
+			}
+			for _, omit := range tc.omit {
+				if strings.Contains(got, omit) {
+					t.Errorf("gridTags = %q, unexpectedly contains %q", got, omit)
+				}
+			}
+		})
+	}
+}
+
 // Fewer than 4 moves leaves the remaining cells as dim — placeholders.
 func TestViewGridShowsPlaceholdersForMissingMoves(t *testing.T) {
 	e := combatEngine()
