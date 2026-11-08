@@ -18,6 +18,8 @@ const (
 	EventCombatDamageDealt
 	// Hero's damage taken.
 	EventCombatDamageTaken
+	// A combat move restored HP to its user.
+	EventCombatHealed
 	EventEnemyHealed
 	// Hero healed outside of combat (sanctuary encounters).
 	EventHeroHealed
@@ -158,6 +160,15 @@ func NewHeroHealedExact(hero Combatant, healed, heroHPPercent int) Event {
 	data["hero_hp_exact"] = hero.HP()
 	data["hero_max_hp"] = hero.MaxHP()
 	return Event{Type: EventHeroHealed, Data: data}
+}
+
+// NewCombatHealed reports a combat move's self-heal and the target's exact
+// resulting HP. Side identifies the actor (hero or enemy), not the target name.
+func NewCombatHealed(target Combatant, side ActorSide, move string, healed int) Event {
+	return Event{Type: EventCombatHealed, Data: map[string]any{
+		"target": target.Name(), "side": side, "move": move, "healed": healed,
+		"hp_exact": target.HP(), "max_hp": target.MaxHP(),
+	}}
 }
 
 // NewDamageDealt reports the Hero's landed hit.

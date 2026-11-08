@@ -75,7 +75,7 @@ func TestUtilityHealMoveResolvesWithoutDamageRollAndEnemyStillActs(t *testing.T)
 	stub := &stubRng{values: []int{0, 1, 50}}
 	e.rng = stub
 	events := e.Process(Command{Type: CmdMove, Index: 0})
-	if got := eventTypes(events); !typesEqual(got, EventMoveUsed, EventHeroHealed, EventMoveUsed, EventCombatDamageTaken) {
+	if got := eventTypes(events); !typesEqual(got, EventMoveUsed, EventCombatHealed, EventMoveUsed, EventCombatDamageTaken) {
 		t.Fatalf("events = %v, want utility use/heal followed by enemy action", got)
 	}
 	if got := e.Player.CurrentHP; got != 95 {
@@ -85,7 +85,7 @@ func TestUtilityHealMoveResolvesWithoutDamageRollAndEnemyStillActs(t *testing.T)
 		t.Errorf("rng calls = %d, want 3 (no hero damage spread/crit)", stub.calls)
 	}
 	heal := events[1].Data
-	if heal["healed"] != 17 || heal["hp_exact"] != 97 || heal["max_hp"] != 100 || heal["side"] != ActorHero || heal["move"] != "Mend" {
+	if heal["healed"] != 17 || heal["hp_exact"] != 97 || heal["max_hp"] != 100 || heal["side"] != ActorHero || heal["move"] != "Mend" || heal["target"] != e.Player.Name() {
 		t.Errorf("heal payload = %#v", heal)
 	}
 }
@@ -103,7 +103,7 @@ func TestOrderedDamageAndHealEffects(t *testing.T) {
 		enemy := monsterFromFixture("goblin")
 		startEncounter(e, enemy)
 		events := e.resolveMoveEffects(&move, e.Player, &enemy, ActorHero)
-		if len(events) != 3 || events[1].Type != EventCombatDamageDealt || events[2].Type != EventHeroHealed {
+		if len(events) != 3 || events[1].Type != EventCombatDamageDealt || events[2].Type != EventCombatHealed {
 			t.Fatalf("events = %v, want move-used, damage, heal in authored order", eventTypes(events))
 		}
 		if enemy.IsAlive() || e.Player.CurrentHP != 60 {
@@ -122,13 +122,35 @@ func TestOrderedDamageAndHealEffects(t *testing.T) {
 		enemy := monsterFromFixture("goblin")
 		startEncounter(e, enemy)
 		events := e.resolveMoveEffects(&move, e.Player, &enemy, ActorHero)
-		if len(events) != 3 || events[1].Type != EventHeroHealed || events[2].Type != EventCombatDamageDealt {
+		if len(events) != 3 || events[1].Type != EventCombatHealed || events[2].Type != EventCombatDamageDealt {
 			t.Fatalf("events = %v, want move-used, heal, damage", eventTypes(events))
 		}
 		if e.Player.CurrentHP != 60 || enemy.HP() != 25 {
 			t.Errorf("hero HP=%d enemy HP=%d, want 60/25", e.Player.CurrentHP, enemy.HP())
 		}
 	})
+}
+
+func TestMonsterCombatHealEventReportsActualRestoreAndSide(t *testing.T) {
+	e := movesEngine()
+	flat := 10
+	move := entities.NewMoveFromAsset(game.MoveAsset{ID: "mend", Name: "Mend", Effects: []game.MoveEffectAsset{{Type: "heal", Target: "self", Flat: &flat}}})
+	enemy := monsterFromFixture("goblin")
+	startEncounter(e, enemy)
+	actor := e.currentEnemy()
+	actor.TakeDmg(5)
+	events := e.resolveMoveEffects(&move, actor, e.Player, ActorEnemy)
+	if len(events) != 2 || events[1].Type != EventCombatHealed {
+		t.Fatalf("events = %v, want move-used and combat-healed", eventTypes(events))
+	}
+	data := events[1].Data
+	if data["target"] != actor.Name() || data["side"] != ActorEnemy || data["move"] != "Mend" || data["healed"] != 5 || data["hp_exact"] != actor.MaxHP() || data["max_hp"] != actor.MaxHP() {
+		t.Errorf("monster heal payload = %#v", data)
+	}
+	full := e.resolveMoveEffects(&move, actor, e.Player, ActorEnemy)[1].Data
+	if full["healed"] != 0 || full["hp_exact"] != actor.MaxHP() {
+		t.Errorf("at-cap monster heal payload = %#v", full)
+	}
 }
 
 func intPtr(v int) *int { return &v }

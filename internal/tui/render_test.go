@@ -24,6 +24,36 @@ func testItem() *entities.Item {
 	return &item
 }
 
+func TestCombatHealRendering(t *testing.T) {
+	cases := []struct {
+		name         string
+		side         engine.ActorSide
+		target, want string
+		healed       int
+	}{
+		{"hero actual restore", engine.ActorHero, "Hero", "You use Mend and restore 12 HP (80/100 HP).", 12},
+		{"hero zero at cap", engine.ActorHero, "Hero", "You use Mend, but Hero is already at full health (100/100 HP).", 0},
+		{"monster actual restore", engine.ActorEnemy, "Goblin", "The Goblin uses Mend and restores 12 HP (30/30 HP).", 12},
+		{"monster zero at cap", engine.ActorEnemy, "Goblin", "The Goblin uses Mend, but it is already at full health (30/30 HP).", 0},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			hp := map[bool]int{true: 80, false: 30}[tt.side == engine.ActorHero]
+			if tt.healed == 0 {
+				hp = map[bool]int{true: 100, false: 30}[tt.side == engine.ActorHero]
+			}
+			ev := engine.Event{Type: engine.EventCombatHealed, Data: map[string]any{
+				"side": tt.side, "target": tt.target, "move": "Mend", "healed": tt.healed,
+				"hp_exact": hp,
+				"max_hp":   map[bool]int{true: 100, false: 30}[tt.side == engine.ActorHero],
+			}}
+			if got := eventText(ev); got != tt.want {
+				t.Errorf("eventText = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 // displacedItem is the previously worn gear an equip displaces into the
 // bag (the engine's swapped_from payload).
 func displacedItem() *entities.Item {

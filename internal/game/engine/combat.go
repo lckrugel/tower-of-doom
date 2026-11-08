@@ -228,8 +228,7 @@ func (e *Engine) resolveMoveEffects(move *entities.Move, attacker, defender Comb
 		case "heal":
 			amount := effect.Flat + target.MaxHP()*effect.Percent/100
 			healed := target.Heal(amount)
-			data := map[string]any{"target": target.Name(), "side": side, "move": move.Name, "healed": healed, "hp_exact": target.HP(), "max_hp": target.MaxHP()}
-			events = append(events, Event{Type: EventHeroHealed, Data: data})
+			events = append(events, NewCombatHealed(target, side, move.Name, healed))
 		case "status":
 			fired := e.rng.Intn(100) < effect.Status.Chance
 			statusTarget := target
