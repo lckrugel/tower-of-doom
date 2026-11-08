@@ -184,7 +184,7 @@ func TestMonsterDefaultMoves(t *testing.T) {
 	if len(moves) != 1 {
 		t.Fatalf("monster without moves got %d moves, want exactly the basic attack", len(moves))
 	}
-	if moves[0].ID != "basic_attack" || moves[0].DmgModifier != 100 || moves[0].Cooldown != 0 {
+	if moves[0].ID != "basic_attack" || len(moves[0].Effects) != 1 || moves[0].Effects[0].DmgModifier != 100 || moves[0].Cooldown != 0 {
 		t.Errorf("fallback move = %+v, want the canonical basic attack", moves[0])
 	}
 }
@@ -192,8 +192,8 @@ func TestMonsterDefaultMoves(t *testing.T) {
 // Moves passed by the caller (resolved from the asset's refs) ride the
 // monster in asset order.
 func TestMonsterMovesFromAsset(t *testing.T) {
-	heavy := NewMoveFromAsset(game.MoveAsset{ID: "heavy_slash", Name: "Heavy Slash", DmgModifier: 175, Cooldown: 2, Weight: 60})
-	stab := NewMoveFromAsset(game.MoveAsset{ID: "quick_stab", Name: "Quick Stab", DmgModifier: 60, CritBonus: 20, Weight: 100})
+	heavy := NewMoveFromAsset(game.MoveAsset{ID: "heavy_slash", Name: "Heavy Slash", Effects: []game.MoveEffectAsset{{Type: "damage", Target: "enemy", DmgModifier: intPtr(175)}}, Cooldown: 2, Weight: 60})
+	stab := NewMoveFromAsset(game.MoveAsset{ID: "quick_stab", Name: "Quick Stab", Effects: []game.MoveEffectAsset{{Type: "damage", Target: "enemy", DmgModifier: intPtr(60), CritBonus: intPtr(20)}}, Weight: 100})
 
 	m := NewMonsterFromAsset(game.MonsterAsset{ID: "m", Name: "M", Difficulty: 1, HP: 10}, heavy, stab)
 
