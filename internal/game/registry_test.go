@@ -1286,6 +1286,18 @@ func TestValidateCombat2Content(t *testing.T) {
 			"dmg_modifier",
 		},
 		{
+			"effects-only heal does not require legacy dmg_modifier",
+			func(r *Registry) {
+				m := r.Moves["quick_stab"]
+				flat := 5
+				m.DmgModifier = 0
+				m.CritBonus = 0
+				m.Effects = []MoveEffectAsset{{Type: "heal", Target: "self", Flat: &flat}}
+				r.Moves["quick_stab"] = m
+			},
+			"",
+		},
+		{
 			"negative move cooldown",
 			func(r *Registry) { m := r.Moves["heavy_slash"]; m.Cooldown = -1; r.Moves["heavy_slash"] = m },
 			"cooldown",

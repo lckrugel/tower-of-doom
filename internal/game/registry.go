@@ -561,10 +561,6 @@ func (r *Registry) Validate(topFloor int) error {
 			fail("move %q has tier %d, want >= 1 (absent/0 defaults to tier 1)",
 				mv.ID, mv.Tier)
 		}
-		if mv.DmgModifier < 50 || mv.DmgModifier > 300 {
-			fail("move %q has dmg_modifier %d, want within [50, 300] (percent, 100 = neutral)",
-				mv.ID, mv.DmgModifier)
-		}
 		if mv.Cooldown < 0 {
 			fail("move %q has cooldown %d, want >= 0 (0 = spammable)", mv.ID, mv.Cooldown)
 		}
@@ -614,6 +610,10 @@ func (r *Registry) Validate(topFloor int) error {
 				}
 			}
 			continue
+		}
+		if mv.DmgModifier < 50 || mv.DmgModifier > 300 {
+			fail("move %q has dmg_modifier %d, want within [50, 300] (percent, 100 = neutral)",
+				mv.ID, mv.DmgModifier)
 		}
 		if mv.Status == nil {
 			continue
