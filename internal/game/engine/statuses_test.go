@@ -230,12 +230,42 @@ func TestStatusApplication(t *testing.T) {
 		learn(e, "sure_poison")
 		startEncounter(e, monsterFromFixture("goblin"), monsterFromFixture("orc"))
 		e.Process(Command{Type: CmdFight})
+		stub := &stubRng{values: []int{1, 50, 0}}
+		e.rng = stub
 
 		events := e.Process(Command{Type: CmdMove, Index: 0})
 
 		if got := eventTypes(events); !typesEqual(got,
 			EventMoveUsed, EventCombatDamageDealt, EventEnemyDefeated, EventGoldGained) {
 			t.Fatalf("events = %v, want no status event on a kill", got)
+		}
+		if stub.calls != 3 {
+			t.Errorf("rng calls = %d, want 3 (spread, crit, status roll on lethal hit)", stub.calls)
+		}
+	})
+
+	t.Run("multiple effect statuses roll independent chances", func(t *testing.T) {
+		e := statusesEngine()
+		effects := []game.MoveEffectAsset{
+			{Type: "status", Target: "enemy", Status: &game.MoveStatusAsset{ID: "poison", Chance: 50}},
+			{Type: "status", Target: "enemy", Status: &game.MoveStatusAsset{ID: "weaken", Chance: 50}},
+		}
+		move := entities.NewMoveFromAsset(game.MoveAsset{ID: "double_status", Name: "Double Status", Effects: effects})
+		enemy := monsterFromFixture("goblin")
+		startEncounter(e, enemy)
+		stub := &stubRng{values: []int{0, 99}}
+		e.rng = stub
+
+		events := e.resolveMoveEffects(&move, e.Player, &enemy, ActorHero)
+
+		if got := eventTypes(events); !typesEqual(got, EventMoveUsed, EventStatusApplied) {
+			t.Errorf("events = %v, want move-used and only the successful status application", got)
+		}
+		if stub.calls != 2 {
+			t.Errorf("rng calls = %d, want 2 (one independent chance roll per status effect)", stub.calls)
+		}
+		if len(e.enemyCombat.statuses) != 1 || e.enemyCombat.statuses[0].status.ID != "poison" {
+			t.Errorf("enemy statuses = %+v, want only poison", e.enemyCombat.statuses)
 		}
 	})
 }
