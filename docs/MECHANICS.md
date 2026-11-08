@@ -558,10 +558,10 @@ below documents the shipped behavior.
 ### Status effects
 
 - A Status is a new asset (`statuses.json`): `id`, `name`,
-  `kind` (buff/debuff), `effect` (DoT damage per turn, or a stat
-  modifier for DMG/DEF/SPD), `duration` (turns). Moves apply them
+  `kind` (buff/debuff), `effect` (DoT damage per round, or a stat
+  modifier for DMG/DEF/SPD), `duration` (rounds). Moves apply them
   (target: enemy or self, with an application chance).
-- Active effects are COMBAT-SCOPED: tracked per combatant with turns
+- Active effects are COMBAT-SCOPED: tracked per combatant with rounds
   left, ticked at round end, refreshed to the longest duration (never
   stacked), and cleared when combat ends.
 - Effective stats = base + gear + active status modifiers, clamped
@@ -674,7 +674,7 @@ field is required as authored and validated at startup:
   Required — there is NO absent-field default; a missing or unknown
   word fails validation (startup-fatal; BREAKING for untyped mod moves).
 - `tier` — progression ladder (1 = earliest); absent/0 → 1.
-- `cooldown` — turns the move stays locked after use (0 = spammable);
+- `cooldown` — rounds the move stays locked after use (0 = spammable);
   validated ≥ 0.
 - `effects` — an ordered list; effect order is behaviorally significant.
   Damage effects have `type: damage`, `target: enemy`, required

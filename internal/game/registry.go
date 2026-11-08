@@ -133,8 +133,8 @@ type MoveAsset struct {
 	Effects []MoveEffectAsset `json:"effects,omitempty"`
 }
 
-// StatusEffectAsset is what a status does on each of its turns: either a
-// DoT (damage per turn) or a stat modifier.
+// StatusEffectAsset is what a status does each round: either a
+// DoT (damage per round) or a stat modifier.
 type StatusEffectAsset struct {
 	// Type is "dot" or "stat".
 	Type string `json:"type"`

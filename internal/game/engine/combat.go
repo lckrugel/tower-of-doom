@@ -163,11 +163,11 @@ func (e *Engine) stateOf(c Combatant) *combatantState {
 // rollMoveDamage resolves a strike made with a Combat 2.0 move, in this
 // rng order (a determinism contract):
 //
-//  1. base = round(effective DMG × move.DmgModifier / 100) — pure math,
+//  1. base = round(effective DMG × dmgModifier / 100) — pure math,
 //     no rng (the modifier is a percent, 100 = neutral);
 //  2. damage spread: max(1, base − 1 + Intn(3)) (±1 around the base,
 //     floored at 1, no misses);
-//  3. crit: Intn(100) < clamp(critThreshold + move.CritBonus, 0, 100) —
+//  3. crit: Intn(100) < clamp(critThreshold + critBonus, 0, 100) —
 //     doubles the swung damage;
 //  4. (a status-carrying move rolls its application chance AFTER the
 //     crit — see the status effects.)
@@ -189,8 +189,7 @@ func (e *Engine) heroStrike(move *entities.Move) []Event {
 	return e.resolveMoveEffects(move, e.Player, e.currentEnemy(), ActorHero)
 }
 
-// resolveMoveEffects executes a move's authored effects in order. Legacy
-// moves are converted to this same representation by NewMoveFromAsset.
+// resolveMoveEffects executes a move's authored effects in order.
 func (e *Engine) resolveMoveEffects(move *entities.Move, attacker, defender Combatant, side ActorSide) []Event {
 	events := []Event{NewMoveUsedOnSide(attacker.Name(), move.Name, side)}
 	for _, effect := range move.Effects {

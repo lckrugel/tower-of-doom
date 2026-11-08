@@ -69,7 +69,7 @@ type Move struct {
 	Type MoveType
 	// Tier places the move on the progression ladder (1 = earliest).
 	Tier int
-	// Cooldown is how many turns the move stays locked after use
+	// Cooldown is how many rounds the move stays locked after use
 	// (0 = spammable).
 	Cooldown int
 	// Weight is the AI weight for monster picks. For a monster's moves it
@@ -179,11 +179,11 @@ type Status struct {
 	Stat        StatKind // "" for DoT effects
 	StatAmount  int
 	StatPercent int
-	// Duration is how many turns the status lasts.
+	// Duration is how many rounds the status lasts.
 	Duration int
 }
 
-// IsDot reports whether the status deals damage per turn (instead of
+// IsDot reports whether the status deals damage each round (instead of
 // modifying a stat).
 func (s Status) IsDot() bool { return s.Stat == "" && (s.DotAmount != 0 || s.DotPercent != 0) }
 
