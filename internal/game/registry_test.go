@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -889,6 +890,8 @@ func TestLoadEmbeddedMovesAndStatuses(t *testing.T) {
 		"crushing_blow": "creature", "steel_flurry": "weapon", "assassins_strike": "both",
 		"venomous_blade": "both", "shield_wall": "both", "soul_rot": "creature",
 		"skull_crusher": "creature", "bloodletter": "creature", "dragons_might": "both",
+		"field_dressing": "both", "venomous_feint": "both", "ironroot_guard": "both",
+		"sanguine_rupture": "creature",
 	}
 	for id, wantType := range wantTypes {
 		move, ok := r.MoveByID(id)
@@ -897,6 +900,39 @@ func TestLoadEmbeddedMovesAndStatuses(t *testing.T) {
 		}
 		if move.Type != wantType {
 			t.Errorf("move %q type = %q, want %q", id, move.Type, wantType)
+		}
+	}
+
+	// Shrine-pool additions: preserve metadata and ordered effect payloads.
+	ptr := func(v int) *int { return &v }
+	wantNew := map[string]struct {
+		name                   string
+		tier, cooldown, weight int
+		effects                []MoveEffectAsset
+	}{
+		"field_dressing": {"Field Dressing", 1, 3, 25, []MoveEffectAsset{{Type: "heal", Target: "self", Flat: ptr(8)}}},
+		"venomous_feint": {"Venomous Feint", 2, 3, 30, []MoveEffectAsset{
+			{Type: "damage", Target: "enemy", DmgModifier: ptr(80)},
+			{Type: "status", Target: "enemy", Status: &MoveStatusEffectAsset{ID: "poison", Chance: 60}},
+			{Type: "status", Target: "enemy", Status: &MoveStatusEffectAsset{ID: "weaken", Chance: 50}},
+		}},
+		"ironroot_guard": {"Ironroot Guard", 3, 3, 25, []MoveEffectAsset{
+			{Type: "status", Target: "self", Status: &MoveStatusEffectAsset{ID: "guard", Chance: 100}},
+			{Type: "heal", Target: "self", Flat: ptr(3)},
+		}},
+		"sanguine_rupture": {"Sanguine Rupture", 4, 3, 20, []MoveEffectAsset{
+			{Type: "damage", Target: "enemy", DmgModifier: ptr(120)},
+			{Type: "heal", Target: "self", Flat: ptr(5)},
+			{Type: "status", Target: "enemy", Status: &MoveStatusEffectAsset{ID: "weaken", Chance: 50}},
+		}},
+	}
+	for id, want := range wantNew {
+		move, ok := r.MoveByID(id)
+		if !ok {
+			t.Fatalf("move %q is missing from the embedded assets", id)
+		}
+		if move.Name != want.name || move.Tier != want.tier || move.Type != wantTypes[id] || move.Cooldown != want.cooldown || move.Weight != want.weight || !reflect.DeepEqual(move.Effects, want.effects) {
+			t.Errorf("move %q = %+v, want metadata/effects %+v", id, move, want)
 		}
 	}
 
@@ -949,7 +985,7 @@ func TestLoadEmbeddedMovesAndStatuses(t *testing.T) {
 		t.Errorf("guard drifted: %+v", guard)
 	}
 
-	if got, want := len(r.Moves), 16; got != want {
+	if got, want := len(r.Moves), 20; got != want {
 		t.Errorf("embedded moves = %d, want %d (basic attack + punch + the tier 1-4 set + steel_flurry)", got, want)
 	}
 	if got, want := len(r.Statuses), 4; got != want {
