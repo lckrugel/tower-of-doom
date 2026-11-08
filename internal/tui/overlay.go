@@ -145,7 +145,7 @@ func (m Model) moveStatusExplanation(s entities.MoveStatus, target entities.Move
 	if s.ID == "" {
 		return ""
 	}
-	tag := fmt.Sprintf("☠%s", s.ID)
+	tag := fmt.Sprintf("☠%s %d%%", s.ID, s.Chance)
 	lore, ok := m.statusLoreByID(s.ID)
 	if !ok {
 		return tag

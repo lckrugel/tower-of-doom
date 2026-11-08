@@ -1052,7 +1052,7 @@ func TestViewShrineChoosingStepShowsBothOffers(t *testing.T) {
 		"tier 2",            // the dossier's tier line
 		"175% ◆",            // Power Slash's tags: modifier + learned glyph
 		"☠poison 60% ◆",     // Venom Shot's tags: status + learned glyph
-		"damage 75% → enemy; ☠poison → enemy — 3 d…", // clipped explanation is marked
+		"damage 75% → enemy; ☠poison 60% → enemy —…", // clipped explanation is marked
 		"LEARN", // the badge
 		"[L] Learn", "[N] Decline", "[Q] Quit",
 	} {
@@ -1184,6 +1184,15 @@ func TestOverlayTogglesOnQuestionMark(t *testing.T) {
 	}
 	if got := m.View(); got != before {
 		t.Error("the frame was not restored byte-exact after the overlay")
+	}
+}
+
+func TestMoveStatusExplanationIncludesChanceAndEffectLore(t *testing.T) {
+	m := New(testEngine())
+	got := m.moveStatusExplanation(entities.MoveStatus{ID: "poison", Chance: 60}, entities.TargetEnemy)
+	want := "☠poison 60% → enemy — 3 dmg/turn · 3 rounds"
+	if got != want {
+		t.Fatalf("move status explanation = %q, want %q", got, want)
 	}
 }
 
