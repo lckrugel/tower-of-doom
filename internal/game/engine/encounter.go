@@ -179,13 +179,24 @@ func (e *Engine) resolveEncounter(encounter Encounter) []Event {
 		// leaves (or quits). Merchants never unlock ASCEND.
 		stock := e.rollMerchantStock(e.currentSection())
 		if len(stock) == 0 {
+			e.MerchantConsumable = nil
 			// Validation keeps every merchant section stocked; this guard
 			// only exists for registries that skipped validation.
 			return []Event{NewMessage("The merchant spreads empty hands: nothing to sell today.")}
 		}
 		e.MerchantStock = stock
+		consumables := e.reg.AllConsumables()
+		e.MerchantConsumable = nil
+		if len(consumables) > 0 {
+			offer := consumables[0]
+			e.MerchantConsumable = &offer
+		}
 		e.State = StateMerchant
-		return []Event{NewMerchantFound(len(stock))}
+		count := len(stock)
+		if e.MerchantConsumable != nil {
+			count++
+		}
+		return []Event{NewMerchantFound(count)}
 	case EncounterShrine:
 		// EXPLORE draws the shrine's teaching (ONE rng roll PER offer, 1–2
 		// total — see rollShrineOffers) and opens StateLearn's choosing

@@ -236,6 +236,17 @@ current HP as a fraction of the previous max (`rescaleHP`).
     - `DROP <index>` — destroys the item on the spot. There is no floor
       layer: destroyed/dropped items are gone for good.
     - `CLOSE` — back to StateExploring; the bag keeps its contents.
+- **Consumables** — separate from the equipment bag and learned moves:
+    - The shared pouch holds at most 3 units across all consumable types.
+    - The Healing Potion restores `25%` of the Hero's base max HP (equipment
+      excluded), floored and clamped. It cannot be used at full HP.
+    - `USE CONSUMABLE` selects the next carried unit. In StateExploring or
+      StateInventory it is turn-free; in combat it consumes the Hero's
+      action and resolves at normal initiative. The enemy still acts, and
+      round-end statuses/cooldowns tick as usual. If the enemy kills the
+      Hero before their initiative, the potion is not consumed.
+    - The TUI shows the pouch count and potion effect; its action is
+      available in combat and exploration/inventory only when relevant.
 - **Ascend flow** — there is NO auto-equip anymore: ascending rolls the
   armor reward from the NEW floor's section and opens the very same
   StateLoot decision (WEAR / STASH / DISCARD — the pending-loot case
@@ -376,6 +387,9 @@ an extra roll):
       tiers (the pool shrinks per pick); one offer may be upgraded to a
       tier+1 item (35%, capped at the registry's max tier, never
       duplicating the stock) — see "Gold & prices"
+    - Also offers at most one Healing Potion for 100 gold per visit; buying
+      removes that offer until the next merchant. Pouch capacity is shared
+      across consumables and is not replenished automatically.
     - BUY / SELL / LEAVE (and QUIT); buying and selling never unlock
       ASCEND
     - Does NOT unlock ASCEND

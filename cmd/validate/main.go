@@ -98,13 +98,14 @@ func fail(out io.Writer, err error) int {
 // ladders. Plain lines, one fact each, ending in OK.
 func printDigest(out io.Writer, r *game.Registry) {
 	provenance := r.Provenance()
-	for _, name := range []string{"monsters", "items", "moves", "statuses", "sections"} {
+	for _, name := range []string{"monsters", "items", "moves", "statuses", "consumables", "sections"} {
 		fmt.Fprintf(out, "%s: %s\n", name, provenance[name+".json"])
 	}
 	fmt.Fprintf(out, "monsters: %d\n", len(r.Monsters))
 	fmt.Fprintf(out, "items: %d\n", len(r.Items))
 	fmt.Fprintf(out, "moves: %d\n", len(r.Moves))
 	fmt.Fprintf(out, "statuses: %d\n", len(r.Statuses))
+	fmt.Fprintf(out, "consumables: %d\n", len(r.Consumables))
 	fmt.Fprintf(out, "sections: %d\n", len(r.Sections))
 
 	fmt.Fprintf(out, "validated floors: 1-%d (finite validation horizon)\n", validateHorizon)

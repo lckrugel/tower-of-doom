@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 
+	"github.com/lckrugel/tower-of-doom/internal/game"
 	"github.com/lckrugel/tower-of-doom/internal/game/engine/entities"
 )
 
@@ -82,19 +83,34 @@ func (e *Engine) resolveRound(move *entities.Move) []Event {
 		// round-end ticks run as usual.
 		events = append(events, NewMessage("Every move is on cooldown — you recover this turn."))
 	}
-	return e.resolveCombatRound(move, events)
+	return e.resolveCombatRound(move, nil, events)
+}
+
+// resolveConsumableRound spends the Hero's action on a consumable. The
+// consumable is applied only when the Hero reaches their initiative point.
+func (e *Engine) resolveConsumableRound(consumable game.ConsumableAsset) []Event {
+	return e.resolveCombatRound(nil, &consumable, nil)
 }
 
 // resolveCombatRound is the round core shared by the hero's move rounds,
 // RECOVER rounds and the enemy's free turns (failed sneak/flee): `move`
 // is the hero's chosen move (nil = the hero does not act this round) and
 // `events` any event prefix already collected.
-func (e *Engine) resolveCombatRound(move *entities.Move, events []Event) []Event {
+func (e *Engine) resolveCombatRound(move *entities.Move, consumable *game.ConsumableAsset, events []Event) []Event {
 	// Initiative reads the EFFECTIVE speeds (stat-mod statuses included).
 	heroFirst := e.heroStat(entities.StatSPD) >= e.enemyStat(entities.StatSPD)
+	heroActs := func() []Event {
+		if move != nil {
+			return e.heroStrike(move)
+		}
+		if consumable != nil {
+			return e.drinkConsumable(*consumable)
+		}
+		return nil
+	}
 
-	if move != nil && heroFirst {
-		events = append(events, e.heroStrike(move)...)
+	if (move != nil || consumable != nil) && heroFirst {
+		events = append(events, heroActs()...)
 		if !e.currentEnemy().IsAlive() {
 			return e.appendEnemyDefeat(events, move)
 		}
@@ -107,8 +123,8 @@ func (e *Engine) resolveCombatRound(move *entities.Move, events []Event) []Event
 		return e.appendHeroDefeat(events)
 	}
 
-	if move != nil && !heroFirst {
-		events = append(events, e.heroStrike(move)...)
+	if (move != nil || consumable != nil) && !heroFirst {
+		events = append(events, heroActs()...)
 		if !e.currentEnemy().IsAlive() {
 			return e.appendEnemyDefeat(events, move)
 		}
@@ -294,7 +310,7 @@ func (e *Engine) enemyStrike(move *entities.Move) []Event {
 // failed flee attempt: the Hero does not act this round — no recover
 // announcement, just the enemy's turn.
 func (e *Engine) enemyFreeTurn() []Event {
-	return e.resolveCombatRound(nil, nil)
+	return e.resolveCombatRound(nil, nil, nil)
 }
 
 // endRound runs the round-end ticks of a COMPLETED round (both sides

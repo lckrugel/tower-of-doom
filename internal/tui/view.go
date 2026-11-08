@@ -234,7 +234,11 @@ func badgeText(state engine.GameState) string {
 func (m Model) body() string {
 	switch m.engine.State {
 	case engine.StateExploring:
-		return styleDim.Render("The tower awaits — EXPLORE to investigate.")
+		lines := []string{"The tower awaits — EXPLORE to investigate."}
+		if potion, ok := m.engine.ConsumableByID("healing_potion"); ok {
+			lines = append(lines, styleDim.Render(fmt.Sprintf("%s restores %d%% of base max HP.", potion.Name, potion.HealPercent)))
+		}
+		return strings.Join(lines, "\n")
 	case engine.StateLoot: // the pending item, ahead of the three-way choice
 		return m.lootPanel()
 	case engine.StateInventory: // the whole bag, selection included
@@ -277,6 +281,11 @@ func (m Model) inventoryPanel() string {
 	var b strings.Builder
 	bag := m.engine.Player.Bag()
 	b.WriteString(m.panelHeading(fmt.Sprintf("◈ BAG (%d/%d)", len(bag), entities.InventoryCapacity)) + "\n")
+	b.WriteString(styleDim.Render(fmt.Sprintf("  POTIONS %d/%d", len(m.engine.Player.Consumables()), entities.ConsumableCapacity)))
+	if potion, ok := m.engine.ConsumableByID("healing_potion"); ok {
+		b.WriteString(styleDim.Render(fmt.Sprintf(" · %d%% base max HP each", potion.HealPercent)))
+	}
+	b.WriteString("\n")
 	if len(bag) == 0 {
 		return b.String() + styleDim.Render("   (the bag is empty)")
 	}
@@ -305,7 +314,11 @@ func (m Model) merchantPanel() string {
 	bag := m.engine.Player.Bag()
 	rows := make([]string, 0, 1+len(stock)+1+max(1, len(bag)))
 
-	rows = append(rows, m.panelHeading("◈ MERCHANT"))
+	heading := m.panelHeading("◈ MERCHANT")
+	if offer := m.engine.MerchantConsumable; offer != nil {
+		heading += styleDim.Render(fmt.Sprintf(" · [O] %s +%d%% %dg", offer.Name, offer.HealPercent, offer.Price))
+	}
+	rows = append(rows, heading)
 	if len(stock) == 0 {
 		// The offer list empties as the hero buys; the shop stays open
 		// for selling (and leaving).
@@ -875,6 +888,7 @@ func (m Model) heroPanel() string {
 	// The purse shares the stats line, dim like the panel's XP segment:
 	// the panel labels stay quiet, the log carries the gold-colored news.
 	b.WriteString(styleDim.Render(fmt.Sprintf("GOLD %d", p.Gold)))
+	b.WriteString(styleDim.Render(fmt.Sprintf(" · POT %d/%d", len(p.Consumables()), entities.ConsumableCapacity)))
 	return b.String()
 }
 

@@ -160,6 +160,16 @@ type StatusAsset struct {
 	Duration int               `json:"duration"`
 }
 
+// ConsumableAsset defines a distinct, expendable item type. Healing
+// consumables restore a percentage of the Hero's base max HP; future types
+// can extend this schema without making them learned moves or equipment.
+type ConsumableAsset struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	HealPercent int    `json:"heal_percent"`
+	Price       int    `json:"price"`
+}
+
 // Define o mostro e seu peso para spawnar em uma seção.
 type SpawnEntry struct {
 	MonsterID string `json:"monster_id"`
@@ -236,6 +246,8 @@ type Registry struct {
 	// Combat 2.0 content: moves and the statuses they apply.
 	Moves    map[string]MoveAsset
 	Statuses map[string]StatusAsset
+	// Consumables are stored separately from equipment and learned moves.
+	Consumables map[string]ConsumableAsset
 
 	// provenance records where each asset file came from, keyed by file
 	// name (see Provenance). Filled by Load; a hand-built Registry has
@@ -310,6 +322,22 @@ func (r *Registry) MoveByID(id string) (MoveAsset, bool) {
 func (r *Registry) StatusByID(id string) (StatusAsset, bool) {
 	s, ok := r.Statuses[id]
 	return s, ok
+}
+
+// ConsumableByID looks up a consumable asset by id.
+func (r *Registry) ConsumableByID(id string) (ConsumableAsset, bool) {
+	c, ok := r.Consumables[id]
+	return c, ok
+}
+
+// AllConsumables returns consumable definitions sorted by id.
+func (r *Registry) AllConsumables() []ConsumableAsset {
+	out := make([]ConsumableAsset, 0, len(r.Consumables))
+	for _, consumable := range r.Consumables {
+		out = append(out, consumable)
+	}
+	slices.SortFunc(out, func(a, b ConsumableAsset) int { return strings.Compare(a.ID, b.ID) })
+	return out
 }
 
 // AllStatuses returns every registry status, sorted by id — the
@@ -413,6 +441,10 @@ func Load(externalDir string) (*Registry, error) {
 	if err != nil {
 		return nil, fmt.Errorf("loading statuses: %w", err)
 	}
+	consumables, consumablesSrc, err := loadJSON[ConsumableAsset](externalDir, "consumables.json")
+	if err != nil {
+		return nil, fmt.Errorf("loading consumables: %w", err)
+	}
 
 	monstersMap, err := indexBy(monsters, func(m MonsterAsset) string { return m.ID })
 	if err != nil {
@@ -430,21 +462,27 @@ func Load(externalDir string) (*Registry, error) {
 	if err != nil {
 		return nil, fmt.Errorf("loading statuses: %w", err)
 	}
+	consumablesMap, err := indexBy(consumables, func(c ConsumableAsset) string { return c.ID })
+	if err != nil {
+		return nil, fmt.Errorf("loading consumables: %w", err)
+	}
 	defaultAbsentItemTiers(itemsMap)
 	defaultAbsentMoveTiers(movesMap)
 
 	r := &Registry{
-		Monsters: monstersMap,
-		Items:    itemsMap,
-		Sections: sections,
-		Moves:    movesMap,
-		Statuses: statusesMap,
+		Monsters:    monstersMap,
+		Items:       itemsMap,
+		Sections:    sections,
+		Moves:       movesMap,
+		Statuses:    statusesMap,
+		Consumables: consumablesMap,
 		provenance: map[string]string{
-			"monsters.json": monstersSrc,
-			"items.json":    itemsSrc,
-			"moves.json":    movesSrc,
-			"statuses.json": statusesSrc,
-			"sections.json": sectionsSrc,
+			"monsters.json":    monstersSrc,
+			"items.json":       itemsSrc,
+			"moves.json":       movesSrc,
+			"statuses.json":    statusesSrc,
+			"sections.json":    sectionsSrc,
+			"consumables.json": consumablesSrc,
 		},
 	}
 	return r, nil
@@ -453,9 +491,9 @@ func Load(externalDir string) (*Registry, error) {
 
 // Provenance reports where each asset file was loaded from, keyed by
 // file name ("monsters.json", "items.json", "moves.json",
-// "statuses.json", "sections.json"). The value is "embedded" when the
-// compiled-in assets were used, or "external (<dir>)" when the mod
-// directory's file won the per-file fallback. Diagnostics surface —
+// "statuses.json", "consumables.json", "sections.json"). The value is
+// "embedded" when the compiled-in assets were used, or "external (<dir>)"
+// when the mod directory's file won the per-file fallback. Diagnostics surface —
 // e.g. the validate command's digest prints one line per file.
 //
 // The returned map is a copy: mutating it never reaches the registry.
@@ -504,6 +542,18 @@ func (r *Registry) Validate(topFloor int) error {
 		if _, ok := equipmentSlots[item.Slot]; !ok {
 			fail("item %q has unknown slot %q", item.ID, item.Slot)
 			continue
+		}
+	}
+	for _, id := range sortedIDs(r.Consumables) {
+		consumable := r.Consumables[id]
+		if consumable.Name == "" {
+			fail("consumable %q has an empty name", consumable.ID)
+		}
+		if consumable.HealPercent < 1 || consumable.HealPercent > 100 {
+			fail("consumable %q has heal_percent %d, want within [1, 100]", consumable.ID, consumable.HealPercent)
+		}
+		if consumable.Price < 1 {
+			fail("consumable %q has price %d, want >= 1", consumable.ID, consumable.Price)
 		}
 	}
 

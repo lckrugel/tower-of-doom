@@ -59,17 +59,17 @@ func (s GameState) String() string {
 func AllowedCommands(s GameState) []CommandType {
 	switch s {
 	case StateExploring:
-		return []CommandType{CmdExplore, CmdAscend, CmdChallengeBoss, CmdInventory, CmdQuit}
+		return []CommandType{CmdExplore, CmdAscend, CmdChallengeBoss, CmdInventory, CmdUseConsumable, CmdQuit}
 	case StateEncounter:
 		return []CommandType{CmdFight, CmdSneak, CmdQuit}
 	case StateCombat:
-		return []CommandType{CmdMove, CmdFlee, CmdQuit}
+		return []CommandType{CmdMove, CmdFlee, CmdUseConsumable, CmdQuit}
 	case StateLoot:
 		return []CommandType{CmdWear, CmdStashLoot, CmdDiscardLoot, CmdQuit}
 	case StateInventory:
-		return []CommandType{CmdWear, CmdDrop, CmdClose, CmdQuit}
+		return []CommandType{CmdWear, CmdDrop, CmdClose, CmdUseConsumable, CmdQuit}
 	case StateMerchant:
-		return []CommandType{CmdBuy, CmdSell, CmdLeave, CmdQuit}
+		return []CommandType{CmdBuy, CmdSell, CmdLeave, CmdBuyConsumable, CmdQuit}
 	case StateLearn:
 		return []CommandType{CmdChooseOffer, CmdForget, CmdDecline, CmdQuit}
 	case StateGameOver:

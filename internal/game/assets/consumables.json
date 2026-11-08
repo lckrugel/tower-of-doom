@@ -1,0 +1,8 @@
+[
+  {
+    "id": "healing_potion",
+    "name": "Healing Potion",
+    "heal_percent": 25,
+    "price": 100
+  }
+]

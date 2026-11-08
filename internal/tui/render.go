@@ -118,6 +118,12 @@ func eventText(ev engine.Event) string {
 		return fmt.Sprintf("A wandering merchant appears — %v wares for sale.", ev.Data["count"])
 	case engine.EventItemBought:
 		return boughtText(ev.Data)
+	case engine.EventConsumableBought:
+		return fmt.Sprintf("You buy a %v for %v gold.", ev.Data["name"], ev.Data["price"])
+	case engine.EventConsumableUsed:
+		return fmt.Sprintf("You drink the %v and recover %v HP (%v/%v).", ev.Data["name"], ev.Data["healed"], ev.Data["hp"], ev.Data["max_hp"])
+	case engine.EventConsumableStorageFull:
+		return "Your consumable pouch is full."
 	case engine.EventItemSold:
 		return soldText(ev.Data)
 	case engine.EventShrineFound:
