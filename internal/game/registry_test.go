@@ -1315,6 +1315,40 @@ func TestValidateCombat2Content(t *testing.T) {
 			"",
 		},
 		{
+			"valid status-only effect",
+			func(r *Registry) {
+				m := r.Moves["quick_stab"]
+				m.Effects = []MoveEffectAsset{{Type: "status", Target: "self", Status: &MoveStatusEffectAsset{ID: "guard", Chance: 100}}}
+				r.Moves["quick_stab"] = m
+			},
+			"",
+		},
+		{
+			"damage effect cannot target self",
+			func(r *Registry) { m := r.Moves["quick_stab"]; m.Effects[0].Target = "self"; r.Moves["quick_stab"] = m },
+			"damage target",
+		},
+		{
+			"heal effect must target self",
+			func(r *Registry) {
+				m := r.Moves["quick_stab"]
+				flat := 5
+				m.Effects = []MoveEffectAsset{{Type: "heal", Target: "enemy", Flat: &flat}}
+				r.Moves["quick_stab"] = m
+			},
+			"heal target",
+		},
+		{
+			"healing effect cannot be zero",
+			func(r *Registry) {
+				m := r.Moves["quick_stab"]
+				zero := 0
+				m.Effects = []MoveEffectAsset{{Type: "heal", Target: "self", Flat: &zero}}
+				r.Moves["quick_stab"] = m
+			},
+			"no positive healing component",
+		},
+		{
 			"negative move cooldown",
 			func(r *Registry) { m := r.Moves["heavy_slash"]; m.Cooldown = -1; r.Moves["heavy_slash"] = m },
 			"cooldown",
@@ -1371,6 +1405,11 @@ func TestValidateCombat2Content(t *testing.T) {
 				r.Moves["venom_bite"] = m
 			},
 			"invalid status payload",
+		},
+		{
+			"move status missing payload",
+			func(r *Registry) { m := r.Moves["venom_bite"]; m.Effects[1].Status = nil; r.Moves["venom_bite"] = m },
+			"missing status payload",
 		},
 		{
 			"move status unknown target",

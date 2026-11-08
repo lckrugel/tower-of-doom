@@ -171,10 +171,10 @@ func (e *Engine) stateOf(c Combatant) *combatantState {
 //     doubles the swung damage;
 //  4. (a status-carrying move rolls its application chance AFTER the
 //     crit — see the status effects.)
-func (e *Engine) rollMoveDamage(effDmg int, move *entities.Move, critThreshold int) (swing int, crit bool) {
-	base := int(math.Round(float64(effDmg*move.DmgModifier) / 100))
+func (e *Engine) rollMoveDamage(effDmg, dmgModifier, critBonus, critThreshold int) (swing int, crit bool) {
+	base := int(math.Round(float64(effDmg*dmgModifier) / 100))
 	swing = max(1, base-1+e.rng.Intn(3))
-	crit = e.rng.Intn(100) < min(100, max(0, critThreshold+move.CritBonus))
+	crit = e.rng.Intn(100) < min(100, max(0, critThreshold+critBonus))
 	if crit {
 		swing *= 2
 	}
@@ -193,14 +193,7 @@ func (e *Engine) heroStrike(move *entities.Move) []Event {
 // moves are converted to this same representation by NewMoveFromAsset.
 func (e *Engine) resolveMoveEffects(move *entities.Move, attacker, defender Combatant, side ActorSide) []Event {
 	events := []Event{NewMoveUsedOnSide(attacker.Name(), move.Name, side)}
-	effects := move.Effects
-	if len(effects) == 0 {
-		effects = []entities.MoveEffect{{Type: "damage", Target: entities.TargetEnemy, DmgModifier: move.DmgModifier, CritBonus: move.CritBonus}}
-		if move.HasStatus() {
-			effects = append(effects, entities.MoveEffect{Type: "status", Target: entities.TargetEnemy, Status: move.Status})
-		}
-	}
-	for _, effect := range effects {
+	for _, effect := range move.Effects {
 		target := defender
 		if effect.Target == entities.TargetSelf {
 			target = attacker
@@ -216,16 +209,14 @@ func (e *Engine) resolveMoveEffects(move *entities.Move, attacker, defender Comb
 			if target != defender {
 				continue
 			}
-			modMove := *move
-			modMove.DmgModifier, modMove.CritBonus = effect.DmgModifier, effect.CritBonus
 			var dmg int
 			var crit bool
 			if side == ActorHero {
-				swing, c := e.rollMoveDamage(e.heroStat(entities.StatDMG), &modMove, attacker.CritThreshold())
+				swing, c := e.rollMoveDamage(e.heroStat(entities.StatDMG), effect.DmgModifier, effect.CritBonus, attacker.CritThreshold())
 				crit = c
 				dmg = target.TakeDmg(effectiveDamage(swing, e.enemyStat(entities.StatDEF)))
 			} else {
-				swing, c := e.rollMoveDamage(e.enemyStat(entities.StatDMG), &modMove, attacker.CritThreshold())
+				swing, c := e.rollMoveDamage(e.enemyStat(entities.StatDMG), effect.DmgModifier, effect.CritBonus, attacker.CritThreshold())
 				crit = c
 				dmg = target.TakeDmg(effectiveDamage(swing, e.heroStat(entities.StatDEF)))
 			}
@@ -269,28 +260,6 @@ func (e *Engine) resolveMoveEffects(move *entities.Move, attacker, defender Comb
 // the longest duration; a strike that KILLED its recipient afflicts
 // nothing (dead combatants can't take statuses) — the roll still
 // happened.
-func (e *Engine) applyStrikeStatus(move *entities.Move, attacker, defender Combatant) []Event {
-	if !move.HasStatus() {
-		return nil
-	}
-	fired := e.rng.Intn(100) < move.Status.Chance
-	recipient := defender
-	if move.TargetSelf() {
-		recipient = attacker
-	}
-	if !fired || !recipient.IsAlive() {
-		return nil
-	}
-	asset, ok := e.reg.StatusByID(move.Status.ID)
-	if !ok {
-		panic(fmt.Sprintf("unreachable: move %v references unknown status %v despite passing content validation",
-			move.ID, move.Status.ID))
-	}
-	status := entities.NewStatusFromAsset(asset)
-	turns := e.stateOf(recipient).applyStatus(status)
-	return []Event{NewStatusApplied(recipient, status, turns)}
-}
-
 // enemyTurnMove resolves the monster's move for this turn (AI v1): ONE
 // Intn over the cooldown-filtered move set's total weight — the rng
 // contract is a single pick roll per monster turn. Locked moves are

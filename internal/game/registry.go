@@ -91,17 +91,6 @@ type MoveRef struct {
 	Weight int    `json:"weight"`
 }
 
-// MoveStatusAsset is the optional status a move applies on hit.
-type MoveStatusAsset struct {
-	// ID references a status asset (unknown ids are a content bug).
-	ID string `json:"id"`
-	// Chance is the application chance, in percent ([0, 100]).
-	Chance int `json:"chance"`
-	// Target receives the status: "enemy" (the hit target) or "self"
-	// (the striker).
-	Target string `json:"target"`
-}
-
 // MoveEffectAsset is one ordered move action. Numeric pointers preserve the
 // distinction between an omitted payload and an explicit zero.
 type MoveEffectAsset struct {
@@ -134,21 +123,13 @@ type MoveAsset struct {
 	Type string `json:"type"`
 	// Tier places the move on the progression ladder (1 = earliest).
 	Tier int `json:"tier"`
-	// DmgModifier scales the striker's DMG, in percent (100 = neutral).
-	DmgModifier int `json:"dmg_modifier"`
-	// CritBonus adds percentage points to the striker's crit threshold
-	// for this move (may be negative; clamped to [0, 100] at use time).
-	CritBonus int `json:"crit_bonus"`
 	// Cooldown is how many turns the move stays locked after use
 	// (0 = spammable).
 	Cooldown int `json:"cooldown"`
-	// Status is the optional status the move applies on hit.
-	Status *MoveStatusAsset `json:"status,omitempty"`
 	// Weight is the move's default AI weight (monster picks); a monster's
 	// move refs carry their own overriding weight.
 	Weight int `json:"weight"`
-	// Effects is the ordered stage-one move payload. When present, legacy
-	// damage/status payload fields must be absent.
+	// Effects is the ordered move payload.
 	Effects []MoveEffectAsset `json:"effects,omitempty"`
 }
 
@@ -582,9 +563,6 @@ func (r *Registry) Validate(topFloor int) error {
 			fail("move %q has weight %d, want >= 1 (AI pick weight)", mv.ID, mv.Weight)
 		}
 		if len(mv.Effects) > 0 {
-			if mv.DmgModifier != 0 || mv.CritBonus != 0 || mv.Status != nil {
-				fail("move %q mixes effects with legacy payload fields", mv.ID)
-			}
 			for i, effect := range mv.Effects {
 				prefix := fmt.Sprintf("move %q effect %d", mv.ID, i)
 				if effect.Target != "enemy" && effect.Target != "self" {
@@ -592,6 +570,9 @@ func (r *Registry) Validate(topFloor int) error {
 				}
 				switch effect.Type {
 				case "damage":
+					if effect.Target != "enemy" {
+						fail("%s damage target must be \"enemy\"", prefix)
+					}
 					if effect.DmgModifier == nil || *effect.DmgModifier < 50 || *effect.DmgModifier > 300 {
 						fail("%s has invalid dmg_modifier", prefix)
 					}
@@ -599,14 +580,30 @@ func (r *Registry) Validate(topFloor int) error {
 						fail("%s has ambiguous payload", prefix)
 					}
 				case "heal":
+					if effect.DmgModifier != nil || effect.CritBonus != nil || effect.Status != nil {
+						fail("%s has ambiguous payload", prefix)
+					}
 					if effect.Flat == nil && effect.Percent == nil {
 						fail("%s has no healing component", prefix)
 					}
 					if (effect.Flat != nil && *effect.Flat < 0) || (effect.Percent != nil && *effect.Percent < 0) {
 						fail("%s has negative healing component", prefix)
 					}
+					if effect.Target != "self" {
+						fail("%s heal target must be \"self\"", prefix)
+					}
+					if (effect.Flat == nil || *effect.Flat == 0) && (effect.Percent == nil || *effect.Percent == 0) {
+						fail("%s has no positive healing component", prefix)
+					}
 				case "status":
-					if effect.Status == nil || effect.Status.Chance < 0 || effect.Status.Chance > 100 {
+					if effect.DmgModifier != nil || effect.CritBonus != nil || effect.Flat != nil || effect.Percent != nil {
+						fail("%s has ambiguous payload", prefix)
+					}
+					if effect.Status == nil {
+						fail("%s has missing status payload", prefix)
+						continue
+					}
+					if effect.Status.Chance < 0 || effect.Status.Chance > 100 {
 						fail("%s has invalid status payload", prefix)
 					}
 					if _, ok := r.StatusByID(effect.Status.ID); !ok {
@@ -618,23 +615,7 @@ func (r *Registry) Validate(topFloor int) error {
 			}
 			continue
 		}
-		if mv.DmgModifier < 50 || mv.DmgModifier > 300 {
-			fail("move %q has dmg_modifier %d, want within [50, 300] (percent, 100 = neutral)",
-				mv.ID, mv.DmgModifier)
-		}
-		if mv.Status == nil {
-			continue
-		}
-		if mv.Status.Chance < 0 || mv.Status.Chance > 100 {
-			fail("move %q has status chance %d, want within [0, 100] (percentage)",
-				mv.ID, mv.Status.Chance)
-		}
-		if mv.Status.Target != "enemy" && mv.Status.Target != "self" {
-			fail("move %q has status target %q, want \"enemy\" or \"self\"", mv.ID, mv.Status.Target)
-		}
-		if _, ok := r.StatusByID(mv.Status.ID); !ok {
-			fail("move %q references unknown status %q", mv.ID, mv.Status.ID)
-		}
+		fail("move %q must define at least one effect", mv.ID)
 	}
 
 	// Move references on monsters are checked registry-wide (a monster

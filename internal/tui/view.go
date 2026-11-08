@@ -686,18 +686,6 @@ func (m Model) gridTags(move entities.Move, cooling bool, source string) string 
 				}
 			}
 		}
-	} else {
-		// Hand-built legacy moves remain useful in callers/tests; all loaded
-		// runtime moves carry Effects.
-		if move.DmgModifier != 0 {
-			tags = append(tags, fmt.Sprintf("%d%%", move.DmgModifier))
-		}
-		if move.HasStatus() {
-			tags = append(tags, fmt.Sprintf("☠%s %d%%", move.Status.ID, move.Status.Chance))
-		}
-		if move.CritBonus != 0 {
-			tags = append(tags, fmt.Sprintf("✦%+d", move.CritBonus))
-		}
 	}
 	if source != "" {
 		tags = append(tags, source)

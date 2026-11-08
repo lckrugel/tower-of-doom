@@ -140,12 +140,8 @@ func (m Model) statusExplanation(statuses []combatStatus) string {
 	return strings.Join(parts, "; ")
 }
 
-// moveStatusExplanation is a dossier's tooltip for a move's status tag:
-// "☠poison — 3 dmg/turn · 3 turns" — the tag as the grid shows it, the
-// effect and the lore's duration (the offer hasn't landed: the ASSET's
-// duration is the honest number). An unknown id (a modded gap) degrades
-// to the tag alone; a status-less move explains nothing.
-func (m Model) moveStatusExplanation(s entities.MoveStatus) string {
+// moveStatusExplanation is a dossier's tooltip for a status effect.
+func (m Model) moveStatusExplanation(s entities.MoveStatus, target entities.MoveTarget) string {
 	if s.ID == "" {
 		return ""
 	}
@@ -154,14 +150,11 @@ func (m Model) moveStatusExplanation(s entities.MoveStatus) string {
 	if !ok {
 		return tag
 	}
-	return fmt.Sprintf("%s → %s — %s · %d rounds", tag, s.Target, statusEffectText(lore), lore.Duration)
+	return fmt.Sprintf("%s → %s — %s · %d rounds", tag, target, statusEffectText(lore), lore.Duration)
 }
 
 // moveEffectsExplanation summarizes all effects in their authored order.
 func (m Model) moveEffectsExplanation(move entities.Move) string {
-	if len(move.Effects) == 0 {
-		return m.moveStatusExplanation(move.Status)
-	}
 	parts := make([]string, 0, len(move.Effects))
 	for _, effect := range move.Effects {
 		target := string(effect.Target)
@@ -182,11 +175,7 @@ func (m Model) moveEffectsExplanation(move entities.Move) string {
 			if s.ID == "" {
 				continue
 			}
-			if lore, ok := m.statusLoreByID(s.ID); ok {
-				parts = append(parts, fmt.Sprintf("☠%s %d%% → %s — %s · %d rounds", s.ID, s.Chance, target, statusEffectText(lore), lore.Duration))
-			} else {
-				parts = append(parts, fmt.Sprintf("☠%s %d%% → %s", s.ID, s.Chance, target))
-			}
+			parts = append(parts, m.moveStatusExplanation(s, effect.Target))
 		}
 	}
 	return strings.Join(parts, "; ")
