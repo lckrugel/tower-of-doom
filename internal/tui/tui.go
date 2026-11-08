@@ -376,7 +376,12 @@ func (m Model) dispatch(a action) (tea.Model, tea.Cmd) {
 // rendered log line plus anything a later view needs (the defeat event's
 // run stats feed the game-over recap).
 func (m *Model) absorb(ev engine.Event) {
-	m.log = append(m.log, renderEvent(ev))
+	// Strike results name their move, so the separate announcement repeats
+	// information in the combat log. Keep the engine event for other
+	// consumers, but omit this presentation-only line.
+	if ev.Type != engine.EventMoveUsed {
+		m.log = append(m.log, renderEvent(ev))
+	}
 	if ev.Type == engine.EventHeroDefeated {
 		m.recap = recapFromEvent(ev)
 	}

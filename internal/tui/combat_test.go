@@ -521,8 +521,12 @@ func TestEnterDispatchesTheHighlightedMove(t *testing.T) {
 	m, _ = press(m, "right") // highlight Jab (index 1)
 	m, _ = press(m, "enter")
 
-	if !strings.Contains(joinedLog(m), "You use Jab!") {
-		t.Errorf("enter dispatched the wrong cell:\n%s", joinedLog(m))
+	log := joinedLog(m)
+	if strings.Contains(log, "You use Jab!") {
+		t.Errorf("combat log retained the redundant move announcement:\n%s", log)
+	}
+	if !strings.Contains(log, "Jab") || !strings.Contains(log, "damage") {
+		t.Errorf("combat log omitted the move's strike result:\n%s", log)
 	}
 	if m.gridCursor != 1 {
 		t.Errorf("grid cursor after dispatch = %d, want 1 (stays put)", m.gridCursor)
