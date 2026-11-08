@@ -12,11 +12,14 @@ import (
 // Types mirror the embedded content too (all four are creature- or
 // both-typed: monster kits and shrine pools can carry them).
 func testMoves() map[string]game.MoveAsset {
+	damage := func(modifier, crit int) []game.MoveEffectAsset {
+		return []game.MoveEffectAsset{{Type: "damage", Target: "enemy", DmgModifier: intPtr(modifier), CritBonus: intPtr(crit)}}
+	}
 	return map[string]game.MoveAsset{
-		"basic_attack":     {ID: "basic_attack", Name: "Basic Attack", Tier: 1, DmgModifier: 100, Weight: 100, Type: "both"},
-		"heavy_slash":      {ID: "heavy_slash", Name: "Heavy Slash", Tier: 2, DmgModifier: 175, Cooldown: 2, Weight: 60, Type: "both"},
-		"quick_stab":       {ID: "quick_stab", Name: "Quick Stab", Tier: 1, DmgModifier: 60, CritBonus: 20, Weight: 100, Type: "both"},
-		"assassins_strike": {ID: "assassins_strike", Name: "Assassin's Strike", Tier: 3, DmgModifier: 110, CritBonus: 35, Cooldown: 3, Weight: 30, Type: "both"},
+		"basic_attack":     {ID: "basic_attack", Name: "Basic Attack", Tier: 1, Effects: damage(100, 0), Weight: 100, Type: "both"},
+		"heavy_slash":      {ID: "heavy_slash", Name: "Heavy Slash", Tier: 2, Effects: damage(175, 0), Cooldown: 2, Weight: 60, Type: "both"},
+		"quick_stab":       {ID: "quick_stab", Name: "Quick Stab", Tier: 1, Effects: damage(60, 20), Weight: 100, Type: "both"},
+		"assassins_strike": {ID: "assassins_strike", Name: "Assassin's Strike", Tier: 3, Effects: damage(110, 35), Cooldown: 3, Weight: 30, Type: "both"},
 	}
 }
 
@@ -31,13 +34,13 @@ func TestCanonicalBasicAttackUsesRegistryDefinitionInEngine(t *testing.T) {
 	e := movesEngine()
 	asset := game.MoveAsset{
 		ID: "basic_attack", Name: "Modded Basic", Type: "both", Tier: 1,
-		DmgModifier: 135, CritBonus: 7, Cooldown: 1, Weight: 25,
+		Effects: []game.MoveEffectAsset{{Type: "damage", Target: "enemy", DmgModifier: intPtr(135), CritBonus: intPtr(7)}}, Cooldown: 1, Weight: 25,
 	}
 	e.reg.Moves[asset.ID] = asset
 	e.Player.ForgetMove(entities.Punch().ID)
 
 	heroMoves := e.CombatMoves()
-	if len(heroMoves) != 1 || heroMoves[0].Name != "Modded Basic" || heroMoves[0].DmgModifier != 135 || heroMoves[0].Cooldown != 1 {
+	if len(heroMoves) != 1 || heroMoves[0].Name != "Modded Basic" || heroMoves[0].Effects[0].DmgModifier != 135 || heroMoves[0].Cooldown != 1 {
 		t.Fatalf("hero fallback = %+v, want registry-defined basic attack", heroMoves)
 	}
 	monsterMoves, err := e.monsterMoves(game.MonsterAsset{ID: "rat"})
@@ -47,7 +50,7 @@ func TestCanonicalBasicAttackUsesRegistryDefinitionInEngine(t *testing.T) {
 
 	locked := entities.NewMoveFromAsset(game.MoveAsset{
 		ID: "locked", Name: "Locked", Type: "both", Tier: 1,
-		DmgModifier: 100, Cooldown: 2, Weight: 1,
+		Effects: []game.MoveEffectAsset{{Type: "damage", Target: "enemy", DmgModifier: intPtr(100)}}, Cooldown: 2, Weight: 1,
 	})
 	startEncounter(e, entities.NewMonsterFromAsset(game.MonsterAsset{
 		ID: "rat", Name: "Rat", Difficulty: 1, HP: 20,
@@ -55,7 +58,7 @@ func TestCanonicalBasicAttackUsesRegistryDefinitionInEngine(t *testing.T) {
 	e.State = StateCombat
 	e.enemyCombat = newCombatantState()
 	e.enemyCombat.cooldowns[locked.ID] = 2
-	if got := e.enemyTurnMove(); got.ID != asset.ID || got.Name != asset.Name || got.DmgModifier != asset.DmgModifier {
+	if got := e.enemyTurnMove(); got.ID != asset.ID || got.Name != asset.Name || got.Effects[0].DmgModifier != 135 {
 		t.Errorf("all-locked enemy fallback = %+v, want registry-defined basic attack", got)
 	}
 }
@@ -93,7 +96,7 @@ func TestOrderedDamageAndHealEffects(t *testing.T) {
 		heroWithDamage(e, 100)
 		e.Player.CurrentHP = 50
 		flat := 10
-		move := entities.NewMoveFromAsset(game.MoveAsset{ID: "ordered", Name: "Ordered", DmgModifier: 100, Effects: []game.MoveEffectAsset{
+		move := entities.NewMoveFromAsset(game.MoveAsset{ID: "ordered", Name: "Ordered", Effects: []game.MoveEffectAsset{
 			{Type: "damage", Target: "enemy", DmgModifier: intPtr(100)},
 			{Type: "heal", Target: "self", Flat: &flat},
 		}})
@@ -112,7 +115,7 @@ func TestOrderedDamageAndHealEffects(t *testing.T) {
 		heroWithDamage(e, 5)
 		e.Player.CurrentHP = 50
 		flat := 10
-		move := entities.NewMoveFromAsset(game.MoveAsset{ID: "ordered", Name: "Ordered", DmgModifier: 100, Effects: []game.MoveEffectAsset{
+		move := entities.NewMoveFromAsset(game.MoveAsset{ID: "ordered", Name: "Ordered", Effects: []game.MoveEffectAsset{
 			{Type: "heal", Target: "self", Flat: &flat},
 			{Type: "damage", Target: "enemy", DmgModifier: intPtr(100)},
 		}})
@@ -226,7 +229,7 @@ func TestMoveCritBonus(t *testing.T) {
 func TestMoveCritThresholdClamps(t *testing.T) {
 	t.Run("a huge bonus clamps at 100", func(t *testing.T) {
 		e := movesEngine(1, 99, 0, 1, 50) // 99 < 100 → crit on every roll but 100
-		e.reg.Moves["overkill"] = game.MoveAsset{ID: "overkill", Name: "Overkill", DmgModifier: 100, CritBonus: 200, Weight: 1}
+		e.reg.Moves["overkill"] = game.MoveAsset{ID: "overkill", Name: "Overkill", Effects: []game.MoveEffectAsset{{Type: "damage", Target: "enemy", DmgModifier: intPtr(100), CritBonus: intPtr(200)}}, Weight: 1}
 		heroWithDamage(e, 5)
 		learn(e, "overkill")
 		startEncounter(e, monsterFromFixture("goblin"))
@@ -241,7 +244,7 @@ func TestMoveCritThresholdClamps(t *testing.T) {
 
 	t.Run("a negative bonus clamps at 0", func(t *testing.T) {
 		e := movesEngine(1, 0, 0, 1, 50) // roll 0 with threshold 0 must not crit
-		e.reg.Moves["dull"] = game.MoveAsset{ID: "dull", Name: "Dull Blow", DmgModifier: 100, CritBonus: -50, Weight: 1}
+		e.reg.Moves["dull"] = game.MoveAsset{ID: "dull", Name: "Dull Blow", Effects: []game.MoveEffectAsset{{Type: "damage", Target: "enemy", DmgModifier: intPtr(100), CritBonus: intPtr(-50)}}, Weight: 1}
 		heroWithDamage(e, 5)
 		learn(e, "dull")
 		startEncounter(e, monsterFromFixture("goblin"))
@@ -391,7 +394,7 @@ func TestFreshHeroStartsWithThePunch(t *testing.T) {
 			},
 			Moves: map[string]game.MoveAsset{
 				"basic_attack": {ID: "basic_attack", Name: "Basic Strike", Tier: 1,
-					DmgModifier: 100, Weight: 100, Type: "both"},
+					Effects: []game.MoveEffectAsset{{Type: "damage", Target: "enemy", DmgModifier: intPtr(100)}}, Weight: 100, Type: "both"},
 			},
 			Sections: testSections(),
 		})
