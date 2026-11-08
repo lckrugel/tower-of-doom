@@ -153,6 +153,72 @@ func TestMonsterCombatHealEventReportsActualRestoreAndSide(t *testing.T) {
 	}
 }
 
+func TestMonsterPureHealThroughEngineTurn(t *testing.T) {
+	flat := 10
+	healAsset := game.MoveAsset{
+		ID: "mend", Name: "Mend", Type: "both", Weight: 1,
+		Effects: []game.MoveEffectAsset{{Type: "heal", Target: "self", Flat: &flat}},
+	}
+	makeEnemy := func() entities.Monster {
+		move := entities.NewMoveFromAsset(healAsset)
+		return entities.NewMonsterFromAsset(game.MonsterAsset{
+			ID: "healer", Name: "Healer", Difficulty: 1, HP: 20, Damage: 2, Speed: 10,
+		}, move)
+	}
+
+	t.Run("ordinary hero round", func(t *testing.T) {
+		e := movesEngine()
+		e.Player.CurrentHP = 80
+		startEncounter(e, makeEnemy())
+		e.CurrentEncounter.Monsters[0].TakeDmg(5)
+		e.Process(Command{Type: CmdFight})
+		stub := &stubRng{values: []int{1, 50, 0}}
+		e.rng = stub
+
+		events := e.Process(Command{Type: CmdMove, Index: 0})
+		if got := eventTypes(events); !typesEqual(got, EventMoveUsed, EventCombatDamageDealt, EventMoveUsed, EventCombatHealed) {
+			t.Fatalf("events = %v, want hero action then monster heal", got)
+		}
+		if events[2].Data["move"] != "Mend" || events[2].Data["user"] != "Healer" {
+			t.Errorf("enemy move event = %#v, want Healer using Mend", events[2].Data)
+		}
+		heal := events[3].Data
+		if heal["target"] != "Healer" || heal["side"] != ActorEnemy || heal["move"] != "Mend" || heal["healed"] != 6 || heal["hp_exact"] != 20 || heal["max_hp"] != 20 {
+			t.Errorf("monster heal payload = %#v, want actual 6 HP to Healer at 20/20", heal)
+		}
+		if events[3].Data["damage_dealt"] != nil || events[3].Data["crit"] != nil {
+			t.Errorf("pure heal event contains damage fields: %#v", events[3].Data)
+		}
+		if stub.calls != 3 {
+			t.Errorf("rng calls = %d, want 3 (hero strike and monster move pick; no enemy strike)", stub.calls)
+		}
+	})
+
+	t.Run("failed flee grants a free enemy heal turn", func(t *testing.T) {
+		e := movesEngine()
+		startEncounter(e, makeEnemy())
+		e.CurrentEncounter.Monsters[0].TakeDmg(5)
+		e.Process(Command{Type: CmdFight})
+		stub := &stubRng{values: []int{99, 0}}
+		e.rng = stub
+
+		events := e.Process(Command{Type: CmdFlee})
+		if got := eventTypes(events); !typesEqual(got, EventMessage, EventMoveUsed, EventCombatHealed) {
+			t.Fatalf("events = %v, want failed flee message then enemy heal", got)
+		}
+		if events[0].Data["message"] != "You failed to flee!" {
+			t.Errorf("flee event = %#v, want failed flee", events[0].Data)
+		}
+		heal := events[2].Data
+		if events[1].Data["move"] != "Mend" || events[1].Data["user"] != "Healer" || heal["target"] != "Healer" || heal["side"] != ActorEnemy || heal["move"] != "Mend" || heal["healed"] != 5 || heal["hp_exact"] != 20 {
+			t.Errorf("enemy heal events = %#v / %#v, want Healer's actual 5 HP heal", events[1].Data, heal)
+		}
+		if stub.calls != 2 {
+			t.Errorf("rng calls = %d, want 2 (failed flee and enemy move pick only)", stub.calls)
+		}
+	})
+}
+
 func intPtr(v int) *int { return &v }
 
 // learn teaches the hero the named fixture moves in order (learning
