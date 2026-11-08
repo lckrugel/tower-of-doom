@@ -90,6 +90,64 @@ func TestUtilityHealMoveResolvesWithoutDamageRollAndEnemyStillActs(t *testing.T)
 	}
 }
 
+func TestUtilityMoveCooldownTicksOnCompletedRounds(t *testing.T) {
+	flat := 7
+	e := movesEngine(0, 1, 50, 1, 50, 0, 1, 50, 1, 50, 0, 1, 50)
+	e.reg.Moves["mend"] = game.MoveAsset{
+		ID: "mend", Name: "Mend", Type: "both", Weight: 1, Cooldown: 2,
+		Effects: []game.MoveEffectAsset{{Type: "heal", Target: "self", Flat: &flat}},
+	}
+	heroWithDamage(e, 5)
+	learn(e, "mend", "quick_stab")
+	startEncounter(e, monsterFromFixture("goblin"))
+	e.Process(Command{Type: CmdFight})
+	e.heroCombat.statuses = []activeStatus{{status: entities.Status{ID: "guard", Name: "Guard", Kind: entities.StatusBuff, Stat: entities.StatDEF, StatAmount: 5}, turnsLeft: 3}}
+
+	events := e.Process(Command{Type: CmdMove, Index: 0}) // Mend starts its full cooldown after its turn.
+	if got := eventTypes(events); !typesEqual(got, EventMoveUsed, EventCombatHealed, EventMoveUsed, EventCombatDamageTaken) {
+		t.Fatalf("utility round events = %v, want heal followed by enemy action", got)
+	}
+	if !e.heroCombat.onCooldown("mend") {
+		t.Fatal("Mend should still be cooling down after its use round")
+	}
+	if got := e.heroCombat.cooldowns["mend"]; got != 2 {
+		t.Errorf("Mend cooldown after use round = %d, want full value 2", got)
+	}
+	if got := e.heroCombat.statuses[0].turnsLeft; got != 2 {
+		t.Errorf("Guard turns after utility round = %d, want 2", got)
+	}
+
+	blocked := e.Process(Command{Type: CmdMove, Index: 0})
+	if got := eventTypes(blocked); !typesEqual(got, EventMessage) {
+		t.Fatalf("cooling utility events = %v, want blocked move only", got)
+	}
+	if got := e.heroCombat.cooldowns["mend"]; got != 2 {
+		t.Errorf("blocked action changed Mend cooldown to %d, want 2", got)
+	}
+
+	// One intervening valid action ticks the cooldown once; a second one
+	// completes the full lock while the enemy and status still progress.
+	events = e.Process(Command{Type: CmdMove, Index: 1})
+	if got := eventTypes(events); !typesEqual(got, EventMoveUsed, EventCombatDamageDealt, EventMoveUsed, EventCombatDamageTaken) {
+		t.Fatalf("intervening round events = %v, want hero and enemy actions", got)
+	}
+	if !e.heroCombat.onCooldown("mend") || e.heroCombat.cooldowns["mend"] != 1 {
+		t.Fatal("Mend should remain locked for one more completed round")
+	}
+	if got := e.heroCombat.statuses[0].turnsLeft; got != 1 {
+		t.Errorf("Guard turns after second completed round = %d, want 1", got)
+	}
+
+	e.Process(Command{Type: CmdMove, Index: 1})
+	if e.heroCombat.onCooldown("mend") {
+		t.Fatal("Mend should be available after its two locked rounds")
+	}
+	events = e.Process(Command{Type: CmdMove, Index: 0})
+	if got := eventTypes(events); !typesEqual(got, EventMoveUsed, EventCombatHealed, EventMoveUsed, EventCombatDamageTaken) {
+		t.Fatalf("ready utility events = %v, want Mend followed by enemy action", got)
+	}
+}
+
 func TestOrderedDamageAndHealEffects(t *testing.T) {
 	t.Run("damage then self heal still resolves after lethal enemy damage", func(t *testing.T) {
 		e := movesEngine(1, 50)
