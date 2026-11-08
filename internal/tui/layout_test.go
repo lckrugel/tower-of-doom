@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
 
 	"github.com/lckrugel/tower-of-doom/internal/game"
 
@@ -329,6 +331,29 @@ func TestLogPanelWrapsLongStyledEntriesWithinViewport(t *testing.T) {
 	plain := strings.ReplaceAll(stripANSI(panel), "\n", " ")
 	if !strings.Contains(plain, "CRIT! You hit the Goblin with "+move+" for 14 damage") {
 		t.Errorf("wrapped entry lost part of the critical message:\n%s", plain)
+	}
+}
+
+func TestLogPanelReappliesColorAfterWrapping(t *testing.T) {
+	profile := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.ANSI256)
+	t.Cleanup(func() { lipgloss.SetColorProfile(profile) })
+
+	entry := styleDamage.Render("This is a long amber combat message that wraps onto a continuation row")
+	m := New(testEngine())
+	m.log = []string{entry}
+
+	lines := strings.Split(m.logPanel(), "\n")
+	if len(lines) < 2 {
+		t.Fatalf("styled entry did not wrap: %q", stripANSI(m.logPanel()))
+	}
+	color := styleDamage.Render("x")
+	color = color[:strings.Index(color, "x")]
+	continuation := lines[1]
+	colorAt := strings.Index(continuation, color)
+	textAt := strings.Index(continuation, "onto a continuation row")
+	if colorAt < 0 || textAt < 0 || colorAt > textAt {
+		t.Errorf("continuation row did not restart the original color before its text: %q", continuation)
 	}
 }
 

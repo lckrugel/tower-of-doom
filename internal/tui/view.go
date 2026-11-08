@@ -925,13 +925,48 @@ func (m Model) heroHPRow() string {
 func (m Model) logPanel() string {
 	rows := make([]string, 0, middleHeight)
 	for _, line := range m.log {
-		wrapped := ansi.Wrap(line, logColWidth-1, "")
+		wrapped := restoreANSIStyleAtLineStarts(ansi.Wrap(line, logColWidth-1, ""))
 		rows = append(rows, strings.Split(wrapped, "\n")...)
 	}
 	if len(rows) > middleHeight {
 		rows = rows[len(rows)-middleHeight:]
 	}
 	return strings.Join(rows, "\n")
+}
+
+// restoreANSIStyleAtLineStarts repeats the active SGR state after each
+// newline. ansi.Wrap preserves escape sequences, but a wrapped row may be
+// rendered independently by the terminal/layout pipeline and therefore
+// needs its own style start sequence.
+func restoreANSIStyleAtLineStarts(s string) string {
+	var b strings.Builder
+	active := ""
+	for i := 0; i < len(s); {
+		if s[i] == '\x1b' && i+1 < len(s) && s[i+1] == '[' {
+			if end := strings.IndexByte(s[i+2:], 'm'); end >= 0 {
+				end += i + 2
+				sequence := s[i : end+1]
+				parameters := s[i+2 : end]
+				switch {
+				case parameters == "" || parameters == "0":
+					active = ""
+				case strings.HasPrefix(parameters, "0;"):
+					active = sequence
+				default:
+					active += sequence
+				}
+				b.WriteString(sequence)
+				i = end + 1
+				continue
+			}
+		}
+		b.WriteByte(s[i])
+		if s[i] == '\n' {
+			b.WriteString(active)
+		}
+		i++
+	}
+	return b.String()
 }
 
 // equippedPanel is the right column during the trade states: every
