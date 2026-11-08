@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/lckrugel/tower-of-doom/internal/game"
@@ -67,6 +68,78 @@ func TestRollEncounterTypeWithoutTableConsumesNoRng(t *testing.T) {
 	}
 }
 
+func TestEncounterDroughtWeightIncreasesAfterGracePeriod(t *testing.T) {
+	weights := game.EncounterTypeWeights{Combat: 10, Sanctuary: 10}
+	tests := []struct {
+		misses int
+		want   int
+	}{
+		{misses: 0, want: 10},
+		{misses: encounterDroughtGraceVisits, want: 10},
+		{misses: encounterDroughtGraceVisits + 1, want: 11},
+		{misses: encounterDroughtGraceVisits + 2, want: 12},
+		{misses: encounterDroughtGraceVisits + 20, want: 30},
+	}
+	for _, tt := range tests {
+		t.Run(fmt.Sprintf("misses_%d", tt.misses), func(t *testing.T) {
+			e := newKindEngine()
+			e.encounterMisses[EncounterSanctuary] = tt.misses
+
+			got := e.encounterWeightsWithProtection(weights)
+
+			if got.Sanctuary != tt.want {
+				t.Errorf("sanctuary weight after %d misses = %d, want %d", tt.misses, got.Sanctuary, tt.want)
+			}
+			if got.Combat != weights.Combat {
+				t.Errorf("combat weight = %d, want unchanged %d", got.Combat, weights.Combat)
+			}
+		})
+	}
+}
+
+func TestEncounterDroughtUsesActualVisitsAndOnlyAvailableTypes(t *testing.T) {
+	e := newKindEngine()
+	weights := game.EncounterTypeWeights{Combat: 10, Sanctuary: 10}
+	e.encounterMisses[EncounterChest] = 7 // unavailable in this section
+
+	e.recordEncounterVisit(EncounterCombat, weights)
+	if got := e.encounterMisses[EncounterSanctuary]; got != 1 {
+		t.Errorf("sanctuary misses after combat = %d, want 1", got)
+	}
+	if got := e.encounterMisses[EncounterChest]; got != 7 {
+		t.Errorf("unavailable chest counter = %d, want frozen at 7", got)
+	}
+
+	e.recordEncounterVisit(EncounterSanctuary, weights) // even a full-health visit counts
+	if got := e.encounterMisses[EncounterSanctuary]; got != 0 {
+		t.Errorf("sanctuary counter after visiting sanctuary = %d, want reset to 0", got)
+	}
+	if got := e.encounterMisses[EncounterChest]; got != 7 {
+		t.Errorf("unavailable chest counter = %d, want frozen at 7", got)
+	}
+
+	weights.Chest = 10 // a later section makes chest available
+	e.recordEncounterVisit(EncounterCombat, weights)
+	if got := e.encounterMisses[EncounterChest]; got != 8 {
+		t.Errorf("chest counter after becoming available and missing = %d, want 8", got)
+	}
+}
+
+func TestFirstForcedCombatCountsAsAnEncounterVisit(t *testing.T) {
+	e := newKindEngine()
+	weights := mixedSection().EncounterTypes
+
+	if got := e.decideEncounterKind(weights); got != EncounterCombat {
+		t.Fatalf("first kind = %v, want forced combat", got)
+	}
+	if got := e.encounterMisses[EncounterSanctuary]; got != 1 {
+		t.Errorf("sanctuary misses after forced combat = %d, want 1", got)
+	}
+	if got := e.encounterMisses[EncounterChest]; got != 1 {
+		t.Errorf("chest misses after forced combat = %d, want 1", got)
+	}
+}
+
 // Exploring into a sanctuary heals 50% of the hero's BASE max HP
 // (equipment excluded), instantly and without unlocking ascending.
 func TestExploreSanctuary(t *testing.T) {
@@ -117,6 +190,7 @@ func TestExploreSanctuary(t *testing.T) {
 func TestExploreSanctuaryAtFullHealth(t *testing.T) {
 	e := pastFirstExplore(newKindEngine(10))
 	e.Player.CurrentHP = e.Player.MaxHP()
+	e.encounterMisses[EncounterSanctuary] = 9
 
 	events := e.Process(Command{Type: CmdExplore})
 
@@ -129,6 +203,9 @@ func TestExploreSanctuaryAtFullHealth(t *testing.T) {
 	// Even a no-op heal reports the defender's exact state.
 	if hp, _ := events[0].Data["hero_hp_exact"].(int); hp != e.Player.MaxHP() {
 		t.Errorf("hero_hp_exact = %d, want %d (no-op heal)", hp, e.Player.MaxHP())
+	}
+	if got := e.encounterMisses[EncounterSanctuary]; got != 0 {
+		t.Errorf("sanctuary drought counter after full-health visit = %d, want reset to 0", got)
 	}
 }
 
@@ -292,6 +369,9 @@ func TestThirdIdenticalSanctuaryBecomesCombat(t *testing.T) {
 	if stub.calls != 9 {
 		t.Errorf("rng calls = %d, want 9 (no extra rng for the override)", stub.calls)
 	}
+	if got := e.encounterMisses[EncounterSanctuary]; got != 1 {
+		t.Errorf("sanctuary drought counter after overridden roll = %d, want 1 (record actual combat)", got)
+	}
 }
 
 // The streak rule only blocks the third SAME kind: after two sanctuaries
@@ -399,6 +479,9 @@ func TestKindHistorySurvivesAscension(t *testing.T) {
 	// event plus the empty-pool message, consuming no rng.
 	if got := eventTypes(e.Process(Command{Type: CmdAscend})); !typesEqual(got, EventFloorEntered, EventMessage) {
 		t.Fatalf("ascend events = %v, want [floor-entered message]", got)
+	}
+	if got := e.encounterMisses[EncounterChest]; got != 2 {
+		t.Errorf("chest drought counter after ascension = %d, want preserved at 2", got)
 	}
 
 	events := e.Process(Command{Type: CmdExplore}) // third sanctuary roll
