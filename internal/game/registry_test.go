@@ -1,8 +1,10 @@
 package game
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -50,6 +52,20 @@ func makeReg(monsters []MonsterAsset, sections []SectionAsset) *Registry {
 func TestValidateAcceptsValidContent(t *testing.T) {
 	if err := makeReg(validMonsters(), validSections()).Validate(10_000); err != nil {
 		t.Errorf("Validate(valid content) = %v, want nil", err)
+	}
+}
+
+func TestMoveEffectsDecodeAndValidate(t *testing.T) {
+	var mv MoveAsset
+	err := json.Unmarshal([]byte(`{"id":"m","name":"M","type":"both","tier":1,"cooldown":0,"weight":1,"effects":[{"type":"damage","target":"enemy","dmg_modifier":120},{"type":"heal","target":"self","flat":5,"percent":10},{"type":"status","target":"enemy","status":{"id":"poison","chance":50}}]}`), &mv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(mv.Effects) != 3 || mv.Effects[1].Type != "heal" {
+		t.Fatalf("effects = %#v", mv.Effects)
+	}
+	if mv.Effects[1].Flat == nil || *mv.Effects[1].Flat != 5 || mv.Effects[1].Percent == nil || *mv.Effects[1].Percent != 10 {
+		t.Fatalf("heal payload = %#v", mv.Effects[1])
 	}
 }
 
@@ -637,19 +653,32 @@ func TestIsSectionEnd(t *testing.T) {
 // embedded content — including one weapon-only move (steel_flurry), so
 // the shrine-pool filter has something to exclude.
 func validMoves() []MoveAsset {
+	ptr := func(v int) *int { return &v }
+	damage := func(mod int, crit *int) []MoveEffectAsset {
+		e := MoveEffectAsset{Type: "damage", Target: "enemy", DmgModifier: ptr(mod)}
+		if crit != nil {
+			e.CritBonus = crit
+		}
+		return []MoveEffectAsset{e}
+	}
+	status := func(mod int, id, target string, chance int) []MoveEffectAsset {
+		e := MoveEffectAsset{Type: "damage", Target: "enemy", DmgModifier: ptr(mod)}
+		s := MoveEffectAsset{Type: "status", Target: target, Status: &MoveStatusEffectAsset{ID: id, Chance: chance}}
+		return []MoveEffectAsset{e, s}
+	}
 	return []MoveAsset{
-		{ID: "basic_attack", Name: "Basic Attack", Tier: 1, DmgModifier: 100, Weight: 100, Type: "both"},
-		{ID: "quick_stab", Name: "Quick Stab", Tier: 1, DmgModifier: 60, CritBonus: 20, Weight: 100, Type: "both"},
-		{ID: "guard_strike", Name: "Guard Strike", Tier: 1, DmgModifier: 75, Cooldown: 2, Weight: 50, Type: "both",
-			Status: &MoveStatusAsset{ID: "guard", Chance: 100, Target: "self"}},
-		{ID: "venom_bite", Name: "Venom Bite", Tier: 1, DmgModifier: 80, Cooldown: 2, Weight: 60, Type: "creature",
-			Status: &MoveStatusAsset{ID: "poison", Chance: 60, Target: "enemy"}},
-		{ID: "heavy_slash", Name: "Heavy Slash", Tier: 2, DmgModifier: 175, Cooldown: 2, Weight: 60, Type: "both"},
-		{ID: "crushing_blow", Name: "Crushing Blow", Tier: 2, DmgModifier: 120, Cooldown: 3, Weight: 40, Type: "creature",
-			Status: &MoveStatusAsset{ID: "weaken", Chance: 75, Target: "enemy"}},
-		{ID: "steel_flurry", Name: "Steel Flurry", Tier: 3, DmgModifier: 110, Cooldown: 0, Weight: 70, Type: "weapon"},
-		{ID: "frost_touch", Name: "Frost Touch", Tier: 3, DmgModifier: 90, Cooldown: 3, Weight: 40, Type: "creature",
-			Status: &MoveStatusAsset{ID: "slow", Chance: 80, Target: "enemy"}},
+		{ID: "basic_attack", Name: "Basic Attack", Tier: 1, Effects: damage(100, nil), Weight: 100, Type: "both"},
+		{ID: "quick_stab", Name: "Quick Stab", Tier: 1, Effects: damage(60, ptr(20)), Weight: 100, Type: "both"},
+		{ID: "guard_strike", Name: "Guard Strike", Tier: 1, Effects: status(75, "guard", "self", 100), Cooldown: 2, Weight: 50, Type: "both"},
+		{ID: "venom_bite", Name: "Venom Bite", Tier: 1, Effects: status(80, "poison", "enemy", 60), Cooldown: 2, Weight: 60, Type: "creature"},
+		{ID: "heavy_slash", Name: "Heavy Slash", Tier: 2, Effects: damage(175, nil), Cooldown: 2, Weight: 60, Type: "both"},
+		{ID: "crushing_blow", Name: "Crushing Blow", Tier: 2, Effects: status(120, "weaken", "enemy", 75), Cooldown: 3, Weight: 40, Type: "creature"},
+		{ID: "steel_flurry", Name: "Steel Flurry", Tier: 3, Effects: damage(110, nil), Weight: 70, Type: "weapon"},
+		{ID: "frost_touch", Name: "Frost Touch", Tier: 3, Effects: status(90, "slow", "enemy", 80), Cooldown: 3, Weight: 40, Type: "creature"},
+		{ID: "brand_of_the_breach", Name: "Brand of the Breach", Tier: 3, Effects: []MoveEffectAsset{
+			{Type: "status", Target: "self", Status: &MoveStatusEffectAsset{ID: "breachfire", Chance: 100}},
+			{Type: "status", Target: "self", Status: &MoveStatusEffectAsset{ID: "open_guard", Chance: 100}},
+		}, Cooldown: 3, Weight: 25, Type: "creature"},
 	}
 }
 
@@ -668,6 +697,8 @@ func validStatuses() []StatusAsset {
 		{ID: "guard", Name: "Guard", Kind: "buff",
 			Effect:   StatusEffectAsset{Type: "stat", Stat: "def", Amount: 5},
 			Duration: 2},
+		{ID: "breachfire", Name: "Breachfire", Kind: "buff", Effect: StatusEffectAsset{Type: "stat", Stat: "dmg", Percent: 35}, Duration: 2},
+		{ID: "open_guard", Name: "Open Guard", Kind: "debuff", Effect: StatusEffectAsset{Type: "stat", Stat: "def", Percent: -50}, Duration: 2},
 	}
 }
 
@@ -706,13 +737,13 @@ func TestMovesForTiers(t *testing.T) {
 		want  []string
 	}{
 		{"nil tiers is unrestricted (minus weapon-only moves)", nil,
-			[]string{"basic_attack", "crushing_blow", "frost_touch", "guard_strike", "heavy_slash", "quick_stab", "venom_bite"}},
+			[]string{"basic_attack", "brand_of_the_breach", "crushing_blow", "frost_touch", "guard_strike", "heavy_slash", "quick_stab", "venom_bite"}},
 		{"empty tiers is unrestricted", []int{},
-			[]string{"basic_attack", "crushing_blow", "frost_touch", "guard_strike", "heavy_slash", "quick_stab", "venom_bite"}},
+			[]string{"basic_attack", "brand_of_the_breach", "crushing_blow", "frost_touch", "guard_strike", "heavy_slash", "quick_stab", "venom_bite"}},
 		{"single tier", []int{1}, []string{"basic_attack", "guard_strike", "quick_stab", "venom_bite"}},
 		{"union of tiers, sorted", []int{3, 1},
-			[]string{"basic_attack", "frost_touch", "guard_strike", "quick_stab", "venom_bite"}},
-		{"a weapon-only move never enters the pool", []int{3}, []string{"frost_touch"}},
+			[]string{"basic_attack", "brand_of_the_breach", "frost_touch", "guard_strike", "quick_stab", "venom_bite"}},
+		{"tier 3 creature moves are shrine-available", []int{3}, []string{"brand_of_the_breach", "frost_touch"}},
 		{"unmatched tier is an empty pool", []int{9}, []string{}},
 	}
 	for _, tt := range tests {
@@ -847,8 +878,8 @@ func TestLoadEmbeddedMovesAndStatuses(t *testing.T) {
 	if !ok {
 		t.Fatal("the canonical basic_attack move is missing from the embedded assets")
 	}
-	if basic.Name != "Basic Strike" || basic.Tier != 1 || basic.DmgModifier != 100 ||
-		basic.CritBonus != 0 || basic.Cooldown != 0 || basic.Weight != 100 || basic.Status != nil {
+	if basic.Name != "Basic Strike" || basic.Tier != 1 || len(basic.Effects) != 1 || basic.Effects[0].Type != "damage" || basic.Effects[0].DmgModifier == nil || *basic.Effects[0].DmgModifier != 100 ||
+		basic.Cooldown != 0 || basic.Weight != 100 {
 		t.Errorf("basic_attack drifted: %+v", basic)
 	}
 	if basic.Type != "both" {
@@ -865,6 +896,10 @@ func TestLoadEmbeddedMovesAndStatuses(t *testing.T) {
 		"crushing_blow": "creature", "steel_flurry": "weapon", "assassins_strike": "both",
 		"venomous_blade": "both", "shield_wall": "both", "soul_rot": "creature",
 		"skull_crusher": "creature", "bloodletter": "creature", "dragons_might": "both",
+		"field_dressing": "both", "venomous_feint": "both", "ironroot_guard": "both",
+		"sanguine_rupture": "creature", "brand_of_the_breach": "creature",
+		"cinderbite": "creature", "crippling_howl": "creature", "windstep": "both",
+		"deep_wound": "creature", "rallying_cut": "both",
 	}
 	for id, wantType := range wantTypes {
 		move, ok := r.MoveByID(id)
@@ -876,13 +911,69 @@ func TestLoadEmbeddedMovesAndStatuses(t *testing.T) {
 		}
 	}
 
+	// Shrine-pool additions: preserve metadata and ordered effect payloads.
+	ptr := func(v int) *int { return &v }
+	wantNew := map[string]struct {
+		name                   string
+		tier, cooldown, weight int
+		effects                []MoveEffectAsset
+	}{
+		"field_dressing": {"Field Dressing", 1, 3, 25, []MoveEffectAsset{{Type: "heal", Target: "self", Flat: ptr(8)}}},
+		"venomous_feint": {"Venomous Feint", 2, 3, 30, []MoveEffectAsset{
+			{Type: "damage", Target: "enemy", DmgModifier: ptr(80)},
+			{Type: "status", Target: "enemy", Status: &MoveStatusEffectAsset{ID: "poison", Chance: 60}},
+			{Type: "status", Target: "enemy", Status: &MoveStatusEffectAsset{ID: "weaken", Chance: 50}},
+		}},
+		"ironroot_guard": {"Ironroot Guard", 3, 3, 25, []MoveEffectAsset{
+			{Type: "status", Target: "self", Status: &MoveStatusEffectAsset{ID: "guard", Chance: 100}},
+			{Type: "heal", Target: "self", Flat: ptr(3)},
+		}},
+		"sanguine_rupture": {"Sanguine Rupture", 4, 3, 20, []MoveEffectAsset{
+			{Type: "damage", Target: "enemy", DmgModifier: ptr(120)},
+			{Type: "heal", Target: "self", Flat: ptr(5)},
+			{Type: "status", Target: "enemy", Status: &MoveStatusEffectAsset{ID: "weaken", Chance: 50}},
+		}},
+		"brand_of_the_breach": {"Brand of the Breach", 3, 3, 25, []MoveEffectAsset{
+			{Type: "status", Target: "self", Status: &MoveStatusEffectAsset{ID: "breachfire", Chance: 100}},
+			{Type: "status", Target: "self", Status: &MoveStatusEffectAsset{ID: "open_guard", Chance: 100}},
+		}},
+		"cinderbite": {"Cinderbite", 2, 3, 30, []MoveEffectAsset{
+			{Type: "damage", Target: "enemy", DmgModifier: ptr(90)},
+			{Type: "status", Target: "enemy", Status: &MoveStatusEffectAsset{ID: "burning", Chance: 70}},
+			{Type: "status", Target: "enemy", Status: &MoveStatusEffectAsset{ID: "weaken", Chance: 30}},
+		}},
+		"crippling_howl": {"Crippling Howl", 2, 3, 35, []MoveEffectAsset{
+			{Type: "status", Target: "enemy", Status: &MoveStatusEffectAsset{ID: "frailty", Chance: 100}},
+		}},
+		"windstep": {"Windstep", 2, 3, 35, []MoveEffectAsset{
+			{Type: "status", Target: "self", Status: &MoveStatusEffectAsset{ID: "windstep", Chance: 100}},
+		}},
+		"deep_wound": {"Deep Wound", 3, 3, 20, []MoveEffectAsset{
+			{Type: "damage", Target: "enemy", DmgModifier: ptr(100)},
+			{Type: "status", Target: "enemy", Status: &MoveStatusEffectAsset{ID: "deep_wound", Chance: 60}},
+		}},
+		"rallying_cut": {"Rallying Cut", 3, 3, 20, []MoveEffectAsset{
+			{Type: "damage", Target: "enemy", DmgModifier: ptr(110)},
+			{Type: "heal", Target: "self", Flat: ptr(3), Percent: ptr(3)},
+		}},
+	}
+	for id, want := range wantNew {
+		move, ok := r.MoveByID(id)
+		if !ok {
+			t.Fatalf("move %q is missing from the embedded assets", id)
+		}
+		if move.Name != want.name || move.Tier != want.tier || move.Type != wantTypes[id] || move.Cooldown != want.cooldown || move.Weight != want.weight || !reflect.DeepEqual(move.Effects, want.effects) {
+			t.Errorf("move %q = %+v, want metadata/effects %+v", id, move, want)
+		}
+	}
+
 	// The spammable the steel sword grants (a tier-3, cooldown-0 strike).
 	flurry, ok := r.MoveByID("steel_flurry")
 	if !ok {
 		t.Fatal("the steel_flurry move is missing from the embedded assets")
 	}
-	if flurry.Name != "Steel Flurry" || flurry.Tier != 3 || flurry.DmgModifier != 110 ||
-		flurry.CritBonus != 0 || flurry.Cooldown != 0 || flurry.Status != nil {
+	if flurry.Name != "Steel Flurry" || flurry.Tier != 3 || len(flurry.Effects) != 1 || flurry.Effects[0].Type != "damage" || flurry.Effects[0].DmgModifier == nil || *flurry.Effects[0].DmgModifier != 110 ||
+		flurry.Cooldown != 0 {
 		t.Errorf("steel_flurry drifted: %+v", flurry)
 	}
 
@@ -902,8 +993,8 @@ func TestLoadEmbeddedMovesAndStatuses(t *testing.T) {
 	if !ok {
 		t.Fatal("the punch move is missing from the embedded assets")
 	}
-	if punch.Name != "Punch" || punch.Tier != 1 || punch.DmgModifier != 60 ||
-		punch.CritBonus != 0 || punch.Cooldown != 0 || punch.Weight != 50 || punch.Status != nil {
+	if punch.Name != "Punch" || punch.Tier != 1 || len(punch.Effects) != 1 || punch.Effects[0].Type != "damage" || punch.Effects[0].DmgModifier == nil || *punch.Effects[0].DmgModifier != 60 ||
+		punch.Cooldown != 0 || punch.Weight != 50 {
 		t.Errorf("punch drifted: %+v", punch)
 	}
 
@@ -925,11 +1016,47 @@ func TestLoadEmbeddedMovesAndStatuses(t *testing.T) {
 		t.Errorf("guard drifted: %+v", guard)
 	}
 
-	if got, want := len(r.Moves), 16; got != want {
-		t.Errorf("embedded moves = %d, want %d (basic attack + punch + the tier 1-4 set + steel_flurry)", got, want)
+	for _, want := range []StatusAsset{
+		{ID: "breachfire", Name: "Breachfire", Kind: "buff", Effect: StatusEffectAsset{Type: "stat", Stat: "dmg", Percent: 35}, Duration: 2},
+		{ID: "open_guard", Name: "Open Guard", Kind: "debuff", Effect: StatusEffectAsset{Type: "stat", Stat: "def", Percent: -50}, Duration: 2},
+		{ID: "burning", Name: "Burning", Kind: "debuff", Effect: StatusEffectAsset{Type: "dot", Amount: 8}, Duration: 2},
+		{ID: "frailty", Name: "Frailty", Kind: "debuff", Effect: StatusEffectAsset{Type: "stat", Stat: "dmg", Amount: -6}, Duration: 3},
+		{ID: "windstep", Name: "Windstep", Kind: "buff", Effect: StatusEffectAsset{Type: "stat", Stat: "spd", Amount: 5, Percent: 10}, Duration: 3},
+		{ID: "deep_wound", Name: "Deep Wound", Kind: "debuff", Effect: StatusEffectAsset{Type: "dot", Amount: 1, Percent: 3}, Duration: 3},
+	} {
+		got, ok := r.StatusByID(want.ID)
+		if !ok || !reflect.DeepEqual(got, want) {
+			t.Errorf("status %q = %+v, want %+v (found=%v)", want.ID, got, want, ok)
+		}
 	}
-	if got, want := len(r.Statuses), 4; got != want {
-		t.Errorf("embedded statuses = %d, want %d (the starter set)", got, want)
+
+	if got, want := len(r.Moves), 26; got != want {
+		t.Errorf("embedded moves = %d, want %d (basic attack + punch + tier moves + steel_flurry)", got, want)
+	}
+	if got, want := len(r.Statuses), 12; got != want {
+		t.Errorf("embedded statuses = %d, want %d", got, want)
+	}
+
+	wantMonsterMoves := map[string][]string{
+		"dragonling":    {"cinderbite", "skull_crusher"},
+		"hobgoblin":     {"crushing_blow", "crippling_howl"},
+		"ghoul":         {"venom_bite", "windstep"},
+		"orc_warlord":   {"crushing_blow", "deep_wound", "guard_strike"},
+		"vampire_spawn": {"assassins_strike", "rallying_cut"},
+	}
+	for id, want := range wantMonsterMoves {
+		monster, ok := r.Monsters[id]
+		if !ok {
+			t.Errorf("monster %q is missing", id)
+			continue
+		}
+		var got []string
+		for _, move := range monster.Moves {
+			got = append(got, move.ID)
+		}
+		if !slices.Equal(got, want) {
+			t.Errorf("monster %q moves = %v, want %v", id, got, want)
+		}
 	}
 	if got := r.MaxMoveTier(); got != 4 {
 		t.Errorf("embedded MaxMoveTier = %d, want 4", got)
@@ -1003,8 +1130,8 @@ func TestLoadDefaultsAbsentMoveTierToOne(t *testing.T) {
 		 "spawns": [{"monster_id": "rat", "weight": 1}]}
 	]`)
 	write("moves.json", `[
-		{"id": "jab", "name": "Jab", "type": "both", "dmg_modifier": 100, "weight": 1},
-		{"id": "hook", "name": "Hook", "type": "creature", "tier": 2, "dmg_modifier": 150, "cooldown": 1, "weight": 1}
+		{"id": "jab", "name": "Jab", "type": "both", "effects":[{"type":"damage","target":"enemy","dmg_modifier":100}], "weight": 1},
+		{"id": "hook", "name": "Hook", "type": "creature", "tier": 2, "effects":[{"type":"damage","target":"enemy","dmg_modifier":150}], "cooldown": 1, "weight": 1}
 	]`)
 
 	r, err := Load(dir)
@@ -1029,8 +1156,8 @@ func TestLoadRejectsDuplicateMoveAndStatusIDs(t *testing.T) {
 		dir := t.TempDir()
 		path := filepath.Join(dir, "moves.json")
 		content := `[
-			{"id": "jab", "name": "Jab", "dmg_modifier": 100, "weight": 1},
-			{"id": "jab", "name": "Jab Again", "dmg_modifier": 120, "weight": 1}
+			{"id": "jab", "name": "Jab", "effects":[{"type":"damage","target":"enemy","dmg_modifier":100}], "weight": 1},
+			{"id": "jab", "name": "Jab Again", "effects":[{"type":"damage","target":"enemy","dmg_modifier":120}], "weight": 1}
 		]`
 		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 			t.Fatal(err)
@@ -1261,14 +1388,68 @@ func TestValidateCombat2Content(t *testing.T) {
 			"tier",
 		},
 		{
-			"move dmg_modifier below range",
-			func(r *Registry) { m := r.Moves["quick_stab"]; m.DmgModifier = 49; r.Moves["quick_stab"] = m },
+			"damage effect modifier below range",
+			func(r *Registry) {
+				m := r.Moves["quick_stab"]
+				v := 49
+				m.Effects[0].DmgModifier = &v
+				r.Moves["quick_stab"] = m
+			},
 			"dmg_modifier",
 		},
 		{
-			"move dmg_modifier above range",
-			func(r *Registry) { m := r.Moves["quick_stab"]; m.DmgModifier = 301; r.Moves["quick_stab"] = m },
+			"damage effect modifier above range",
+			func(r *Registry) {
+				m := r.Moves["quick_stab"]
+				v := 301
+				m.Effects[0].DmgModifier = &v
+				r.Moves["quick_stab"] = m
+			},
 			"dmg_modifier",
+		},
+		{
+			"valid heal effect",
+			func(r *Registry) {
+				m := r.Moves["quick_stab"]
+				flat := 5
+				m.Effects = []MoveEffectAsset{{Type: "heal", Target: "self", Flat: &flat}}
+				r.Moves["quick_stab"] = m
+			},
+			"",
+		},
+		{
+			"valid status-only effect",
+			func(r *Registry) {
+				m := r.Moves["quick_stab"]
+				m.Effects = []MoveEffectAsset{{Type: "status", Target: "self", Status: &MoveStatusEffectAsset{ID: "guard", Chance: 100}}}
+				r.Moves["quick_stab"] = m
+			},
+			"",
+		},
+		{
+			"damage effect cannot target self",
+			func(r *Registry) { m := r.Moves["quick_stab"]; m.Effects[0].Target = "self"; r.Moves["quick_stab"] = m },
+			"damage target",
+		},
+		{
+			"heal effect must target self",
+			func(r *Registry) {
+				m := r.Moves["quick_stab"]
+				flat := 5
+				m.Effects = []MoveEffectAsset{{Type: "heal", Target: "enemy", Flat: &flat}}
+				r.Moves["quick_stab"] = m
+			},
+			"heal target",
+		},
+		{
+			"healing effect cannot be zero",
+			func(r *Registry) {
+				m := r.Moves["quick_stab"]
+				zero := 0
+				m.Effects = []MoveEffectAsset{{Type: "heal", Target: "self", Flat: &zero}}
+				r.Moves["quick_stab"] = m
+			},
+			"no positive healing component",
 		},
 		{
 			"negative move cooldown",
@@ -1314,34 +1495,44 @@ func TestValidateCombat2Content(t *testing.T) {
 			"move status chance over 100",
 			func(r *Registry) {
 				m := r.Moves["venom_bite"]
-				m.Status.Chance = 101
+				m.Effects[1].Status.Chance = 101
 				r.Moves["venom_bite"] = m
 			},
-			"chance",
+			"invalid status payload",
 		},
 		{
 			"move status negative chance",
 			func(r *Registry) {
 				m := r.Moves["venom_bite"]
-				m.Status.Chance = -1
+				m.Effects[1].Status.Chance = -1
 				r.Moves["venom_bite"] = m
 			},
-			"chance",
+			"invalid status payload",
+		},
+		{
+			"move status missing payload",
+			func(r *Registry) { m := r.Moves["venom_bite"]; m.Effects[1].Status = nil; r.Moves["venom_bite"] = m },
+			"missing status payload",
 		},
 		{
 			"move status unknown target",
 			func(r *Registry) {
 				m := r.Moves["guard_strike"]
-				m.Status.Target = "foe"
+				m.Effects[1].Target = "foe"
 				r.Moves["guard_strike"] = m
 			},
 			"target",
 		},
 		{
+			"status effect missing payload",
+			func(r *Registry) { m := r.Moves["venom_bite"]; m.Effects[1].Status = nil; r.Moves["venom_bite"] = m },
+			"missing status payload",
+		},
+		{
 			"move referencing unknown status",
 			func(r *Registry) {
 				m := r.Moves["venom_bite"]
-				m.Status.ID = "nope"
+				m.Effects[1].Status.ID = "nope"
 				r.Moves["venom_bite"] = m
 			},
 			"unknown status",
@@ -1553,11 +1744,12 @@ func TestValidateCollectsEveryError(t *testing.T) {
 	r.Statuses["poison"] = poison
 
 	stab := r.Moves["quick_stab"]
-	stab.DmgModifier = 10
+	v := 10
+	stab.Effects[0].DmgModifier = &v
 	r.Moves["quick_stab"] = stab
 
 	bite := r.Moves["venom_bite"]
-	bite.Status.ID = "nope"
+	bite.Effects[1].Status.ID = "nope"
 	r.Moves["venom_bite"] = bite
 
 	rat := r.Monsters["rat"]
@@ -1578,8 +1770,8 @@ func TestValidateCollectsEveryError(t *testing.T) {
 	want := []string{
 		`status "poison" has kind "curse"`,
 		`status "poison" has duration 0`,
-		`move "quick_stab" has dmg_modifier 10`,
-		`move "venom_bite" references unknown status "nope"`,
+		`move "quick_stab" effect 0 has invalid dmg_modifier`,
+		`move "venom_bite" effect 1 references unknown status "nope"`,
 		`monster "rat" references unknown move "ghost_move"`,
 		`item "charm" (slot "ring") grants moves, but only weapons may`,
 		`section "cellar" allows item tier 9`,
@@ -1609,7 +1801,7 @@ func TestValidateRejectsEquipmentThatCanZeroHeroMaxHP(t *testing.T) {
 	r := makeReg(validMonsters(), validSections())
 	r.Moves["basic_attack"] = MoveAsset{
 		ID: "basic_attack", Name: "Basic Attack", Type: "both", Tier: 1,
-		DmgModifier: 100, Weight: 100,
+		Effects: []MoveEffectAsset{{Type: "damage", Target: "enemy", DmgModifier: func() *int { v := 100; return &v }()}}, Weight: 100,
 	}
 	for i, slot := range []string{"weapon", "helmet", "body_armor", "boots", "ring", "amulet"} {
 		id := "penalty_" + slot

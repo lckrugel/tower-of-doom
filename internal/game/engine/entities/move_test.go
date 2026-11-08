@@ -1,11 +1,22 @@
 package entities
 
 import (
+	"reflect"
 	"slices"
 	"testing"
 
 	"github.com/lckrugel/tower-of-doom/internal/game"
 )
+
+func moveDamage(modifier int) game.MoveEffectAsset {
+	return game.MoveEffectAsset{Type: "damage", Target: "enemy", DmgModifier: &modifier}
+}
+
+func intPtr(value int) *int { return &value }
+
+func moveStatus(id, target string, chance int) game.MoveEffectAsset {
+	return game.MoveEffectAsset{Type: "status", Target: target, Status: &game.MoveStatusEffectAsset{ID: id, Chance: chance}}
+}
 
 // newTestWeapon builds a weapon item carrying the given granted moves
 // (resolved by the caller — entities never touch the registry).
@@ -22,12 +33,15 @@ func newTestWeapon(granted ...Move) *Item {
 func TestNewMoveFromAsset(t *testing.T) {
 	m := NewMoveFromAsset(game.MoveAsset{
 		ID: "venom_bite", Name: "Venom Bite", Tier: 1,
-		DmgModifier: 80, CritBonus: 5, Cooldown: 2, Weight: 60, Type: "creature",
-		Status: &game.MoveStatusAsset{ID: "poison", Chance: 60, Target: "enemy"},
+		Cooldown: 2, Weight: 60, Type: "creature",
+		Effects: []game.MoveEffectAsset{
+			{Type: "damage", Target: "enemy", DmgModifier: intPtr(80), CritBonus: intPtr(5)},
+			moveStatus("poison", "enemy", 60),
+		},
 	})
 
 	if m.ID != "venom_bite" || m.Name != "Venom Bite" || m.Tier != 1 ||
-		m.DmgModifier != 80 || m.CritBonus != 5 || m.Cooldown != 2 || m.Weight != 60 {
+		len(m.Effects) != 2 || m.Effects[0].DmgModifier != 80 || m.Effects[0].CritBonus != 5 || m.Cooldown != 2 || m.Weight != 60 {
 		t.Errorf("move mapping wrong: %+v", m)
 	}
 	if m.Type != MoveTypeCreature {
@@ -36,8 +50,8 @@ func TestNewMoveFromAsset(t *testing.T) {
 	if !m.HasStatus() {
 		t.Fatal("HasStatus = false, want true (asset carries a status)")
 	}
-	if m.Status.ID != "poison" || m.Status.Chance != 60 || m.Status.Target != TargetEnemy {
-		t.Errorf("status mapping wrong: %+v", m.Status)
+	if m.Effects[1].Status.ID != "poison" || m.Effects[1].Status.Chance != 60 || m.Effects[1].Target != TargetEnemy {
+		t.Errorf("status mapping wrong: %+v", m.Effects[1])
 	}
 	if m.TargetSelf() {
 		t.Error("TargetSelf = true, want false (enemy-targeted status)")
@@ -47,22 +61,36 @@ func TestNewMoveFromAsset(t *testing.T) {
 func TestNewMoveFromAssetWithoutStatus(t *testing.T) {
 	m := NewMoveFromAsset(game.MoveAsset{
 		ID: "heavy_slash", Name: "Heavy Slash", Tier: 2,
-		DmgModifier: 175, Cooldown: 2, Weight: 60,
+		Cooldown: 2, Weight: 60, Effects: []game.MoveEffectAsset{moveDamage(175)},
 	})
 
 	if m.HasStatus() {
-		t.Errorf("HasStatus = true, want false (asset has no status): %+v", m.Status)
+		t.Errorf("HasStatus = true, want false (status-free damage effect): %+v", m.Effects)
 	}
 	if m.TargetSelf() {
 		t.Error("TargetSelf = true, want false (no status at all)")
 	}
 }
 
+func TestNewMoveFromAssetCopiesOrderedEffects(t *testing.T) {
+	modifier, flat := 125, 8
+	asset := game.MoveAsset{ID: "sequence", Name: "Sequence", Effects: []game.MoveEffectAsset{
+		{Type: "damage", Target: "enemy", DmgModifier: &modifier},
+		{Type: "heal", Target: "self", Flat: &flat},
+	}}
+	m := NewMoveFromAsset(asset)
+	asset.Effects[0].Type = "changed"
+	modifier = 1
+	if len(m.Effects) != 2 || m.Effects[0].Type != "damage" || m.Effects[0].DmgModifier != 125 || m.Effects[1].Flat != 8 {
+		t.Fatalf("runtime effects not independently copied: %+v", m.Effects)
+	}
+}
+
 // TargetSelf distinguishes self-buffs (guard) from enemy debuffs.
 func TestMoveTargetSelf(t *testing.T) {
 	m := NewMoveFromAsset(game.MoveAsset{
-		ID: "guard_strike", Name: "Guard Strike", DmgModifier: 75, Weight: 50,
-		Status: &game.MoveStatusAsset{ID: "guard", Chance: 100, Target: "self"},
+		ID: "guard_strike", Name: "Guard Strike", Weight: 50,
+		Effects: []game.MoveEffectAsset{moveDamage(75), moveStatus("guard", "self", 100)},
 	})
 
 	if !m.TargetSelf() {
@@ -124,12 +152,12 @@ func TestBasicAttack(t *testing.T) {
 	if !ok {
 		t.Fatal("embedded assets do not define basic_attack")
 	}
-	if got := NewMoveFromAsset(asset); got != basic {
+	if got := NewMoveFromAsset(asset); !reflect.DeepEqual(got, basic) {
 		t.Errorf("BasicAttack constructor = %+v, embedded asset = %+v", basic, got)
 	}
 
 	if basic.ID != "basic_attack" || basic.Name != "Basic Strike" ||
-		basic.Tier != 1 || basic.DmgModifier != 100 || basic.CritBonus != 0 ||
+		basic.Tier != 1 || len(basic.Effects) != 1 || basic.Effects[0].DmgModifier != 100 || basic.Effects[0].CritBonus != 0 ||
 		basic.Cooldown != 0 || basic.Weight != 100 {
 		t.Errorf("canonical basic attack drifted: %+v", basic)
 	}
@@ -180,12 +208,12 @@ func TestPunch(t *testing.T) {
 	if !ok {
 		t.Fatal("embedded assets do not define punch")
 	}
-	if got := NewMoveFromAsset(asset); got != punch {
+	if got := NewMoveFromAsset(asset); !reflect.DeepEqual(got, punch) {
 		t.Errorf("Punch constructor = %+v, embedded asset = %+v", punch, got)
 	}
 
 	if punch.ID != "punch" || punch.Name != "Punch" ||
-		punch.Tier != 1 || punch.DmgModifier != 60 || punch.CritBonus != 0 ||
+		punch.Tier != 1 || len(punch.Effects) != 1 || punch.Effects[0].DmgModifier != 60 || punch.Effects[0].CritBonus != 0 ||
 		punch.Cooldown != 0 || punch.Weight != 50 {
 		t.Errorf("canonical punch drifted: %+v", punch)
 	}
@@ -209,10 +237,10 @@ func TestPunch(t *testing.T) {
 // with it as the fallback).
 func TestFilterUnknownMoves(t *testing.T) {
 	pool := []game.MoveAsset{
-		{ID: "basic_attack", Name: "Basic Strike", Tier: 1, DmgModifier: 100, Weight: 100},
-		{ID: "heavy_slash", Name: "Heavy Slash", Tier: 2, DmgModifier: 175, Cooldown: 2, Weight: 60},
-		{ID: "quick_stab", Name: "Quick Stab", Tier: 1, DmgModifier: 60, CritBonus: 20, Weight: 100},
-		{ID: "venom_bite", Name: "Venom Bite", Tier: 1, DmgModifier: 80, Cooldown: 2, Weight: 60},
+		{ID: "basic_attack", Name: "Basic Strike", Tier: 1, Effects: []game.MoveEffectAsset{moveDamage(100)}, Weight: 100},
+		{ID: "heavy_slash", Name: "Heavy Slash", Tier: 2, Effects: []game.MoveEffectAsset{moveDamage(175)}, Cooldown: 2, Weight: 60},
+		{ID: "quick_stab", Name: "Quick Stab", Tier: 1, Effects: []game.MoveEffectAsset{{Type: "damage", Target: "enemy", DmgModifier: intPtr(60), CritBonus: intPtr(20)}}, Weight: 100},
+		{ID: "venom_bite", Name: "Venom Bite", Tier: 1, Effects: []game.MoveEffectAsset{moveDamage(80), moveStatus("poison", "enemy", 60)}, Cooldown: 2, Weight: 60},
 	}
 
 	t.Run("drops known moves and the canonical basic_attack", func(t *testing.T) {
@@ -267,8 +295,8 @@ func TestFilterUnknownMoves(t *testing.T) {
 		// The fresh hero KNOWS the punch; a shrine pool carrying it must
 		// drop it like any other known move.
 		withPunch := []game.MoveAsset{
-			{ID: "punch", Name: "Punch", Tier: 1, DmgModifier: 60, Weight: 50, Type: "creature"},
-			{ID: "heavy_slash", Name: "Heavy Slash", Tier: 2, DmgModifier: 175, Cooldown: 2, Weight: 60, Type: "both"},
+			{ID: "punch", Name: "Punch", Tier: 1, Effects: []game.MoveEffectAsset{moveDamage(60)}, Weight: 50, Type: "creature"},
+			{ID: "heavy_slash", Name: "Heavy Slash", Tier: 2, Effects: []game.MoveEffectAsset{moveDamage(175)}, Cooldown: 2, Weight: 60, Type: "both"},
 		}
 		got := FilterUnknownMoves(withPunch, []Move{Punch()})
 

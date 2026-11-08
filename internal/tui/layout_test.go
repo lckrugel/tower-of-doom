@@ -124,9 +124,8 @@ func viewModels() map[string]Model {
 		learnTestMove(e, "guard_strike", "Guard Strike", 2)
 		learnTestMove(e, "heavy_slash", "Heavy Slash", 2)
 		e.PendingMoves = []entities.Move{
-			{ID: "power_slash", Name: "Power Slash", Tier: 2, DmgModifier: 175, Weight: 10},
-			{ID: "venom_shot", Name: "Venom Shot", Tier: 1, DmgModifier: 75, Weight: 10,
-				Status: entities.MoveStatus{ID: "poison", Chance: 60, Target: entities.TargetEnemy}},
+			{ID: "power_slash", Name: "Power Slash", Tier: 2, Effects: []entities.MoveEffect{{Type: "damage", Target: entities.TargetEnemy, DmgModifier: 175}}, Weight: 10},
+			{ID: "venom_shot", Name: "Venom Shot", Tier: 1, Effects: []entities.MoveEffect{{Type: "damage", Target: entities.TargetEnemy, DmgModifier: 75}, {Type: "status", Target: entities.TargetEnemy, Status: entities.MoveStatus{ID: "poison", Chance: 60}}}, Weight: 10},
 		}
 		e.State = engine.StateLearn
 		m := New(e)
@@ -173,8 +172,7 @@ func learnModel() Model {
 	learnTestMove(e, "guard_strike", "Guard Strike", 2)
 	e.PendingMoves = []entities.Move{{
 		ID: "super_calibrating_excalibur_strike", Name: "Super Calibrating Excalibur Strike",
-		Tier: 3, DmgModifier: 300, CritBonus: 25, Cooldown: 4, Weight: 10,
-		Status: entities.MoveStatus{ID: "poison", Chance: 60, Target: entities.TargetEnemy},
+		Tier: 3, Effects: []entities.MoveEffect{{Type: "damage", Target: entities.TargetEnemy, DmgModifier: 300, CritBonus: 25}, {Type: "status", Target: entities.TargetEnemy, Status: entities.MoveStatus{ID: "poison", Chance: 60}}}, Cooldown: 4, Weight: 10,
 	}}
 	e.State = engine.StateLearn
 	return New(e)
@@ -188,9 +186,8 @@ func fullGrid() Model {
 	learnMove(e, envenom(0)) // modifier + status tag
 	learnMove(e, heavy())    // modifier only — cooling below
 	equipWeapon(e,
-		entities.Move{ID: "assassins_strike", Name: "Assassin's Strike", Tier: 3, DmgModifier: 110, CritBonus: 35, Cooldown: 3, Weight: 10},
-		entities.Move{ID: "guard_strike", Name: "Guard Strike", Tier: 1, DmgModifier: 75, Weight: 10,
-			Status: entities.MoveStatus{ID: "guard", Chance: 100, Target: entities.TargetSelf}},
+		entities.Move{ID: "assassins_strike", Name: "Assassin's Strike", Tier: 3, Effects: []entities.MoveEffect{{Type: "damage", Target: entities.TargetEnemy, DmgModifier: 110, CritBonus: 35}}, Cooldown: 3, Weight: 10},
+		entities.Move{ID: "guard_strike", Name: "Guard Strike", Tier: 1, Effects: []entities.MoveEffect{{Type: "damage", Target: entities.TargetEnemy, DmgModifier: 75}, {Type: "status", Target: entities.TargetSelf, Status: entities.MoveStatus{ID: "guard", Chance: 100}}}, Weight: 10},
 	)
 	m := New(e)
 	e.State = engine.StateCombat

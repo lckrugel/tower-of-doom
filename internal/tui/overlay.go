@@ -47,7 +47,7 @@ func (m Model) overlayPanel() string {
 
 	// The move-tag legend.
 	rows = append(rows, styleDim.Render("MOVE TAGS"))
-	rows = append(rows, styleDim.Render("  175% damage modifier · ✦+N crit bonus · ☠<status> N% status chance"))
+	rows = append(rows, styleDim.Render("  N% damage · +N HP / +N% HP healing · ✦+N crit · ☠<status> N% chance"))
 	rows = append(rows, styleDim.Render("  (N turns) move locked · ◆ learned · ⚔ weapon"))
 
 	// The live state's key map — the same chips the action bar shows.
@@ -75,9 +75,9 @@ func (m Model) overlayKeys() string {
 	return strings.Join(spots, " · ")
 }
 
-// overlayStatusLine is a lore entry: "Poison — 3 dmg/turn — 3 turns".
+// overlayStatusLine is a lore entry: "Poison — 3 dmg/turn — 3 rounds".
 func overlayStatusLine(a game.StatusAsset) string {
-	return fmt.Sprintf("%s — %s — %d turns", a.Name, statusEffectText(a), a.Duration)
+	return fmt.Sprintf("%s — %s — %d rounds", a.Name, statusEffectText(a), a.Duration)
 }
 
 // statusEffectText renders a status asset's effect: "3 dmg/turn" for a
@@ -132,27 +132,51 @@ func (m Model) statusExplanation(statuses []combatStatus) string {
 	parts := make([]string, 0, len(statuses))
 	for _, s := range statuses {
 		if lore, ok := m.statusLoreByID(s.id); ok {
-			parts = append(parts, fmt.Sprintf("%s — %s · %d turns left", s.name, statusEffectText(lore), s.turns))
+			parts = append(parts, fmt.Sprintf("%s — %s · %d rounds left", s.name, statusEffectText(lore), s.turns))
 			continue
 		}
-		parts = append(parts, fmt.Sprintf("%s · %d turns left", s.name, s.turns))
+		parts = append(parts, fmt.Sprintf("%s · %d rounds left", s.name, s.turns))
 	}
 	return strings.Join(parts, "; ")
 }
 
-// moveStatusExplanation is a dossier's tooltip for a move's status tag:
-// "☠poison — 3 dmg/turn · 3 turns" — the tag as the grid shows it, the
-// effect and the lore's duration (the offer hasn't landed: the ASSET's
-// duration is the honest number). An unknown id (a modded gap) degrades
-// to the tag alone; a status-less move explains nothing.
-func (m Model) moveStatusExplanation(s entities.MoveStatus) string {
+// moveStatusExplanation is a dossier's tooltip for a status effect.
+func (m Model) moveStatusExplanation(s entities.MoveStatus, target entities.MoveTarget) string {
 	if s.ID == "" {
 		return ""
 	}
-	tag := fmt.Sprintf("☠%s", s.ID)
+	tag := fmt.Sprintf("☠%s %d%%", s.ID, s.Chance)
 	lore, ok := m.statusLoreByID(s.ID)
 	if !ok {
 		return tag
 	}
-	return fmt.Sprintf("%s — %s · %d turns", tag, statusEffectText(lore), lore.Duration)
+	return fmt.Sprintf("%s → %s — %s · %d rounds", tag, target, statusEffectText(lore), lore.Duration)
+}
+
+// moveEffectsExplanation summarizes all effects in their authored order.
+func (m Model) moveEffectsExplanation(move entities.Move) string {
+	parts := make([]string, 0, len(move.Effects))
+	for _, effect := range move.Effects {
+		target := string(effect.Target)
+		switch effect.Type {
+		case "damage":
+			parts = append(parts, fmt.Sprintf("damage %d%% → %s", effect.DmgModifier, target))
+		case "heal":
+			var amounts []string
+			if effect.Flat != 0 {
+				amounts = append(amounts, fmt.Sprintf("%d HP", effect.Flat))
+			}
+			if effect.Percent != 0 {
+				amounts = append(amounts, fmt.Sprintf("%d%% HP", effect.Percent))
+			}
+			parts = append(parts, fmt.Sprintf("heal %s → %s", strings.Join(amounts, " + "), target))
+		case "status":
+			s := effect.Status
+			if s.ID == "" {
+				continue
+			}
+			parts = append(parts, m.moveStatusExplanation(s, effect.Target))
+		}
+	}
+	return strings.Join(parts, "; ")
 }

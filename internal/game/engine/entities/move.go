@@ -38,15 +38,21 @@ const (
 	MoveTypeBoth MoveType = "both"
 )
 
-// MoveStatus is the optional status a move applies on hit. The zero
-// value means "no status" — check HasStatus instead of comparing ids.
+// MoveStatus is the payload for a status effect.
 type MoveStatus struct {
 	// ID references a status asset (validated at load time).
 	ID string
 	// Chance is the application chance, in percent ([0, 100]).
 	Chance int
-	// Target says who receives the status.
-	Target MoveTarget
+}
+
+// MoveEffect is an immutable-by-convention runtime copy of an authored effect.
+type MoveEffect struct {
+	Type                   string
+	Target                 MoveTarget
+	DmgModifier, CritBonus int
+	Flat, Percent          int
+	Status                 MoveStatus
 }
 
 // Move is a Combat 2.0 move: one entry of a combatant's move set, built
@@ -63,26 +69,26 @@ type Move struct {
 	Type MoveType
 	// Tier places the move on the progression ladder (1 = earliest).
 	Tier int
-	// DmgModifier scales the striker's DMG, in percent (100 = neutral).
-	DmgModifier int
-	// CritBonus adds percentage points to the striker's crit threshold
-	// for this move (may be negative; clamped to [0, 100] at use time).
-	CritBonus int
-	// Cooldown is how many turns the move stays locked after use
+	// Cooldown is how many rounds the move stays locked after use
 	// (0 = spammable).
 	Cooldown int
-	// Status is the optional status the move applies on hit (zero value
-	// = none).
-	Status MoveStatus
 	// Weight is the AI weight for monster picks. For a monster's moves it
 	// carries that monster's own ref weight (the caller overrides it after
 	// NewMoveFromAsset); for the canonical basic attack it is the move
 	// asset's own weight.
-	Weight int
+	Weight  int
+	Effects []MoveEffect
 }
 
 // HasStatus reports whether the move applies a status effect on hit.
-func (m Move) HasStatus() bool { return m.Status.ID != "" }
+func (m Move) HasStatus() bool {
+	for _, effect := range m.Effects {
+		if effect.Type == "status" {
+			return true
+		}
+	}
+	return false
+}
 
 // UsableByWeapons reports whether a WEAPON's grant list may carry the
 // move (weapon- or both-typed). A creature-only move is learned or
@@ -99,10 +105,14 @@ func (m Move) UsableByCreatures() bool {
 	return m.Type == MoveTypeCreature || m.Type == MoveTypeBoth
 }
 
-// TargetSelf reports whether the move's status targets the striker
-// instead of the hit target. Always false for status-less moves.
+// TargetSelf reports whether any status effect targets the striker.
 func (m Move) TargetSelf() bool {
-	return m.HasStatus() && m.Status.Target == TargetSelf
+	for _, effect := range m.Effects {
+		if effect.Type == "status" && effect.Target == TargetSelf {
+			return true
+		}
+	}
+	return false
 }
 
 // NewMoveFromAsset builds a runtime move from its asset. The asset must
@@ -110,21 +120,31 @@ func (m Move) TargetSelf() bool {
 // are copied through as-is, never remapped.
 func NewMoveFromAsset(asset game.MoveAsset) Move {
 	m := Move{
-		ID:          asset.ID,
-		Name:        asset.Name,
-		Type:        MoveType(asset.Type),
-		Tier:        max(1, asset.Tier),
-		DmgModifier: asset.DmgModifier,
-		CritBonus:   asset.CritBonus,
-		Cooldown:    asset.Cooldown,
-		Weight:      asset.Weight,
+		ID:       asset.ID,
+		Name:     asset.Name,
+		Type:     MoveType(asset.Type),
+		Tier:     max(1, asset.Tier),
+		Cooldown: asset.Cooldown,
+		Weight:   asset.Weight,
 	}
-	if asset.Status != nil {
-		m.Status = MoveStatus{
-			ID:     asset.Status.ID,
-			Chance: asset.Status.Chance,
-			Target: MoveTarget(asset.Status.Target),
+	for _, effect := range asset.Effects {
+		e := MoveEffect{Type: effect.Type, Target: MoveTarget(effect.Target)}
+		if effect.DmgModifier != nil {
+			e.DmgModifier = *effect.DmgModifier
 		}
+		if effect.CritBonus != nil {
+			e.CritBonus = *effect.CritBonus
+		}
+		if effect.Flat != nil {
+			e.Flat = *effect.Flat
+		}
+		if effect.Percent != nil {
+			e.Percent = *effect.Percent
+		}
+		if effect.Status != nil {
+			e.Status = MoveStatus{ID: effect.Status.ID, Chance: effect.Status.Chance}
+		}
+		m.Effects = append(m.Effects, e)
 	}
 	return m
 }
@@ -159,11 +179,11 @@ type Status struct {
 	Stat        StatKind // "" for DoT effects
 	StatAmount  int
 	StatPercent int
-	// Duration is how many turns the status lasts.
+	// Duration is how many rounds the status lasts.
 	Duration int
 }
 
-// IsDot reports whether the status deals damage per turn (instead of
+// IsDot reports whether the status deals damage each round (instead of
 // modifying a stat).
 func (s Status) IsDot() bool { return s.Stat == "" && (s.DotAmount != 0 || s.DotPercent != 0) }
 
@@ -246,14 +266,13 @@ func FilterUnknownMoves(pool []game.MoveAsset, known []Move) []game.MoveAsset {
 // variable) prevents callers from mutating a shared value.
 func BasicAttack() Move {
 	return Move{
-		ID:          "basic_attack",
-		Name:        "Basic Strike",
-		Type:        MoveTypeBoth,
-		Tier:        1,
-		DmgModifier: 100,
-		CritBonus:   0,
-		Cooldown:    0,
-		Weight:      100,
+		ID:       "basic_attack",
+		Name:     "Basic Strike",
+		Type:     MoveTypeBoth,
+		Tier:     1,
+		Cooldown: 0,
+		Weight:   100,
+		Effects:  []MoveEffect{{Type: "damage", Target: TargetEnemy, DmgModifier: 100}},
 	}
 }
 
@@ -266,13 +285,12 @@ func BasicAttack() Move {
 // shared value; the embedded moves.json ships the same move as an asset.
 func Punch() Move {
 	return Move{
-		ID:          "punch",
-		Name:        "Punch",
-		Type:        MoveTypeCreature,
-		Tier:        1,
-		DmgModifier: 60,
-		CritBonus:   0,
-		Cooldown:    0,
-		Weight:      50,
+		ID:       "punch",
+		Name:     "Punch",
+		Type:     MoveTypeCreature,
+		Tier:     1,
+		Cooldown: 0,
+		Weight:   50,
+		Effects:  []MoveEffect{{Type: "damage", Target: TargetEnemy, DmgModifier: 60}},
 	}
 }

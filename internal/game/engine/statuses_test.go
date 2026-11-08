@@ -25,22 +25,23 @@ func testStatuses() map[string]game.StatusAsset {
 // statusMoveAssets are the deterministic application moves layered onto
 // the registry by statusesEngine — also usable by monster fixtures.
 func statusMoveAssets() map[string]game.MoveAsset {
+	damage := func(modifier int) game.MoveEffectAsset {
+		return game.MoveEffectAsset{Type: "damage", Target: "enemy", DmgModifier: intPtr(modifier)}
+	}
+	status := func(id, target string, chance int) game.MoveEffectAsset {
+		return game.MoveEffectAsset{Type: "status", Target: target, Status: &game.MoveStatusEffectAsset{ID: id, Chance: chance}}
+	}
 	return map[string]game.MoveAsset{
 		"sure_poison": {ID: "sure_poison", Name: "Envenom", Tier: 1,
-			DmgModifier: 100, Cooldown: 0, Weight: 10,
-			Status: &game.MoveStatusAsset{ID: "poison", Chance: 100, Target: "enemy"}},
+			Effects: []game.MoveEffectAsset{damage(100), status("poison", "enemy", 100)}, Cooldown: 0, Weight: 10},
 		"never_poison": {ID: "never_poison", Name: "Dust Toss", Tier: 1,
-			DmgModifier: 100, Cooldown: 0, Weight: 10,
-			Status: &game.MoveStatusAsset{ID: "poison", Chance: 0, Target: "enemy"}},
+			Effects: []game.MoveEffectAsset{damage(100), status("poison", "enemy", 0)}, Cooldown: 0, Weight: 10},
 		"sure_weaken": {ID: "sure_weaken", Name: "Rattle", Tier: 1,
-			DmgModifier: 100, Cooldown: 0, Weight: 10,
-			Status: &game.MoveStatusAsset{ID: "weaken", Chance: 100, Target: "enemy"}},
+			Effects: []game.MoveEffectAsset{damage(100), status("weaken", "enemy", 100)}, Cooldown: 0, Weight: 10},
 		"sure_slow": {ID: "sure_slow", Name: "Trip", Tier: 1,
-			DmgModifier: 100, Cooldown: 0, Weight: 10,
-			Status: &game.MoveStatusAsset{ID: "slow", Chance: 100, Target: "enemy"}},
+			Effects: []game.MoveEffectAsset{damage(100), status("slow", "enemy", 100)}, Cooldown: 0, Weight: 10},
 		"guard_strike": {ID: "guard_strike", Name: "Guard Strike", Tier: 1,
-			DmgModifier: 75, Cooldown: 2, Weight: 10,
-			Status: &game.MoveStatusAsset{ID: "guard", Chance: 100, Target: "self"}},
+			Effects: []game.MoveEffectAsset{damage(75), status("guard", "self", 100)}, Cooldown: 2, Weight: 10},
 	}
 }
 
@@ -230,12 +231,42 @@ func TestStatusApplication(t *testing.T) {
 		learn(e, "sure_poison")
 		startEncounter(e, monsterFromFixture("goblin"), monsterFromFixture("orc"))
 		e.Process(Command{Type: CmdFight})
+		stub := &stubRng{values: []int{1, 50, 0}}
+		e.rng = stub
 
 		events := e.Process(Command{Type: CmdMove, Index: 0})
 
 		if got := eventTypes(events); !typesEqual(got,
 			EventMoveUsed, EventCombatDamageDealt, EventEnemyDefeated, EventGoldGained) {
 			t.Fatalf("events = %v, want no status event on a kill", got)
+		}
+		if stub.calls != 3 {
+			t.Errorf("rng calls = %d, want 3 (spread, crit, status roll on lethal hit)", stub.calls)
+		}
+	})
+
+	t.Run("multiple effect statuses roll independent chances", func(t *testing.T) {
+		e := statusesEngine()
+		effects := []game.MoveEffectAsset{
+			{Type: "status", Target: "enemy", Status: &game.MoveStatusEffectAsset{ID: "poison", Chance: 50}},
+			{Type: "status", Target: "enemy", Status: &game.MoveStatusEffectAsset{ID: "weaken", Chance: 50}},
+		}
+		move := entities.NewMoveFromAsset(game.MoveAsset{ID: "double_status", Name: "Double Status", Effects: effects})
+		enemy := monsterFromFixture("goblin")
+		startEncounter(e, enemy)
+		stub := &stubRng{values: []int{0, 99}}
+		e.rng = stub
+
+		events := e.resolveMoveEffects(&move, e.Player, &enemy, ActorHero)
+
+		if got := eventTypes(events); !typesEqual(got, EventMoveUsed, EventStatusApplied) {
+			t.Errorf("events = %v, want move-used and only the successful status application", got)
+		}
+		if stub.calls != 2 {
+			t.Errorf("rng calls = %d, want 2 (one independent chance roll per status effect)", stub.calls)
+		}
+		if len(e.enemyCombat.statuses) != 1 || e.enemyCombat.statuses[0].status.ID != "poison" {
+			t.Errorf("enemy statuses = %+v, want only poison", e.enemyCombat.statuses)
 		}
 	})
 }

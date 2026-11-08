@@ -24,7 +24,7 @@ func newBossEngine(rngValues ...int) *Engine {
 	e := newTestEngine(rngValues...)
 	e.reg.Sections = bossTestSections()
 	e.reg.Moves = map[string]game.MoveAsset{
-		"smash": {ID: "smash", Name: "Smash", Tier: 1, DmgModifier: 120, Weight: 10},
+		"smash": {ID: "smash", Name: "Smash", Tier: 1, Effects: []game.MoveEffectAsset{{Type: "damage", Target: "enemy", DmgModifier: intPtr(120)}}, Weight: 10},
 	}
 	e.reg.Monsters["chief"] = game.MonsterAsset{
 		ID: "chief", Name: "Goblin Chief", Difficulty: 9, HP: 55, Damage: 6, Speed: 10,

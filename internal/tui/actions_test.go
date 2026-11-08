@@ -199,8 +199,8 @@ func TestShortcutsAreGloballyUnique(t *testing.T) {
 		learnTestMove(e, "guard_strike", "Guard Strike", 2)
 		learnTestMove(e, "heavy_slash", "Heavy Slash", 2)
 		e.PendingMoves = []entities.Move{
-			{ID: "power_slash", Name: "Power Slash", Tier: 2, DmgModifier: 175, Weight: 10},
-			{ID: "venom_shot", Name: "Venom Shot", Tier: 1, DmgModifier: 75, Weight: 10},
+			{ID: "power_slash", Name: "Power Slash", Tier: 2, Effects: []entities.MoveEffect{{Type: "damage", Target: entities.TargetEnemy, DmgModifier: 175}}, Weight: 10},
+			{ID: "venom_shot", Name: "Venom Shot", Tier: 1, Effects: []entities.MoveEffect{{Type: "damage", Target: entities.TargetEnemy, DmgModifier: 75}}, Weight: 10},
 		}
 		if chosen {
 			move := e.PendingMoves[0]
@@ -298,6 +298,6 @@ func TestNumberKeysDispatchMoves(t *testing.T) {
 // and status resolution, so no registration is needed here.
 func learnTestMove(e *engine.Engine, id, name string, cooldown int) {
 	e.Player.LearnMove(entities.Move{
-		ID: id, Name: name, Tier: 1, DmgModifier: 100, Cooldown: cooldown, Weight: 10,
+		ID: id, Name: name, Tier: 1, Effects: []entities.MoveEffect{{Type: "damage", Target: entities.TargetEnemy, DmgModifier: 100}}, Cooldown: cooldown, Weight: 10,
 	})
 }

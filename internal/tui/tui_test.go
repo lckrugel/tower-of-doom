@@ -745,9 +745,8 @@ func TestViewBossCombatShowsTheBossBadge(t *testing.T) {
 // and a status carrier (the dossier's tag variety).
 func shrineOffers() []entities.Move {
 	return []entities.Move{
-		{ID: "power_slash", Name: "Power Slash", Tier: 2, DmgModifier: 175, Weight: 10},
-		{ID: "venom_shot", Name: "Venom Shot", Tier: 1, DmgModifier: 75, Weight: 10,
-			Status: entities.MoveStatus{ID: "poison", Chance: 60, Target: entities.TargetEnemy}},
+		{ID: "power_slash", Name: "Power Slash", Tier: 2, Effects: []entities.MoveEffect{{Type: "damage", Target: entities.TargetEnemy, DmgModifier: 175}}, Weight: 10},
+		{ID: "venom_shot", Name: "Venom Shot", Tier: 1, Effects: []entities.MoveEffect{{Type: "damage", Target: entities.TargetEnemy, DmgModifier: 75}, {Type: "status", Target: entities.TargetEnemy, Status: entities.MoveStatus{ID: "poison", Chance: 60}}}, Weight: 10},
 	}
 }
 
@@ -1047,14 +1046,14 @@ func TestViewShrineChoosingStepShowsBothOffers(t *testing.T) {
 
 	for _, want := range []string{
 		"◈ SHRINE",
-		"choose a teaching",              // the step label
-		"Power Slash",                    // offer 1's dossier
-		"Venom Shot",                     // offer 2's dossier
-		"tier 2",                         // the dossier's tier line
-		"175% ◆",                         // Power Slash's tags: modifier + learned glyph
-		"☠poison 60% ◆",                  // Venom Shot's tags: status + learned glyph
-		"☠poison — 3 dmg/turn · 3 turns", // the status tag's explanation
-		"LEARN",                          // the badge
+		"choose a teaching", // the step label
+		"Power Slash",       // offer 1's dossier
+		"Venom Shot",        // offer 2's dossier
+		"tier 2",            // the dossier's tier line
+		"175% ◆",            // Power Slash's tags: modifier + learned glyph
+		"☠poison 60% ◆",     // Venom Shot's tags: status + learned glyph
+		"damage 75% → enemy; ☠poison 60% → enemy —…", // clipped explanation is marked
+		"LEARN", // the badge
 		"[L] Learn", "[N] Decline", "[Q] Quit",
 	} {
 		if !strings.Contains(view, want) {
@@ -1128,7 +1127,7 @@ func TestOverlayCapsTheStatusList(t *testing.T) {
 
 	view := stripControls(stripANSI(m.View()))
 
-	if !strings.Contains(view, "S09 — 1 dmg/turn — 2 turns") {
+	if !strings.Contains(view, "S09 — 1 dmg/turn — 2 rounds") {
 		t.Errorf("the overlay's capped list lost an in-budget status:\n%s", view)
 	}
 	if strings.Contains(view, "S10 — ") {
@@ -1157,9 +1156,9 @@ func TestOverlayTogglesOnQuestionMark(t *testing.T) {
 	for _, want := range []string{
 		"TOWER LORE",
 		"STATUS EFFECTS",
-		"Poison — 3 dmg/turn — 3 turns", // the lore: effect — duration
+		"Poison — 3 dmg/turn — 3 rounds", // the lore: effect — duration
 		"MOVE TAGS",
-		"175% damage modifier", "✦+N crit bonus", "☠<status> N% status chance",
+		"N% damage", "+N HP / +N% HP healing", "✦+N crit", "☠<status> N% chance",
 		"(N turns) move locked", "◆ learned", "⚔ weapon",
 		"KEYS — EXPLORING",
 		"[E] Explore", "[Q] Quit",
@@ -1175,7 +1174,7 @@ func TestOverlayTogglesOnQuestionMark(t *testing.T) {
 		}
 	}
 	// Lore lines tone by kind: buffs green.
-	if !strings.Contains(m.View(), styleHeal.Render("Guard — +5 DEF — 2 turns")) {
+	if !strings.Contains(m.View(), styleHeal.Render("Guard — +5 DEF — 2 rounds")) {
 		t.Error("the buff lore line must take the green tone")
 	}
 
@@ -1185,6 +1184,15 @@ func TestOverlayTogglesOnQuestionMark(t *testing.T) {
 	}
 	if got := m.View(); got != before {
 		t.Error("the frame was not restored byte-exact after the overlay")
+	}
+}
+
+func TestMoveStatusExplanationIncludesChanceAndEffectLore(t *testing.T) {
+	m := New(testEngine())
+	got := m.moveStatusExplanation(entities.MoveStatus{ID: "poison", Chance: 60}, entities.TargetEnemy)
+	want := "☠poison 60% → enemy — 3 dmg/turn · 3 rounds"
+	if got != want {
+		t.Fatalf("move status explanation = %q, want %q", got, want)
 	}
 }
 

@@ -423,10 +423,8 @@ func (m Model) shrineDossier(move entities.Move, selected bool) string {
 	tags := strings.TrimLeft(m.gridTags(move, false, glyphLearned), " ")
 	tier := truncateRunes(fmt.Sprintf("    tier %d · %s", move.Tier, tags), mainColWidth)
 	line := name + "\n" + styleDim.Render(tier) + "\n"
-	if expl := m.moveStatusExplanation(move.Status); expl != "" {
-		// The status tag's one-line tooltip: effect and duration from
-		// the registry's lore.
-		line += styleDim.Render(truncateRunes("    "+expl, mainColWidth)) + "\n"
+	if expl := m.moveEffectsExplanation(move); expl != "" {
+		line += styleDim.Render(truncateDescription("    "+expl, mainColWidth)) + "\n"
 	}
 	return line
 }
@@ -442,8 +440,8 @@ func (m Model) shrineForgetStep() string {
 		tier := truncateRunes(fmt.Sprintf("    tier %d · %s", chosen.Tier, tags), mainColWidth)
 		b.WriteString("  " + stylePanelTitle.Render(learning) + "\n")
 		b.WriteString(styleDim.Render(tier) + "\n")
-		if expl := m.moveStatusExplanation(chosen.Status); expl != "" {
-			b.WriteString(styleDim.Render(truncateRunes("    "+expl, mainColWidth)) + "\n")
+		if expl := m.moveEffectsExplanation(*chosen); expl != "" {
+			b.WriteString(styleDim.Render(truncateDescription("    "+expl, mainColWidth)) + "\n")
 		}
 	}
 	learned := m.engine.Player.LearnedMoves()
@@ -666,12 +664,28 @@ func (m Model) gridTags(move entities.Move, cooling bool, source string) string 
 	if cooling {
 		return fmt.Sprintf("   (%d turns)", m.cooldownLeft(move.ID))
 	}
-	tags := []string{fmt.Sprintf("%d%%", move.DmgModifier)}
-	if move.HasStatus() {
-		tags = append(tags, fmt.Sprintf("☠%s %d%%", move.Status.ID, move.Status.Chance))
-	}
-	if move.CritBonus != 0 {
-		tags = append(tags, fmt.Sprintf("✦%+d", move.CritBonus))
+	tags := make([]string, 0, len(move.Effects)+2)
+	if len(move.Effects) > 0 {
+		for _, effect := range move.Effects {
+			switch effect.Type {
+			case "damage":
+				tags = append(tags, fmt.Sprintf("%d%%", effect.DmgModifier))
+				if effect.CritBonus != 0 {
+					tags = append(tags, fmt.Sprintf("✦%+d", effect.CritBonus))
+				}
+			case "heal":
+				if effect.Flat != 0 {
+					tags = append(tags, fmt.Sprintf("+%d HP", effect.Flat))
+				}
+				if effect.Percent != 0 {
+					tags = append(tags, fmt.Sprintf("+%d%% HP", effect.Percent))
+				}
+			case "status":
+				if effect.Status.ID != "" {
+					tags = append(tags, fmt.Sprintf("☠%s %d%%", effect.Status.ID, effect.Status.Chance))
+				}
+			}
+		}
 	}
 	if source != "" {
 		tags = append(tags, source)
@@ -829,6 +843,15 @@ func padRight(s string, width int) string {
 // risks the frame's byte-exactness.
 func truncateRunes(s string, width int) string {
 	return runewidth.Truncate(s, max(width, 0), "")
+}
+
+// truncateDescription marks clipped effect text so a short dossier row
+// does not silently imply that the explanation is complete.
+func truncateDescription(s string, width int) string {
+	if runewidth.StringWidth(s) <= width {
+		return s
+	}
+	return truncateRunes(s, width-1) + "…"
 }
 
 // heroPanel is the player's vital stats: level, XP, HP and the derived

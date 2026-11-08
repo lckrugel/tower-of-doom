@@ -1,6 +1,7 @@
 package entities
 
 import (
+	"reflect"
 	"testing"
 
 	"github.com/lckrugel/tower-of-doom/internal/game"
@@ -392,7 +393,7 @@ func TestHeroEffectiveMovesWithSource(t *testing.T) {
 			t.Fatalf("EffectiveMoves length = %d, sourced = %d", len(plain), len(sourced))
 		}
 		for i := range sourced {
-			if plain[i] != sourced[i].Move {
+			if !reflect.DeepEqual(plain[i], sourced[i].Move) {
 				t.Errorf("EffectiveMoves[%d] = %+v, want the sourced %+v", i, plain[i], sourced[i].Move)
 			}
 		}

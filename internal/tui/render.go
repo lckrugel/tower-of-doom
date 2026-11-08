@@ -98,6 +98,8 @@ func eventText(ev engine.Event) string {
 		return "You fled the combat successfully."
 	case engine.EventHeroHealed:
 		return heroHealedText(ev.Data)
+	case engine.EventCombatHealed:
+		return combatHealedText(ev.Data)
 	case engine.EventLootFound:
 		return lootFoundText(ev.Data)
 	case engine.EventItemEquipped:
@@ -240,6 +242,23 @@ func heroHealedText(data map[string]any) string {
 	}
 	return fmt.Sprintf("While exploring, you find an ancient sanctuary and rest. You recover %v HP (%v%% HP left).",
 		healed, data["hero_hp"])
+}
+
+func combatHealedText(data map[string]any) string {
+	target, _ := data["target"].(string)
+	move, _ := data["move"].(string)
+	healed, _ := data["healed"].(int)
+	cur, max, _ := exactHP(data, "hp_exact", "max_hp")
+	if data["side"] == engine.ActorHero {
+		if healed <= 0 {
+			return fmt.Sprintf("You use %s, but %s is already at full health (%d/%d HP).", move, target, cur, max)
+		}
+		return fmt.Sprintf("You use %s and restore %d HP (%d/%d HP).", move, healed, cur, max)
+	}
+	if healed <= 0 {
+		return fmt.Sprintf("The %s uses %s, but it is already at full health (%d/%d HP).", target, move, cur, max)
+	}
+	return fmt.Sprintf("The %s uses %s and restores %d HP (%d/%d HP).", target, move, healed, cur, max)
 }
 
 // itemOf reads an event's item payload, treating a missing key and a

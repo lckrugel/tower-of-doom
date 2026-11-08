@@ -706,6 +706,7 @@ func TestInvalidCommandInWrongState(t *testing.T) {
 // the attack stat itself, so the table pins the raw spread/crit math.
 func TestRollDamageSpread(t *testing.T) {
 	basic := entities.BasicAttack()
+	dmgModifier, critBonus := basic.Effects[0].DmgModifier, basic.Effects[0].CritBonus
 	tests := []struct {
 		name     string
 		stat     int
@@ -727,7 +728,7 @@ func TestRollDamageSpread(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			e := newTestEngine(tt.spread, tt.critRoll)
 
-			got, crit := e.rollMoveDamage(tt.stat, &basic, 10)
+			got, crit := e.rollMoveDamage(tt.stat, dmgModifier, critBonus, 10)
 
 			if got != tt.want {
 				t.Errorf("damage = %d, want %d", got, tt.want)
@@ -958,7 +959,8 @@ func TestCritNeverFiresWithZeroThreshold(t *testing.T) {
 
 	goblin := monsterFromFixture("goblin") // crit asset value absent → 0
 	basic := entities.BasicAttack()
-	got, crit := e.rollMoveDamage(2, &basic, goblin.CritThreshold())
+	effect := basic.Effects[0]
+	got, crit := e.rollMoveDamage(2, effect.DmgModifier, effect.CritBonus, goblin.CritThreshold())
 
 	if crit {
 		t.Error("crit fired with a 0 threshold")

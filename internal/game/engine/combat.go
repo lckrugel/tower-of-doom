@@ -163,18 +163,18 @@ func (e *Engine) stateOf(c Combatant) *combatantState {
 // rollMoveDamage resolves a strike made with a Combat 2.0 move, in this
 // rng order (a determinism contract):
 //
-//  1. base = round(effective DMG × move.DmgModifier / 100) — pure math,
+//  1. base = round(effective DMG × dmgModifier / 100) — pure math,
 //     no rng (the modifier is a percent, 100 = neutral);
 //  2. damage spread: max(1, base − 1 + Intn(3)) (±1 around the base,
 //     floored at 1, no misses);
-//  3. crit: Intn(100) < clamp(critThreshold + move.CritBonus, 0, 100) —
+//  3. crit: Intn(100) < clamp(critThreshold + critBonus, 0, 100) —
 //     doubles the swung damage;
 //  4. (a status-carrying move rolls its application chance AFTER the
 //     crit — see the status effects.)
-func (e *Engine) rollMoveDamage(effDmg int, move *entities.Move, critThreshold int) (swing int, crit bool) {
-	base := int(math.Round(float64(effDmg*move.DmgModifier) / 100))
+func (e *Engine) rollMoveDamage(effDmg, dmgModifier, critBonus, critThreshold int) (swing int, crit bool) {
+	base := int(math.Round(float64(effDmg*dmgModifier) / 100))
 	swing = max(1, base-1+e.rng.Intn(3))
-	crit = e.rng.Intn(100) < min(100, max(0, critThreshold+move.CritBonus))
+	crit = e.rng.Intn(100) < min(100, max(0, critThreshold+critBonus))
 	if crit {
 		swing *= 2
 	}
@@ -186,12 +186,67 @@ func (e *Engine) rollMoveDamage(effDmg int, move *entities.Move, critThreshold i
 // mitigated by the enemy's EFFECTIVE DEF, then the plain TakeDmg clamp.
 // rng order: spread → crit (→ status chance when the move carries one).
 func (e *Engine) heroStrike(move *entities.Move) []Event {
-	enemy := e.currentEnemy()
-	swing, crit := e.rollMoveDamage(e.heroStat(entities.StatDMG), move, e.Player.CritThreshold())
-	events := []Event{NewMoveUsedOnSide(e.Player.Name(), move.Name, ActorHero)}
-	events = append(events, NewDamageDealtWithMove(enemy,
-		enemy.TakeDmg(effectiveDamage(swing, e.enemyStat(entities.StatDEF))), crit, move.Name))
-	events = append(events, e.applyStrikeStatus(move, e.Player, enemy)...)
+	return e.resolveMoveEffects(move, e.Player, e.currentEnemy(), ActorHero)
+}
+
+// resolveMoveEffects executes a move's authored effects in order.
+func (e *Engine) resolveMoveEffects(move *entities.Move, attacker, defender Combatant, side ActorSide) []Event {
+	events := []Event{NewMoveUsedOnSide(attacker.Name(), move.Name, side)}
+	for _, effect := range move.Effects {
+		target := defender
+		if effect.Target == entities.TargetSelf {
+			target = attacker
+		}
+		if !target.IsAlive() {
+			if effect.Type == "status" {
+				e.rng.Intn(100)
+			}
+			continue
+		}
+		switch effect.Type {
+		case "damage":
+			if target != defender {
+				continue
+			}
+			var dmg int
+			var crit bool
+			if side == ActorHero {
+				swing, c := e.rollMoveDamage(e.heroStat(entities.StatDMG), effect.DmgModifier, effect.CritBonus, attacker.CritThreshold())
+				crit = c
+				dmg = target.TakeDmg(effectiveDamage(swing, e.enemyStat(entities.StatDEF)))
+			} else {
+				swing, c := e.rollMoveDamage(e.enemyStat(entities.StatDMG), effect.DmgModifier, effect.CritBonus, attacker.CritThreshold())
+				crit = c
+				dmg = target.TakeDmg(effectiveDamage(swing, e.heroStat(entities.StatDEF)))
+			}
+			if side == ActorHero {
+				events = append(events, NewDamageDealtWithMove(target, dmg, crit, move.Name))
+			} else {
+				events = append(events, NewDamageTakenWithMove(target, dmg, crit, move.Name))
+			}
+		case "heal":
+			amount := effect.Flat + target.MaxHP()*effect.Percent/100
+			healed := target.Heal(amount)
+			events = append(events, NewCombatHealed(target, side, move.Name, healed))
+		case "status":
+			fired := e.rng.Intn(100) < effect.Status.Chance
+			statusTarget := target
+			if effect.Target == entities.TargetSelf {
+				statusTarget = attacker
+			} else if effect.Target == entities.TargetEnemy {
+				statusTarget = defender
+			}
+			if !fired || !statusTarget.IsAlive() {
+				continue
+			}
+			asset, ok := e.reg.StatusByID(effect.Status.ID)
+			if !ok {
+				panic(fmt.Sprintf("unreachable: move %v references unknown status %v despite passing content validation", move.ID, effect.Status.ID))
+			}
+			st := entities.NewStatusFromAsset(asset)
+			events = append(events, NewStatusApplied(statusTarget, st, e.stateOf(statusTarget).applyStatus(st)))
+		}
+	}
 	return events
 }
 
@@ -203,28 +258,6 @@ func (e *Engine) heroStrike(move *entities.Move) []Event {
 // the longest duration; a strike that KILLED its recipient afflicts
 // nothing (dead combatants can't take statuses) — the roll still
 // happened.
-func (e *Engine) applyStrikeStatus(move *entities.Move, attacker, defender Combatant) []Event {
-	if !move.HasStatus() {
-		return nil
-	}
-	fired := e.rng.Intn(100) < move.Status.Chance
-	recipient := defender
-	if move.TargetSelf() {
-		recipient = attacker
-	}
-	if !fired || !recipient.IsAlive() {
-		return nil
-	}
-	asset, ok := e.reg.StatusByID(move.Status.ID)
-	if !ok {
-		panic(fmt.Sprintf("unreachable: move %v references unknown status %v despite passing content validation",
-			move.ID, move.Status.ID))
-	}
-	status := entities.NewStatusFromAsset(asset)
-	turns := e.stateOf(recipient).applyStatus(status)
-	return []Event{NewStatusApplied(recipient, status, turns)}
-}
-
 // enemyTurnMove resolves the monster's move for this turn (AI v1): ONE
 // Intn over the cooldown-filtered move set's total weight — the rng
 // contract is a single pick roll per monster turn. Locked moves are
@@ -254,13 +287,7 @@ func (e *Engine) enemyTurnMove() *entities.Move {
 // the given move — the same move math as the hero's side, over the
 // monster's EFFECTIVE stats (its own crit asset plus the move's bonus).
 func (e *Engine) enemyStrike(move *entities.Move) []Event {
-	enemy := e.currentEnemy()
-	swing, crit := e.rollMoveDamage(e.enemyStat(entities.StatDMG), move, enemy.CritThreshold())
-	events := []Event{NewMoveUsedOnSide(enemy.Name(), move.Name, ActorEnemy)}
-	events = append(events, NewDamageTakenWithMove(e.Player,
-		e.Player.TakeDmg(effectiveDamage(swing, e.heroStat(entities.StatDEF))), crit, move.Name))
-	events = append(events, e.applyStrikeStatus(move, enemy, e.Player)...)
-	return events
+	return e.resolveMoveEffects(move, e.currentEnemy(), e.Player, ActorEnemy)
 }
 
 // enemyFreeTurn is the single enemy attack granted by a failed sneak or a

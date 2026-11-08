@@ -12,11 +12,14 @@ import (
 // Types mirror the embedded content too (all four are creature- or
 // both-typed: monster kits and shrine pools can carry them).
 func testMoves() map[string]game.MoveAsset {
+	damage := func(modifier, crit int) []game.MoveEffectAsset {
+		return []game.MoveEffectAsset{{Type: "damage", Target: "enemy", DmgModifier: intPtr(modifier), CritBonus: intPtr(crit)}}
+	}
 	return map[string]game.MoveAsset{
-		"basic_attack":     {ID: "basic_attack", Name: "Basic Attack", Tier: 1, DmgModifier: 100, Weight: 100, Type: "both"},
-		"heavy_slash":      {ID: "heavy_slash", Name: "Heavy Slash", Tier: 2, DmgModifier: 175, Cooldown: 2, Weight: 60, Type: "both"},
-		"quick_stab":       {ID: "quick_stab", Name: "Quick Stab", Tier: 1, DmgModifier: 60, CritBonus: 20, Weight: 100, Type: "both"},
-		"assassins_strike": {ID: "assassins_strike", Name: "Assassin's Strike", Tier: 3, DmgModifier: 110, CritBonus: 35, Cooldown: 3, Weight: 30, Type: "both"},
+		"basic_attack":     {ID: "basic_attack", Name: "Basic Attack", Tier: 1, Effects: damage(100, 0), Weight: 100, Type: "both"},
+		"heavy_slash":      {ID: "heavy_slash", Name: "Heavy Slash", Tier: 2, Effects: damage(175, 0), Cooldown: 2, Weight: 60, Type: "both"},
+		"quick_stab":       {ID: "quick_stab", Name: "Quick Stab", Tier: 1, Effects: damage(60, 20), Weight: 100, Type: "both"},
+		"assassins_strike": {ID: "assassins_strike", Name: "Assassin's Strike", Tier: 3, Effects: damage(110, 35), Cooldown: 3, Weight: 30, Type: "both"},
 	}
 }
 
@@ -31,13 +34,13 @@ func TestCanonicalBasicAttackUsesRegistryDefinitionInEngine(t *testing.T) {
 	e := movesEngine()
 	asset := game.MoveAsset{
 		ID: "basic_attack", Name: "Modded Basic", Type: "both", Tier: 1,
-		DmgModifier: 135, CritBonus: 7, Cooldown: 1, Weight: 25,
+		Effects: []game.MoveEffectAsset{{Type: "damage", Target: "enemy", DmgModifier: intPtr(135), CritBonus: intPtr(7)}}, Cooldown: 1, Weight: 25,
 	}
 	e.reg.Moves[asset.ID] = asset
 	e.Player.ForgetMove(entities.Punch().ID)
 
 	heroMoves := e.CombatMoves()
-	if len(heroMoves) != 1 || heroMoves[0].Name != "Modded Basic" || heroMoves[0].DmgModifier != 135 || heroMoves[0].Cooldown != 1 {
+	if len(heroMoves) != 1 || heroMoves[0].Name != "Modded Basic" || heroMoves[0].Effects[0].DmgModifier != 135 || heroMoves[0].Cooldown != 1 {
 		t.Fatalf("hero fallback = %+v, want registry-defined basic attack", heroMoves)
 	}
 	monsterMoves, err := e.monsterMoves(game.MonsterAsset{ID: "rat"})
@@ -47,7 +50,7 @@ func TestCanonicalBasicAttackUsesRegistryDefinitionInEngine(t *testing.T) {
 
 	locked := entities.NewMoveFromAsset(game.MoveAsset{
 		ID: "locked", Name: "Locked", Type: "both", Tier: 1,
-		DmgModifier: 100, Cooldown: 2, Weight: 1,
+		Effects: []game.MoveEffectAsset{{Type: "damage", Target: "enemy", DmgModifier: intPtr(100)}}, Cooldown: 2, Weight: 1,
 	})
 	startEncounter(e, entities.NewMonsterFromAsset(game.MonsterAsset{
 		ID: "rat", Name: "Rat", Difficulty: 1, HP: 20,
@@ -55,10 +58,226 @@ func TestCanonicalBasicAttackUsesRegistryDefinitionInEngine(t *testing.T) {
 	e.State = StateCombat
 	e.enemyCombat = newCombatantState()
 	e.enemyCombat.cooldowns[locked.ID] = 2
-	if got := e.enemyTurnMove(); got.ID != asset.ID || got.Name != asset.Name || got.DmgModifier != asset.DmgModifier {
+	if got := e.enemyTurnMove(); got.ID != asset.ID || got.Name != asset.Name || got.Effects[0].DmgModifier != 135 {
 		t.Errorf("all-locked enemy fallback = %+v, want registry-defined basic attack", got)
 	}
 }
+
+func TestUtilityHealMoveResolvesWithoutDamageRollAndEnemyStillActs(t *testing.T) {
+	e := movesEngine(0, 1, 50)
+	flat, percent := 7, 10
+	asset := game.MoveAsset{ID: "mend", Name: "Mend", Type: "both", Weight: 1, Effects: []game.MoveEffectAsset{{Type: "heal", Target: "self", Flat: &flat, Percent: &percent}}}
+	e.reg.Moves[asset.ID] = asset
+	learn(e, "mend")
+	e.Player.CurrentHP = 80
+	startEncounter(e, monsterFromFixture("goblin"))
+	e.State = StateCombat
+	stub := &stubRng{values: []int{0, 1, 50}}
+	e.rng = stub
+	events := e.Process(Command{Type: CmdMove, Index: 0})
+	if got := eventTypes(events); !typesEqual(got, EventMoveUsed, EventCombatHealed, EventMoveUsed, EventCombatDamageTaken) {
+		t.Fatalf("events = %v, want utility use/heal followed by enemy action", got)
+	}
+	if got := e.Player.CurrentHP; got != 95 {
+		t.Errorf("hero HP = %d, want 95 (heal 17, then enemy hit for 2)", got)
+	}
+	if stub.calls != 3 {
+		t.Errorf("rng calls = %d, want 3 (no hero damage spread/crit)", stub.calls)
+	}
+	heal := events[1].Data
+	if heal["healed"] != 17 || heal["hp_exact"] != 97 || heal["max_hp"] != 100 || heal["side"] != ActorHero || heal["move"] != "Mend" || heal["target"] != e.Player.Name() {
+		t.Errorf("heal payload = %#v", heal)
+	}
+}
+
+func TestUtilityMoveCooldownTicksOnCompletedRounds(t *testing.T) {
+	flat := 7
+	e := movesEngine(0, 1, 50, 1, 50, 0, 1, 50, 1, 50, 0, 1, 50)
+	e.reg.Moves["mend"] = game.MoveAsset{
+		ID: "mend", Name: "Mend", Type: "both", Weight: 1, Cooldown: 2,
+		Effects: []game.MoveEffectAsset{{Type: "heal", Target: "self", Flat: &flat}},
+	}
+	heroWithDamage(e, 5)
+	learn(e, "mend", "quick_stab")
+	startEncounter(e, monsterFromFixture("goblin"))
+	e.Process(Command{Type: CmdFight})
+	e.heroCombat.statuses = []activeStatus{{status: entities.Status{ID: "guard", Name: "Guard", Kind: entities.StatusBuff, Stat: entities.StatDEF, StatAmount: 5}, turnsLeft: 3}}
+
+	events := e.Process(Command{Type: CmdMove, Index: 0}) // Mend starts its full cooldown after its turn.
+	if got := eventTypes(events); !typesEqual(got, EventMoveUsed, EventCombatHealed, EventMoveUsed, EventCombatDamageTaken) {
+		t.Fatalf("utility round events = %v, want heal followed by enemy action", got)
+	}
+	if !e.heroCombat.onCooldown("mend") {
+		t.Fatal("Mend should still be cooling down after its use round")
+	}
+	if got := e.heroCombat.cooldowns["mend"]; got != 2 {
+		t.Errorf("Mend cooldown after use round = %d, want full value 2", got)
+	}
+	if got := e.heroCombat.statuses[0].turnsLeft; got != 2 {
+		t.Errorf("Guard turns after utility round = %d, want 2", got)
+	}
+
+	blocked := e.Process(Command{Type: CmdMove, Index: 0})
+	if got := eventTypes(blocked); !typesEqual(got, EventMessage) {
+		t.Fatalf("cooling utility events = %v, want blocked move only", got)
+	}
+	if got := e.heroCombat.cooldowns["mend"]; got != 2 {
+		t.Errorf("blocked action changed Mend cooldown to %d, want 2", got)
+	}
+
+	// One intervening valid action ticks the cooldown once; a second one
+	// completes the full lock while the enemy and status still progress.
+	events = e.Process(Command{Type: CmdMove, Index: 1})
+	if got := eventTypes(events); !typesEqual(got, EventMoveUsed, EventCombatDamageDealt, EventMoveUsed, EventCombatDamageTaken) {
+		t.Fatalf("intervening round events = %v, want hero and enemy actions", got)
+	}
+	if !e.heroCombat.onCooldown("mend") || e.heroCombat.cooldowns["mend"] != 1 {
+		t.Fatal("Mend should remain locked for one more completed round")
+	}
+	if got := e.heroCombat.statuses[0].turnsLeft; got != 1 {
+		t.Errorf("Guard turns after second completed round = %d, want 1", got)
+	}
+
+	e.Process(Command{Type: CmdMove, Index: 1})
+	if e.heroCombat.onCooldown("mend") {
+		t.Fatal("Mend should be available after its two locked rounds")
+	}
+	events = e.Process(Command{Type: CmdMove, Index: 0})
+	if got := eventTypes(events); !typesEqual(got, EventMoveUsed, EventCombatHealed, EventMoveUsed, EventCombatDamageTaken) {
+		t.Fatalf("ready utility events = %v, want Mend followed by enemy action", got)
+	}
+}
+
+func TestOrderedDamageAndHealEffects(t *testing.T) {
+	t.Run("damage then self heal still resolves after lethal enemy damage", func(t *testing.T) {
+		e := movesEngine(1, 50)
+		heroWithDamage(e, 100)
+		e.Player.CurrentHP = 50
+		flat := 10
+		move := entities.NewMoveFromAsset(game.MoveAsset{ID: "ordered", Name: "Ordered", Effects: []game.MoveEffectAsset{
+			{Type: "damage", Target: "enemy", DmgModifier: intPtr(100)},
+			{Type: "heal", Target: "self", Flat: &flat},
+		}})
+		enemy := monsterFromFixture("goblin")
+		startEncounter(e, enemy)
+		events := e.resolveMoveEffects(&move, e.Player, &enemy, ActorHero)
+		if len(events) != 3 || events[1].Type != EventCombatDamageDealt || events[2].Type != EventCombatHealed {
+			t.Fatalf("events = %v, want move-used, damage, heal in authored order", eventTypes(events))
+		}
+		if enemy.IsAlive() || e.Player.CurrentHP != 60 {
+			t.Errorf("enemy alive=%v, hero HP=%d; want dead enemy and hero HP 60", enemy.IsAlive(), e.Player.CurrentHP)
+		}
+	})
+	t.Run("damage and heal apply in their authored order", func(t *testing.T) {
+		e := movesEngine(1, 50)
+		heroWithDamage(e, 5)
+		e.Player.CurrentHP = 50
+		flat := 10
+		move := entities.NewMoveFromAsset(game.MoveAsset{ID: "ordered", Name: "Ordered", Effects: []game.MoveEffectAsset{
+			{Type: "heal", Target: "self", Flat: &flat},
+			{Type: "damage", Target: "enemy", DmgModifier: intPtr(100)},
+		}})
+		enemy := monsterFromFixture("goblin")
+		startEncounter(e, enemy)
+		events := e.resolveMoveEffects(&move, e.Player, &enemy, ActorHero)
+		if len(events) != 3 || events[1].Type != EventCombatHealed || events[2].Type != EventCombatDamageDealt {
+			t.Fatalf("events = %v, want move-used, heal, damage", eventTypes(events))
+		}
+		if e.Player.CurrentHP != 60 || enemy.HP() != 25 {
+			t.Errorf("hero HP=%d enemy HP=%d, want 60/25", e.Player.CurrentHP, enemy.HP())
+		}
+	})
+}
+
+func TestMonsterCombatHealEventReportsActualRestoreAndSide(t *testing.T) {
+	e := movesEngine()
+	flat := 10
+	move := entities.NewMoveFromAsset(game.MoveAsset{ID: "mend", Name: "Mend", Effects: []game.MoveEffectAsset{{Type: "heal", Target: "self", Flat: &flat}}})
+	enemy := monsterFromFixture("goblin")
+	startEncounter(e, enemy)
+	actor := e.currentEnemy()
+	actor.TakeDmg(5)
+	events := e.resolveMoveEffects(&move, actor, e.Player, ActorEnemy)
+	if len(events) != 2 || events[1].Type != EventCombatHealed {
+		t.Fatalf("events = %v, want move-used and combat-healed", eventTypes(events))
+	}
+	data := events[1].Data
+	if data["target"] != actor.Name() || data["side"] != ActorEnemy || data["move"] != "Mend" || data["healed"] != 5 || data["hp_exact"] != actor.MaxHP() || data["max_hp"] != actor.MaxHP() {
+		t.Errorf("monster heal payload = %#v", data)
+	}
+	full := e.resolveMoveEffects(&move, actor, e.Player, ActorEnemy)[1].Data
+	if full["healed"] != 0 || full["hp_exact"] != actor.MaxHP() {
+		t.Errorf("at-cap monster heal payload = %#v", full)
+	}
+}
+
+func TestMonsterPureHealThroughEngineTurn(t *testing.T) {
+	flat := 10
+	healAsset := game.MoveAsset{
+		ID: "mend", Name: "Mend", Type: "both", Weight: 1,
+		Effects: []game.MoveEffectAsset{{Type: "heal", Target: "self", Flat: &flat}},
+	}
+	makeEnemy := func() entities.Monster {
+		move := entities.NewMoveFromAsset(healAsset)
+		return entities.NewMonsterFromAsset(game.MonsterAsset{
+			ID: "healer", Name: "Healer", Difficulty: 1, HP: 20, Damage: 2, Speed: 10,
+		}, move)
+	}
+
+	t.Run("ordinary hero round", func(t *testing.T) {
+		e := movesEngine()
+		e.Player.CurrentHP = 80
+		startEncounter(e, makeEnemy())
+		e.CurrentEncounter.Monsters[0].TakeDmg(5)
+		e.Process(Command{Type: CmdFight})
+		stub := &stubRng{values: []int{1, 50, 0}}
+		e.rng = stub
+
+		events := e.Process(Command{Type: CmdMove, Index: 0})
+		if got := eventTypes(events); !typesEqual(got, EventMoveUsed, EventCombatDamageDealt, EventMoveUsed, EventCombatHealed) {
+			t.Fatalf("events = %v, want hero action then monster heal", got)
+		}
+		if events[2].Data["move"] != "Mend" || events[2].Data["user"] != "Healer" {
+			t.Errorf("enemy move event = %#v, want Healer using Mend", events[2].Data)
+		}
+		heal := events[3].Data
+		if heal["target"] != "Healer" || heal["side"] != ActorEnemy || heal["move"] != "Mend" || heal["healed"] != 6 || heal["hp_exact"] != 20 || heal["max_hp"] != 20 {
+			t.Errorf("monster heal payload = %#v, want actual 6 HP to Healer at 20/20", heal)
+		}
+		if events[3].Data["damage_dealt"] != nil || events[3].Data["crit"] != nil {
+			t.Errorf("pure heal event contains damage fields: %#v", events[3].Data)
+		}
+		if stub.calls != 3 {
+			t.Errorf("rng calls = %d, want 3 (hero strike and monster move pick; no enemy strike)", stub.calls)
+		}
+	})
+
+	t.Run("failed flee grants a free enemy heal turn", func(t *testing.T) {
+		e := movesEngine()
+		startEncounter(e, makeEnemy())
+		e.CurrentEncounter.Monsters[0].TakeDmg(5)
+		e.Process(Command{Type: CmdFight})
+		stub := &stubRng{values: []int{99, 0}}
+		e.rng = stub
+
+		events := e.Process(Command{Type: CmdFlee})
+		if got := eventTypes(events); !typesEqual(got, EventMessage, EventMoveUsed, EventCombatHealed) {
+			t.Fatalf("events = %v, want failed flee message then enemy heal", got)
+		}
+		if events[0].Data["message"] != "You failed to flee!" {
+			t.Errorf("flee event = %#v, want failed flee", events[0].Data)
+		}
+		heal := events[2].Data
+		if events[1].Data["move"] != "Mend" || events[1].Data["user"] != "Healer" || heal["target"] != "Healer" || heal["side"] != ActorEnemy || heal["move"] != "Mend" || heal["healed"] != 5 || heal["hp_exact"] != 20 {
+			t.Errorf("enemy heal events = %#v / %#v, want Healer's actual 5 HP heal", events[1].Data, heal)
+		}
+		if stub.calls != 2 {
+			t.Errorf("rng calls = %d, want 2 (failed flee and enemy move pick only)", stub.calls)
+		}
+	})
+}
+
+func intPtr(v int) *int { return &v }
 
 // learn teaches the hero the named fixture moves in order (learning
 // order = the effective-set order the CmdMove index points into).
@@ -156,7 +375,7 @@ func TestMoveCritBonus(t *testing.T) {
 func TestMoveCritThresholdClamps(t *testing.T) {
 	t.Run("a huge bonus clamps at 100", func(t *testing.T) {
 		e := movesEngine(1, 99, 0, 1, 50) // 99 < 100 → crit on every roll but 100
-		e.reg.Moves["overkill"] = game.MoveAsset{ID: "overkill", Name: "Overkill", DmgModifier: 100, CritBonus: 200, Weight: 1}
+		e.reg.Moves["overkill"] = game.MoveAsset{ID: "overkill", Name: "Overkill", Effects: []game.MoveEffectAsset{{Type: "damage", Target: "enemy", DmgModifier: intPtr(100), CritBonus: intPtr(200)}}, Weight: 1}
 		heroWithDamage(e, 5)
 		learn(e, "overkill")
 		startEncounter(e, monsterFromFixture("goblin"))
@@ -171,7 +390,7 @@ func TestMoveCritThresholdClamps(t *testing.T) {
 
 	t.Run("a negative bonus clamps at 0", func(t *testing.T) {
 		e := movesEngine(1, 0, 0, 1, 50) // roll 0 with threshold 0 must not crit
-		e.reg.Moves["dull"] = game.MoveAsset{ID: "dull", Name: "Dull Blow", DmgModifier: 100, CritBonus: -50, Weight: 1}
+		e.reg.Moves["dull"] = game.MoveAsset{ID: "dull", Name: "Dull Blow", Effects: []game.MoveEffectAsset{{Type: "damage", Target: "enemy", DmgModifier: intPtr(100), CritBonus: intPtr(-50)}}, Weight: 1}
 		heroWithDamage(e, 5)
 		learn(e, "dull")
 		startEncounter(e, monsterFromFixture("goblin"))
@@ -321,7 +540,7 @@ func TestFreshHeroStartsWithThePunch(t *testing.T) {
 			},
 			Moves: map[string]game.MoveAsset{
 				"basic_attack": {ID: "basic_attack", Name: "Basic Strike", Tier: 1,
-					DmgModifier: 100, Weight: 100, Type: "both"},
+					Effects: []game.MoveEffectAsset{{Type: "damage", Target: "enemy", DmgModifier: intPtr(100)}}, Weight: 100, Type: "both"},
 			},
 			Sections: testSections(),
 		})
