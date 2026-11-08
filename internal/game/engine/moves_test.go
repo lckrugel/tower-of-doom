@@ -60,6 +60,33 @@ func TestCanonicalBasicAttackUsesRegistryDefinitionInEngine(t *testing.T) {
 	}
 }
 
+func TestUtilityHealMoveResolvesWithoutDamageRollAndEnemyStillActs(t *testing.T) {
+	e := movesEngine(0, 1, 50)
+	flat, percent := 7, 10
+	asset := game.MoveAsset{ID: "mend", Name: "Mend", Type: "both", Weight: 1, Effects: []game.MoveEffectAsset{{Type: "heal", Target: "self", Flat: &flat, Percent: &percent}}}
+	e.reg.Moves[asset.ID] = asset
+	learn(e, "mend")
+	e.Player.CurrentHP = 80
+	startEncounter(e, monsterFromFixture("goblin"))
+	e.State = StateCombat
+	stub := &stubRng{values: []int{0, 1, 50}}
+	e.rng = stub
+	events := e.Process(Command{Type: CmdMove, Index: 0})
+	if got := eventTypes(events); !typesEqual(got, EventMoveUsed, EventHeroHealed, EventMoveUsed, EventCombatDamageTaken) {
+		t.Fatalf("events = %v, want utility use/heal followed by enemy action", got)
+	}
+	if got := e.Player.CurrentHP; got != 95 {
+		t.Errorf("hero HP = %d, want 95 (heal 17, then enemy hit for 2)", got)
+	}
+	if stub.calls != 3 {
+		t.Errorf("rng calls = %d, want 3 (no hero damage spread/crit)", stub.calls)
+	}
+	heal := events[1].Data
+	if heal["healed"] != 17 || heal["hp_exact"] != 97 || heal["max_hp"] != 100 || heal["side"] != ActorHero || heal["move"] != "Mend" {
+		t.Errorf("heal payload = %#v", heal)
+	}
+}
+
 // learn teaches the hero the named fixture moves in order (learning
 // order = the effective-set order the CmdMove index points into).
 func learn(e *Engine, ids ...string) {
