@@ -1033,7 +1033,7 @@ func TestLoadEmbeddedMovesAndStatuses(t *testing.T) {
 	if got, want := len(r.Moves), 26; got != want {
 		t.Errorf("embedded moves = %d, want %d (basic attack + punch + tier moves + steel_flurry)", got, want)
 	}
-	if got, want := len(r.Statuses), 10; got != want {
+	if got, want := len(r.Statuses), 12; got != want {
 		t.Errorf("embedded statuses = %d, want %d", got, want)
 	}
 
