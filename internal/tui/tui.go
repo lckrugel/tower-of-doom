@@ -87,10 +87,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // handleKey resolves a key press: ctrl+c always quits — immediately,
 // even out of the quit confirmation. While the confirmation is armed
 // every key but y cancels back to the normal bar. Otherwise esc quits —
-// except where it means something closer (it closes the bag; while a
-// chest loot is pending, the merchant is open, a fight is on or the
-// shrine's forget prompt waits it does nothing: those are explicit-only
-// decisions, and in combat the arrows are the move grid's navigation —
+// except where it means something closer: it goes back from the bag,
+// merchant or shrine. A chest loot decision and combat remain
+// explicit-only, and in combat the arrows are the move grid's navigation —
 // esc there would be one stray finger from ending the run). Arrows move
 // the action-bar cursor — or the state's row cursor while the bag, the
 // shop list or the shrine's forget rows are open, or the move grid's
@@ -122,9 +121,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
 		switch m.engine.State {
-		case engine.StateInventory:
-			return m.dispatch(closeAction())
-		case engine.StateLoot, engine.StateMerchant, engine.StateCombat, engine.StateLearn:
+		case engine.StateInventory, engine.StateMerchant, engine.StateLearn:
+			return m.dispatch(backAction(m.engine.State))
+		case engine.StateLoot, engine.StateCombat:
 			return m, nil
 		}
 		return m.dispatch(quitAction())

@@ -247,7 +247,7 @@ func TestMerchantFoundRendersInTheLog(t *testing.T) {
 func TestLeaveReturnsToExploring(t *testing.T) {
 	m := New(merchantEngine(2, 1, 0))
 
-	m, _ = press(m, "l")
+	m, _ = press(m, "c")
 
 	if m.engine.State != engine.StateExploring {
 		t.Errorf("state after 'l' = %v, want StateExploring", m.engine.State)
@@ -261,9 +261,8 @@ func TestLeaveReturnsToExploring(t *testing.T) {
 	}
 }
 
-// esc at the merchant is a no-op, like the loot decision: leaving the
-// shop is explicit ([L]), never a stray keypress away.
-func TestEscapeIsANoOpAtTheMerchant(t *testing.T) {
+// Esc activates the same contextual Back action as the merchant action bar.
+func TestEscapeLeavesTheMerchant(t *testing.T) {
 	m := New(merchantEngine(2, 1, 0))
 	logLen := len(m.log)
 
@@ -272,14 +271,14 @@ func TestEscapeIsANoOpAtTheMerchant(t *testing.T) {
 	if cmd != nil {
 		t.Error("esc at the merchant must not request a quit")
 	}
-	if m.engine.State != engine.StateMerchant {
-		t.Errorf("state after esc = %v, want to stay shopping", m.engine.State)
+	if m.engine.State != engine.StateExploring {
+		t.Errorf("state after esc = %v, want StateExploring", m.engine.State)
 	}
-	if len(m.engine.MerchantStock) != 2 {
-		t.Error("esc must not touch the stock")
+	if len(m.engine.MerchantStock) != 0 {
+		t.Error("leaving the merchant should discard its stock")
 	}
-	if len(m.log) != logLen {
-		t.Error("esc wrote to the log at the merchant")
+	if len(m.log) != logLen+1 || !strings.Contains(joinedLog(m), "leave the merchant") {
+		t.Error("leaving the merchant should log its exit")
 	}
 }
 
@@ -373,7 +372,7 @@ func TestViewMerchantPanel(t *testing.T) {
 		"YOUR BAG (1/10)",
 		"Spare Charm (+1 DEF) — sells for 25 gold",
 		"▶ Offer A", // the cursor opens on the first stock row
-		"[P] Buy", "[V] Sell", "[L] Leave", "[Q] Quit",
+		"[P] Buy", "[V] Sell", "[C] Back", "[Q] Quit",
 	} {
 		if !strings.Contains(view, want) {
 			t.Errorf("merchant view missing %q:\n%s", want, view)

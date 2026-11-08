@@ -58,20 +58,18 @@ var orderedOptions = []struct {
 	{"b", "Bag", engine.CmdStashLoot}, // stash the chest loot in the bag
 	{"d", "Discard", engine.CmdDiscardLoot},
 	{"x", "Drop", engine.CmdDrop}, // destroy the selected bag item
-	{"c", "Close", engine.CmdClose},
+	{"c", "Back", engine.CmdClose},
 	{"p", "Buy", engine.CmdBuy}, // buy the offer under the shop cursor
 	{"o", "Buy Potion", engine.CmdBuyConsumable},
 	{"v", "Sell", engine.CmdSell}, // sell the selected bag item
-	{"l", "Leave", engine.CmdLeave},
+	{"c", "Back", engine.CmdLeave},
 	// The shrine's two steps: [L] Learn picks one of the pending offers
 	// (the choosing step), [F] Forget trades a learned move for the
-	// chosen one (the forgetting step), [N] Decline walks away from
-	// either. ("l" is Leave's and "f" is Fight's — the shrine's
-	// explicit-only decision screens reuse them; the uniqueness test
-	// documents the exception.)
+	// chosen one (the forgetting step), and [C] Back walks away from
+	// either. Back is shared contextually with the bag and merchant.
 	{"l", "Learn", engine.CmdChooseOffer},
 	{"f", "Forget", engine.CmdForget},
-	{"n", "Decline", engine.CmdDecline}, // n for "no — keep both"
+	{"c", "Back", engine.CmdDecline},
 	{"q", "Quit", engine.CmdQuit},
 }
 
@@ -183,6 +181,13 @@ func quitAction() action {
 	return action{key: "q", label: "Quit", cmd: engine.CmdQuit, enabled: true}
 }
 
-func closeAction() action {
-	return action{key: "c", label: "Close", cmd: engine.CmdClose, enabled: true}
+func backAction(state engine.GameState) action {
+	var cmd engine.CommandType = engine.CmdClose
+	switch state {
+	case engine.StateMerchant:
+		cmd = engine.CmdLeave
+	case engine.StateLearn:
+		cmd = engine.CmdDecline
+	}
+	return action{key: "c", label: "Back", cmd: cmd, enabled: true}
 }

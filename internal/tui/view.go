@@ -383,8 +383,8 @@ const moveRowNameWidth = 20
 // recorded ChosenMove is the FORGETTING step — the chosen move shown as
 // "learning:" over the hero's learned moves (weapon-granted ones are
 // not listed: they leave with the weapon), [F] Forget dispatching
-// CmdForget{Index}. [N] Decline resolves either step. The decision is
-// explicit-only (esc is a no-op), like the chest loot.
+// CmdForget{Index}. [C] Back resolves either step. Escape invokes the same
+// action, while chest loot remains an explicit-only decision.
 //
 // Height budget, worst case (16 rows): choosing = title + 2 dossiers ×2
 // lines = 5; forgetting = title + learning dossier 2 + label + 2 rows =
