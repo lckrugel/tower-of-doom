@@ -359,5 +359,17 @@
       { "type": "heal", "target": "self", "flat": 5 },
       { "type": "status", "target": "enemy", "status": { "id": "weaken", "chance": 50 } }
     ]
+  },
+  {
+    "id": "brand_of_the_breach",
+    "name": "Brand of the Breach",
+    "type": "creature",
+    "tier": 3,
+    "cooldown": 3,
+    "weight": 25,
+    "effects": [
+      { "type": "status", "target": "self", "status": { "id": "breachfire", "chance": 100 } },
+      { "type": "status", "target": "self", "status": { "id": "open_guard", "chance": 100 } }
+    ]
   }
 ]

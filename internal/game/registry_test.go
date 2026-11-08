@@ -675,6 +675,10 @@ func validMoves() []MoveAsset {
 		{ID: "crushing_blow", Name: "Crushing Blow", Tier: 2, Effects: status(120, "weaken", "enemy", 75), Cooldown: 3, Weight: 40, Type: "creature"},
 		{ID: "steel_flurry", Name: "Steel Flurry", Tier: 3, Effects: damage(110, nil), Weight: 70, Type: "weapon"},
 		{ID: "frost_touch", Name: "Frost Touch", Tier: 3, Effects: status(90, "slow", "enemy", 80), Cooldown: 3, Weight: 40, Type: "creature"},
+		{ID: "brand_of_the_breach", Name: "Brand of the Breach", Tier: 3, Effects: []MoveEffectAsset{
+			{Type: "status", Target: "self", Status: &MoveStatusEffectAsset{ID: "breachfire", Chance: 100}},
+			{Type: "status", Target: "self", Status: &MoveStatusEffectAsset{ID: "open_guard", Chance: 100}},
+		}, Cooldown: 3, Weight: 25, Type: "creature"},
 	}
 }
 
@@ -693,6 +697,8 @@ func validStatuses() []StatusAsset {
 		{ID: "guard", Name: "Guard", Kind: "buff",
 			Effect:   StatusEffectAsset{Type: "stat", Stat: "def", Amount: 5},
 			Duration: 2},
+		{ID: "breachfire", Name: "Breachfire", Kind: "buff", Effect: StatusEffectAsset{Type: "stat", Stat: "dmg", Percent: 35}, Duration: 2},
+		{ID: "open_guard", Name: "Open Guard", Kind: "debuff", Effect: StatusEffectAsset{Type: "stat", Stat: "def", Percent: -50}, Duration: 2},
 	}
 }
 
@@ -731,13 +737,13 @@ func TestMovesForTiers(t *testing.T) {
 		want  []string
 	}{
 		{"nil tiers is unrestricted (minus weapon-only moves)", nil,
-			[]string{"basic_attack", "crushing_blow", "frost_touch", "guard_strike", "heavy_slash", "quick_stab", "venom_bite"}},
+			[]string{"basic_attack", "brand_of_the_breach", "crushing_blow", "frost_touch", "guard_strike", "heavy_slash", "quick_stab", "venom_bite"}},
 		{"empty tiers is unrestricted", []int{},
-			[]string{"basic_attack", "crushing_blow", "frost_touch", "guard_strike", "heavy_slash", "quick_stab", "venom_bite"}},
+			[]string{"basic_attack", "brand_of_the_breach", "crushing_blow", "frost_touch", "guard_strike", "heavy_slash", "quick_stab", "venom_bite"}},
 		{"single tier", []int{1}, []string{"basic_attack", "guard_strike", "quick_stab", "venom_bite"}},
 		{"union of tiers, sorted", []int{3, 1},
-			[]string{"basic_attack", "frost_touch", "guard_strike", "quick_stab", "venom_bite"}},
-		{"a weapon-only move never enters the pool", []int{3}, []string{"frost_touch"}},
+			[]string{"basic_attack", "brand_of_the_breach", "frost_touch", "guard_strike", "quick_stab", "venom_bite"}},
+		{"tier 3 creature moves are shrine-available", []int{3}, []string{"brand_of_the_breach", "frost_touch"}},
 		{"unmatched tier is an empty pool", []int{9}, []string{}},
 	}
 	for _, tt := range tests {
@@ -891,7 +897,7 @@ func TestLoadEmbeddedMovesAndStatuses(t *testing.T) {
 		"venomous_blade": "both", "shield_wall": "both", "soul_rot": "creature",
 		"skull_crusher": "creature", "bloodletter": "creature", "dragons_might": "both",
 		"field_dressing": "both", "venomous_feint": "both", "ironroot_guard": "both",
-		"sanguine_rupture": "creature",
+		"sanguine_rupture": "creature", "brand_of_the_breach": "creature",
 	}
 	for id, wantType := range wantTypes {
 		move, ok := r.MoveByID(id)
@@ -924,6 +930,10 @@ func TestLoadEmbeddedMovesAndStatuses(t *testing.T) {
 			{Type: "damage", Target: "enemy", DmgModifier: ptr(120)},
 			{Type: "heal", Target: "self", Flat: ptr(5)},
 			{Type: "status", Target: "enemy", Status: &MoveStatusEffectAsset{ID: "weaken", Chance: 50}},
+		}},
+		"brand_of_the_breach": {"Brand of the Breach", 3, 3, 25, []MoveEffectAsset{
+			{Type: "status", Target: "self", Status: &MoveStatusEffectAsset{ID: "breachfire", Chance: 100}},
+			{Type: "status", Target: "self", Status: &MoveStatusEffectAsset{ID: "open_guard", Chance: 100}},
 		}},
 	}
 	for id, want := range wantNew {
@@ -985,10 +995,20 @@ func TestLoadEmbeddedMovesAndStatuses(t *testing.T) {
 		t.Errorf("guard drifted: %+v", guard)
 	}
 
-	if got, want := len(r.Moves), 20; got != want {
+	for _, want := range []StatusAsset{
+		{ID: "breachfire", Name: "Breachfire", Kind: "buff", Effect: StatusEffectAsset{Type: "stat", Stat: "dmg", Percent: 35}, Duration: 2},
+		{ID: "open_guard", Name: "Open Guard", Kind: "debuff", Effect: StatusEffectAsset{Type: "stat", Stat: "def", Percent: -50}, Duration: 2},
+	} {
+		got, ok := r.StatusByID(want.ID)
+		if !ok || !reflect.DeepEqual(got, want) {
+			t.Errorf("status %q = %+v, want %+v (found=%v)", want.ID, got, want, ok)
+		}
+	}
+
+	if got, want := len(r.Moves), 21; got != want {
 		t.Errorf("embedded moves = %d, want %d (basic attack + punch + the tier 1-4 set + steel_flurry)", got, want)
 	}
-	if got, want := len(r.Statuses), 4; got != want {
+	if got, want := len(r.Statuses), 6; got != want {
 		t.Errorf("embedded statuses = %d, want %d (the starter set)", got, want)
 	}
 	if got := r.MaxMoveTier(); got != 4 {

@@ -43,5 +43,29 @@
       "amount": 5
     },
     "duration": 2
+  },
+  {
+    "id": "breachfire",
+    "name": "Breachfire",
+    "kind": "buff",
+    "effect": {
+      "type": "stat",
+      "stat": "dmg",
+      "amount": 0,
+      "percent": 35
+    },
+    "duration": 2
+  },
+  {
+    "id": "open_guard",
+    "name": "Open Guard",
+    "kind": "debuff",
+    "effect": {
+      "type": "stat",
+      "stat": "def",
+      "amount": 0,
+      "percent": -50
+    },
+    "duration": 2
   }
 ]
