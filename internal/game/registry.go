@@ -105,13 +105,20 @@ type MoveStatusAsset struct {
 // MoveEffectAsset is one ordered move action. Numeric pointers preserve the
 // distinction between an omitted payload and an explicit zero.
 type MoveEffectAsset struct {
-	Type        string           `json:"type"`
-	Target      string           `json:"target"`
-	DmgModifier *int             `json:"dmg_modifier,omitempty"`
-	CritBonus   *int             `json:"crit_bonus,omitempty"`
-	Flat        *int             `json:"flat,omitempty"`
-	Percent     *int             `json:"percent,omitempty"`
-	Status      *MoveStatusAsset `json:"status,omitempty"`
+	Type        string                 `json:"type"`
+	Target      string                 `json:"target"`
+	DmgModifier *int                   `json:"dmg_modifier,omitempty"`
+	CritBonus   *int                   `json:"crit_bonus,omitempty"`
+	Flat        *int                   `json:"flat,omitempty"`
+	Percent     *int                   `json:"percent,omitempty"`
+	Status      *MoveStatusEffectAsset `json:"status,omitempty"`
+}
+
+// MoveStatusEffectAsset is the status payload for a new ordered effect;
+// its recipient is selected by the containing effect's Target.
+type MoveStatusEffectAsset struct {
+	ID     string `json:"id"`
+	Chance int    `json:"chance"`
 }
 
 // MoveAsset defines a Combat 2.0 move (an entry of moves.json). Only the
@@ -599,7 +606,7 @@ func (r *Registry) Validate(topFloor int) error {
 						fail("%s has negative healing component", prefix)
 					}
 				case "status":
-					if effect.Status == nil || effect.Status.Chance < 0 || effect.Status.Chance > 100 || (effect.Status.Target != "enemy" && effect.Status.Target != "self") {
+					if effect.Status == nil || effect.Status.Chance < 0 || effect.Status.Chance > 100 {
 						fail("%s has invalid status payload", prefix)
 					}
 					if _, ok := r.StatusByID(effect.Status.ID); !ok {

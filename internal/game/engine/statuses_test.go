@@ -247,8 +247,8 @@ func TestStatusApplication(t *testing.T) {
 	t.Run("multiple effect statuses roll independent chances", func(t *testing.T) {
 		e := statusesEngine()
 		effects := []game.MoveEffectAsset{
-			{Type: "status", Target: "enemy", Status: &game.MoveStatusAsset{ID: "poison", Chance: 50}},
-			{Type: "status", Target: "enemy", Status: &game.MoveStatusAsset{ID: "weaken", Chance: 50}},
+			{Type: "status", Target: "enemy", Status: &game.MoveStatusEffectAsset{ID: "poison", Chance: 50}},
+			{Type: "status", Target: "enemy", Status: &game.MoveStatusEffectAsset{ID: "weaken", Chance: 50}},
 		}
 		move := entities.NewMoveFromAsset(game.MoveAsset{ID: "double_status", Name: "Double Status", Effects: effects})
 		enemy := monsterFromFixture("goblin")

@@ -144,7 +144,7 @@ func NewMoveFromAsset(asset game.MoveAsset) Move {
 			e.Percent = *effect.Percent
 		}
 		if effect.Status != nil {
-			e.Status = MoveStatus{ID: effect.Status.ID, Chance: effect.Status.Chance, Target: MoveTarget(effect.Status.Target)}
+			e.Status = MoveStatus{ID: effect.Status.ID, Chance: effect.Status.Chance}
 		}
 		m.Effects = append(m.Effects, e)
 	}
@@ -152,7 +152,7 @@ func NewMoveFromAsset(asset game.MoveAsset) Move {
 		damage := MoveEffect{Type: "damage", Target: TargetEnemy, DmgModifier: asset.DmgModifier, CritBonus: asset.CritBonus}
 		m.Effects = append(m.Effects, damage)
 		if asset.Status != nil {
-			m.Effects = append(m.Effects, MoveEffect{Type: "status", Target: TargetEnemy, Status: MoveStatus{ID: asset.Status.ID, Chance: asset.Status.Chance, Target: MoveTarget(asset.Status.Target)}})
+			m.Effects = append(m.Effects, MoveEffect{Type: "status", Target: MoveTarget(asset.Status.Target), Status: MoveStatus{ID: asset.Status.ID, Chance: asset.Status.Chance}})
 		}
 	}
 	if asset.Status != nil {

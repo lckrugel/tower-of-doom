@@ -242,9 +242,9 @@ func (e *Engine) resolveMoveEffects(move *entities.Move, attacker, defender Comb
 		case "status":
 			fired := e.rng.Intn(100) < effect.Status.Chance
 			statusTarget := target
-			if effect.Status.Target == entities.TargetSelf {
+			if effect.Target == entities.TargetSelf {
 				statusTarget = attacker
-			} else if effect.Status.Target == entities.TargetEnemy {
+			} else if effect.Target == entities.TargetEnemy {
 				statusTarget = defender
 			}
 			if !fired || !statusTarget.IsAlive() {
