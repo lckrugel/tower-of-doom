@@ -49,7 +49,7 @@
     "name": "Venom Bite",
     "type": "creature",
     "tier": 1,
-    "dmg_modifier": 80,
+    "dmg_modifier": 90,
     "crit_bonus": 0,
     "cooldown": 2,
     "status": {
@@ -124,7 +124,7 @@
     "name": "Venomous Blade",
     "type": "both",
     "tier": 2,
-    "dmg_modifier": 85,
+    "dmg_modifier": 105,
     "crit_bonus": 0,
     "cooldown": 2,
     "status": {
