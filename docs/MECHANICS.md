@@ -111,12 +111,12 @@ helpers are for non-engine use only (e.g. item durability).
   at spawn). Filtering consumes no rng; when every move is locked the
   monster falls back to the canonical basic attack WITHOUT a pick roll —
   there is nothing left to pick.
-- **Status application (per status-carrying strike):** ONE
-  `Intn(100)` — fires when the roll is < the move's status chance. The
-  roll happens even when it fails (and even at chance 0), keeping every
-  rng sequence position-stable. The full per-strike rng order is
-  [monster move pick] → [spread] → [crit] → [status chance]; a strike
-  that killed its recipient still rolls, but afflicts nothing.
+- **Status application (per status effect):** ONE `Intn(100)` in authored
+  effect order — fires when the roll is < the effect's status chance. The
+  roll happens even when it fails (and even at chance 0), and even when
+  the recipient is dead; dead recipients are not afflicted. The per-strike
+  order is [monster move pick] → [spread] → [crit] → [status chances in
+  authored order].
 - **Round-end tick (completed rounds only):** the hero's statuses tick
   first, then the enemy's — each in application order: DoT damage (a
   plain clamp, no mitigation, CAN kill: a dead monster goes through the
@@ -469,12 +469,16 @@ below documents the shipped behavior.
 
 ### Moves
 
-- A Move is a new asset (`moves.json`): `id`, `name`, `type`
-  (`weapon`, `creature` or `both` — see "Move types" below), `tier`,
-  `dmg_modifier` (percent; 100 = neutral — DMG-only scaling),
-  `crit_bonus` (percentage points), `cooldown` (turns; 0 = spammable),
-  optional `status {id, chance, target: enemy|self}`, and `weight`
-  (monster AI).
+- A Move is an asset (`moves.json`) with `id`, `name`, `type`, `tier`,
+  `cooldown`, `weight`, and an ordered `effects` list. Effects can damage
+  an enemy, heal the user, or apply a status to self or enemy, and may be
+  combined in one move. Effects resolve in authored order. If an effect
+  kills a target, later effects continue for living recipients and skip
+  dead recipients; status chance rolls still occur in order even for dead
+  recipients. Healing is `flat + floor(user MaxHP × percent / 100)` (either
+  component may be omitted), applied through `Heal` and clamped to missing
+  HP. Healing has no resource or use limit: combat recovery by stalling is
+  intentionally unlimited.
 - Each combatant has AT MOST 4 moves (`MAX_MOVES`).
 - Monsters pick moves by weight (AI v1; a decision tree may come later):
   each monster turn, ONE `Intn` over the cooldown-filtered set's total
@@ -545,9 +549,11 @@ below documents the shipped behavior.
   weapon set is content-able to always have a ready move, so the
   RECOVER path is now content-unreachable — it stays as depth for
   hand-built states.
-- Damage: `base = round(effective DMG × dmg_modifier / 100)`, then the
-  usual spread and crit math; the crit check gains the move's
-  `crit_bonus`.
+- Damage effects use `dmg_modifier` (percent; 100 = neutral) and optional
+  `crit_bonus` (percentage points), then the usual spread and crit math.
+  Existing round, cooldown, and turn contracts are unchanged. Monster AI
+  still selects one available move by weighted random choice and may
+  choose healing moves even at full HP.
 
 ### Status effects
 
@@ -668,17 +674,17 @@ field is required as authored and validated at startup:
   Required — there is NO absent-field default; a missing or unknown
   word fails validation (startup-fatal; BREAKING for untyped mod moves).
 - `tier` — progression ladder (1 = earliest); absent/0 → 1.
-- `dmg_modifier` — percent scaling of the striker's DMG (100 = neutral);
-  validated to [50, 300].
-- `crit_bonus` — percentage points added to the striker's crit
-  threshold for this move; may be negative (the effective threshold is
-  clamped to [0, 100] at use time).
 - `cooldown` — turns the move stays locked after use (0 = spammable);
   validated ≥ 0.
-- `status` — optional `{id, chance, target}`: the status applied on
-  hit. `chance` is a percentage validated to [0, 100]; `target` is
-  `enemy` (the hit target) or `self` (the striker). The `id` must exist
-  in statuses.json.
+- `effects` — an ordered list; effect order is behaviorally significant.
+  Damage effects have `type: damage`, `target: enemy`, required
+  `dmg_modifier` and optional `crit_bonus`. Healing effects have
+  `type: heal`, `target: self`, and optional `flat` and/or `percent`.
+  Status effects have `type: status`, `target: self|enemy`, and nested
+  `status: {id, chance}`; the status id must exist and chance is [0, 100].
+  A single move may combine any of these effects. Healing uses flat plus
+  floored percent of the user's equipment-inclusive MaxHP, then `Heal`
+  clamps it to missing HP. There is no resource/use limit.
 - `weight` — the move's default AI weight (monster picks); ≥ 1.
 
 **Status asset** (`statuses.json`). Identity, kind, effect type, and
@@ -811,9 +817,11 @@ so the spam stays a weighted choice on both sides.
 
 - move: tier < 1 (absent/0 defaults to 1 at Load); `type` missing or
   not one of weapon/creature/both (no default — untyped mod moves stop
-  loading); `dmg_modifier` outside [50, 300]; cooldown < 0; weight < 1;
-  a `status` with chance outside [0, 100], an unknown `target` word, or
-  an unknown status id.
+  loading); cooldown < 0; weight < 1; malformed effects, invalid effect
+  targets or parameters, a status chance outside [0, 100], or an unknown
+  status id. This schema is breaking for mods: migrate former root-level
+  `dmg_modifier`, `crit_bonus`, and `status` fields into `effects`;
+  there is no automatic legacy translation.
 - status: kind not buff/debuff; effect type not dot/stat; dot amount
   < 1; stat amount = 0 or an unknown stat word; duration < 1.
 - monster: more than 4 moves, an unknown move id, a ref weight < 1, or
