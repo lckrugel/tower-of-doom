@@ -87,6 +87,49 @@ func TestUtilityHealMoveResolvesWithoutDamageRollAndEnemyStillActs(t *testing.T)
 	}
 }
 
+func TestOrderedDamageAndHealEffects(t *testing.T) {
+	t.Run("damage then self heal still resolves after lethal enemy damage", func(t *testing.T) {
+		e := movesEngine(1, 50)
+		heroWithDamage(e, 100)
+		e.Player.CurrentHP = 50
+		flat := 10
+		move := entities.NewMoveFromAsset(game.MoveAsset{ID: "ordered", Name: "Ordered", DmgModifier: 100, Effects: []game.MoveEffectAsset{
+			{Type: "damage", Target: "enemy", DmgModifier: intPtr(100)},
+			{Type: "heal", Target: "self", Flat: &flat},
+		}})
+		enemy := monsterFromFixture("goblin")
+		startEncounter(e, enemy)
+		events := e.resolveMoveEffects(&move, e.Player, &enemy, ActorHero)
+		if len(events) != 3 || events[1].Type != EventCombatDamageDealt || events[2].Type != EventHeroHealed {
+			t.Fatalf("events = %v, want move-used, damage, heal in authored order", eventTypes(events))
+		}
+		if enemy.IsAlive() || e.Player.CurrentHP != 60 {
+			t.Errorf("enemy alive=%v, hero HP=%d; want dead enemy and hero HP 60", enemy.IsAlive(), e.Player.CurrentHP)
+		}
+	})
+	t.Run("damage and heal apply in their authored order", func(t *testing.T) {
+		e := movesEngine(1, 50)
+		heroWithDamage(e, 5)
+		e.Player.CurrentHP = 50
+		flat := 10
+		move := entities.NewMoveFromAsset(game.MoveAsset{ID: "ordered", Name: "Ordered", DmgModifier: 100, Effects: []game.MoveEffectAsset{
+			{Type: "heal", Target: "self", Flat: &flat},
+			{Type: "damage", Target: "enemy", DmgModifier: intPtr(100)},
+		}})
+		enemy := monsterFromFixture("goblin")
+		startEncounter(e, enemy)
+		events := e.resolveMoveEffects(&move, e.Player, &enemy, ActorHero)
+		if len(events) != 3 || events[1].Type != EventHeroHealed || events[2].Type != EventCombatDamageDealt {
+			t.Fatalf("events = %v, want move-used, heal, damage", eventTypes(events))
+		}
+		if e.Player.CurrentHP != 60 || enemy.HP() != 25 {
+			t.Errorf("hero HP=%d enemy HP=%d, want 60/25", e.Player.CurrentHP, enemy.HP())
+		}
+	})
+}
+
+func intPtr(v int) *int { return &v }
+
 // learn teaches the hero the named fixture moves in order (learning
 // order = the effective-set order the CmdMove index points into).
 func learn(e *Engine, ids ...string) {
