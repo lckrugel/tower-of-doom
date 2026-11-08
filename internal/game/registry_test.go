@@ -1,6 +1,7 @@
 package game
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"slices"
@@ -50,6 +51,20 @@ func makeReg(monsters []MonsterAsset, sections []SectionAsset) *Registry {
 func TestValidateAcceptsValidContent(t *testing.T) {
 	if err := makeReg(validMonsters(), validSections()).Validate(10_000); err != nil {
 		t.Errorf("Validate(valid content) = %v, want nil", err)
+	}
+}
+
+func TestMoveEffectsDecodeAndValidate(t *testing.T) {
+	var mv MoveAsset
+	err := json.Unmarshal([]byte(`{"id":"m","name":"M","type":"both","tier":1,"cooldown":0,"weight":1,"effects":[{"type":"damage","target":"enemy","dmg_modifier":120},{"type":"heal","target":"self","flat":5,"percent":10},{"type":"status","target":"enemy","status":{"id":"poison","chance":50}}]}`), &mv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(mv.Effects) != 3 || mv.Effects[1].Type != "heal" {
+		t.Fatalf("effects = %#v", mv.Effects)
+	}
+	if mv.Effects[1].Flat == nil || *mv.Effects[1].Flat != 5 || mv.Effects[1].Percent == nil || *mv.Effects[1].Percent != 10 {
+		t.Fatalf("heal payload = %#v", mv.Effects[1])
 	}
 }
 

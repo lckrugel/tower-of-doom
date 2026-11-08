@@ -1,6 +1,7 @@
 package entities
 
 import (
+	"reflect"
 	"slices"
 	"testing"
 
@@ -55,6 +56,20 @@ func TestNewMoveFromAssetWithoutStatus(t *testing.T) {
 	}
 	if m.TargetSelf() {
 		t.Error("TargetSelf = true, want false (no status at all)")
+	}
+}
+
+func TestNewMoveFromAssetCopiesOrderedEffects(t *testing.T) {
+	modifier, flat := 125, 8
+	asset := game.MoveAsset{ID: "sequence", Name: "Sequence", Effects: []game.MoveEffectAsset{
+		{Type: "damage", Target: "enemy", DmgModifier: &modifier},
+		{Type: "heal", Target: "self", Flat: &flat},
+	}}
+	m := NewMoveFromAsset(asset)
+	asset.Effects[0].Type = "changed"
+	modifier = 1
+	if len(m.Effects) != 2 || m.Effects[0].Type != "damage" || m.Effects[0].DmgModifier != 125 || m.Effects[1].Flat != 8 {
+		t.Fatalf("runtime effects not independently copied: %+v", m.Effects)
 	}
 }
 
@@ -124,7 +139,7 @@ func TestBasicAttack(t *testing.T) {
 	if !ok {
 		t.Fatal("embedded assets do not define basic_attack")
 	}
-	if got := NewMoveFromAsset(asset); got != basic {
+	if got := NewMoveFromAsset(asset); !reflect.DeepEqual(got, basic) {
 		t.Errorf("BasicAttack constructor = %+v, embedded asset = %+v", basic, got)
 	}
 
@@ -180,7 +195,7 @@ func TestPunch(t *testing.T) {
 	if !ok {
 		t.Fatal("embedded assets do not define punch")
 	}
-	if got := NewMoveFromAsset(asset); got != punch {
+	if got := NewMoveFromAsset(asset); !reflect.DeepEqual(got, punch) {
 		t.Errorf("Punch constructor = %+v, embedded asset = %+v", punch, got)
 	}
 

@@ -102,6 +102,18 @@ type MoveStatusAsset struct {
 	Target string `json:"target"`
 }
 
+// MoveEffectAsset is one ordered move action. Numeric pointers preserve the
+// distinction between an omitted payload and an explicit zero.
+type MoveEffectAsset struct {
+	Type        string           `json:"type"`
+	Target      string           `json:"target"`
+	DmgModifier *int             `json:"dmg_modifier,omitempty"`
+	CritBonus   *int             `json:"crit_bonus,omitempty"`
+	Flat        *int             `json:"flat,omitempty"`
+	Percent     *int             `json:"percent,omitempty"`
+	Status      *MoveStatusAsset `json:"status,omitempty"`
+}
+
 // MoveAsset defines a Combat 2.0 move (an entry of moves.json). Only the
 // tier has an absent-field default (0 → 1, mirroring items): every other
 // field is required as listed and validated at startup.
@@ -128,6 +140,9 @@ type MoveAsset struct {
 	// Weight is the move's default AI weight (monster picks); a monster's
 	// move refs carry their own overriding weight.
 	Weight int `json:"weight"`
+	// Effects is the ordered stage-one move payload. When present, legacy
+	// damage/status payload fields must be absent.
+	Effects []MoveEffectAsset `json:"effects,omitempty"`
 }
 
 // StatusEffectAsset is what a status does on each of its turns: either a
@@ -562,6 +577,43 @@ func (r *Registry) Validate(topFloor int) error {
 		}
 		if mv.Weight < 1 {
 			fail("move %q has weight %d, want >= 1 (AI pick weight)", mv.ID, mv.Weight)
+		}
+		if len(mv.Effects) > 0 {
+			if mv.DmgModifier != 0 || mv.CritBonus != 0 || mv.Status != nil {
+				fail("move %q mixes effects with legacy payload fields", mv.ID)
+			}
+			for i, effect := range mv.Effects {
+				prefix := fmt.Sprintf("move %q effect %d", mv.ID, i)
+				if effect.Target != "enemy" && effect.Target != "self" {
+					fail("%s has invalid target %q", prefix, effect.Target)
+				}
+				switch effect.Type {
+				case "damage":
+					if effect.DmgModifier == nil || *effect.DmgModifier < 50 || *effect.DmgModifier > 300 {
+						fail("%s has invalid dmg_modifier", prefix)
+					}
+					if effect.Flat != nil || effect.Percent != nil || effect.Status != nil {
+						fail("%s has ambiguous payload", prefix)
+					}
+				case "heal":
+					if effect.Flat == nil && effect.Percent == nil {
+						fail("%s has no healing component", prefix)
+					}
+					if (effect.Flat != nil && *effect.Flat < 0) || (effect.Percent != nil && *effect.Percent < 0) {
+						fail("%s has negative healing component", prefix)
+					}
+				case "status":
+					if effect.Status == nil || effect.Status.Chance < 0 || effect.Status.Chance > 100 || (effect.Status.Target != "enemy" && effect.Status.Target != "self") {
+						fail("%s has invalid status payload", prefix)
+					}
+					if _, ok := r.StatusByID(effect.Status.ID); !ok {
+						fail("%s references unknown status %q", prefix, effect.Status.ID)
+					}
+				default:
+					fail("%s has unknown type %q", prefix, effect.Type)
+				}
+			}
+			continue
 		}
 		if mv.Status == nil {
 			continue

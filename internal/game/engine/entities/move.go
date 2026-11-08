@@ -49,6 +49,15 @@ type MoveStatus struct {
 	Target MoveTarget
 }
 
+// MoveEffect is an immutable-by-convention runtime copy of an authored effect.
+type MoveEffect struct {
+	Type                   string
+	Target                 MoveTarget
+	DmgModifier, CritBonus int
+	Flat, Percent          int
+	Status                 MoveStatus
+}
+
 // Move is a Combat 2.0 move: one entry of a combatant's move set, built
 // from a validated MoveAsset. It is a plain value type — copies are safe
 // and intended (move sets are rebuilt, never mutated in place).
@@ -78,7 +87,8 @@ type Move struct {
 	// carries that monster's own ref weight (the caller overrides it after
 	// NewMoveFromAsset); for the canonical basic attack it is the move
 	// asset's own weight.
-	Weight int
+	Weight  int
+	Effects []MoveEffect
 }
 
 // HasStatus reports whether the move applies a status effect on hit.
@@ -118,6 +128,32 @@ func NewMoveFromAsset(asset game.MoveAsset) Move {
 		CritBonus:   asset.CritBonus,
 		Cooldown:    asset.Cooldown,
 		Weight:      asset.Weight,
+	}
+	for _, effect := range asset.Effects {
+		e := MoveEffect{Type: effect.Type, Target: MoveTarget(effect.Target)}
+		if effect.DmgModifier != nil {
+			e.DmgModifier = *effect.DmgModifier
+		}
+		if effect.CritBonus != nil {
+			e.CritBonus = *effect.CritBonus
+		}
+		if effect.Flat != nil {
+			e.Flat = *effect.Flat
+		}
+		if effect.Percent != nil {
+			e.Percent = *effect.Percent
+		}
+		if effect.Status != nil {
+			e.Status = MoveStatus{ID: effect.Status.ID, Chance: effect.Status.Chance, Target: MoveTarget(effect.Status.Target)}
+		}
+		m.Effects = append(m.Effects, e)
+	}
+	if len(asset.Effects) == 0 {
+		damage := MoveEffect{Type: "damage", Target: TargetEnemy, DmgModifier: asset.DmgModifier, CritBonus: asset.CritBonus}
+		m.Effects = append(m.Effects, damage)
+		if asset.Status != nil {
+			m.Effects = append(m.Effects, MoveEffect{Type: "status", Target: TargetEnemy, Status: MoveStatus{ID: asset.Status.ID, Chance: asset.Status.Chance, Target: MoveTarget(asset.Status.Target)}})
+		}
 	}
 	if asset.Status != nil {
 		m.Status = MoveStatus{
@@ -254,6 +290,7 @@ func BasicAttack() Move {
 		CritBonus:   0,
 		Cooldown:    0,
 		Weight:      100,
+		Effects:     []MoveEffect{{Type: "damage", Target: TargetEnemy, DmgModifier: 100}},
 	}
 }
 
@@ -274,5 +311,6 @@ func Punch() Move {
 		CritBonus:   0,
 		Cooldown:    0,
 		Weight:      50,
+		Effects:     []MoveEffect{{Type: "damage", Target: TargetEnemy, DmgModifier: 60}},
 	}
 }
