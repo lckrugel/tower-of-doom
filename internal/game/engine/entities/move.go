@@ -154,11 +154,11 @@ type Status struct {
 	Kind StatusKind
 	// DoT components are damage each round; percentage damage is based on
 	// target MaxHP at each tick.
-	DotAmount  int
-	DotPercent int
-	Stat          StatKind // "" for DoT effects
-	StatAmount    int
-	StatPercent   int
+	DotAmount   int
+	DotPercent  int
+	Stat        StatKind // "" for DoT effects
+	StatAmount  int
+	StatPercent int
 	// Duration is how many turns the status lasts.
 	Duration int
 }
