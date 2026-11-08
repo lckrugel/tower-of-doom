@@ -62,6 +62,18 @@ func TestValidateAcceptsEmbeddedAssets(t *testing.T) {
 	if err := r.Validate(10_000); err != nil {
 		t.Errorf("Validate(embedded assets) = %v, want nil", err)
 	}
+
+	// Percentage DoTs are valid without a cap; percentage stat modifiers
+	// likewise need no DoT-only metadata.
+	poison := r.Statuses["poison"]
+	poison.Effect.Percent = 2
+	r.Statuses["poison"] = poison
+	slow := r.Statuses["slow"]
+	slow.Effect.Percent = -10
+	r.Statuses["slow"] = slow
+	if err := r.Validate(10_000); err != nil {
+		t.Errorf("Validate(uncapped percentage statuses) = %v, want nil", err)
+	}
 }
 
 func TestValidateRejectsInvalidContent(t *testing.T) {
@@ -1353,12 +1365,12 @@ func TestValidateCombat2Content(t *testing.T) {
 		{
 			"dot amount below 1",
 			func(r *Registry) { s := r.Statuses["poison"]; s.Effect.Amount = 0; r.Statuses["poison"] = s },
-			"dot amount",
+			"no dot component",
 		},
 		{
 			"stat amount zero",
 			func(r *Registry) { s := r.Statuses["weaken"]; s.Effect.Amount = 0; r.Statuses["weaken"] = s },
-			"zero stat amount",
+			"no stat modifier",
 		},
 		{
 			"status unknown stat",

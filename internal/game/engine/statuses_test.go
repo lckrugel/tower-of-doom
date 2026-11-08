@@ -342,6 +342,50 @@ func TestMultipleStatusExpirationAndLethalDoTOrdering(t *testing.T) {
 	})
 }
 
+func TestCombinedPercentageStatusCalculations(t *testing.T) {
+	target := entities.NewMonsterFromAsset(game.MonsterAsset{ID: "boss", Name: "Boss", HP: 1000})
+	dot := entities.NewStatusFromAsset(game.StatusAsset{ID: "bleed", Name: "Bleed", Kind: "debuff", Duration: 2,
+		Effect: game.StatusEffectAsset{Type: "dot", Amount: 5, Percent: 3}})
+	if got := statusDotDamage(dot, &target); got != 35 {
+		t.Errorf("combined DoT = %d, want 35 (5 flat + 3%% of max HP, uncapped)", got)
+	}
+	target.TakeDmg(990)
+	if got := statusDotDamage(dot, &target); got != 35 {
+		t.Errorf("DoT after HP loss = %d, want 35 (uses MaxHP, uncapped)", got)
+	}
+
+	state := newCombatantState()
+	state.applyStatus(entities.Status{ID: "flat", Stat: entities.StatDMG, StatAmount: -3})
+	state.applyStatus(entities.Status{ID: "percent", Stat: entities.StatDMG, StatPercent: 25})
+	flat, percent := state.statMods(entities.StatDMG)
+	got := 40*max(0, 100+percent)/100 + flat
+	if got != 47 {
+		t.Errorf("combined stat = %d, want 47 (40 + 25%%, then -3)", got)
+	}
+}
+
+func TestEffectiveStatAppliesStatusPercentagesToEquipmentInclusiveBaseline(t *testing.T) {
+	e := statusesEngine()
+	heroWithDamage(e, 40)
+	// Equipment contributes +20 DMG, making the status-free baseline 60.
+	e.Player.Weapon = &entities.Item{BonusDMG: 20}
+	e.heroCombat.applyStatus(entities.Status{ID: "percent", Stat: entities.StatDMG, StatPercent: 25})
+	e.heroCombat.applyStatus(entities.Status{ID: "flat", Stat: entities.StatDMG, StatAmount: -3})
+
+	if got := e.heroStat(entities.StatDMG); got != 72 {
+		t.Errorf("effective hero DMG = %d, want 72 ((40 + 20) × 125%% - 3)", got)
+	}
+
+	// Verify the production path also applies the lower bound after both
+	// components, rather than relying only on a test-side formula.
+	e.heroCombat = newCombatantState()
+	e.heroCombat.applyStatus(entities.Status{ID: "percent", Stat: entities.StatDMG, StatPercent: -200})
+	e.heroCombat.applyStatus(entities.Status{ID: "flat", Stat: entities.StatDMG, StatAmount: -3})
+	if got := e.heroStat(entities.StatDMG); got != 1 {
+		t.Errorf("effective hero DMG after negative percentage = %d, want clamped 1", got)
+	}
+}
+
 // DoT damage is a plain clamp (no mitigation) and CAN kill: a monster
 // dying to poison goes through the normal defeat path (XP, gold,
 // queue/victory).

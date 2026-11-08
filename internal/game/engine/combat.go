@@ -133,7 +133,8 @@ func (e *Engine) effectiveStat(c Combatant, st *combatantState, stat entities.St
 	case entities.StatSPD:
 		total = c.Speed()
 	}
-	total += st.statMods(stat)
+	flat, percent := st.statMods(stat)
+	total = total*(max(0, 100+percent))/100 + flat
 	if stat == entities.StatDMG {
 		return max(1, total)
 	}

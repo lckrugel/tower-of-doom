@@ -125,9 +125,10 @@ helpers are for non-engine use only (e.g. item durability).
   and the round's used moves lock. A round aborted by a death skips the
   remaining ticks (the used move still locks).
 - **Effective stats:** every stat read in combat (strike damage,
-  mitigation, initiative, the flee formula) is base+gear plus the sum of
-  the combatant's active stat-mod statuses, clamped — DMG at 1, DEF/SPD
-  at 0. Pure math — no rng.
+  mitigation, initiative, the flee formula) starts from base+gear. Active
+  status percentages are summed and applied once (floored) to that baseline;
+  summed flat modifiers are then added. Stat percentages do not compound.
+  Results clamp — DMG at 1, DEF/SPD at 0. Pure math — no rng.
 - **Move cooldowns:** using a move locks it for exactly its `cooldown`
   full rounds after the round of use (0 = spammable). Locks tick at
   round end and never survive the encounter. A fully-cooled hero turn
@@ -158,6 +159,21 @@ helpers are for non-engine use only (e.g. item durability).
 - Applied engine-side on both directions (hero taking damage and monsters
   taking damage); `TakeDmg` itself stays a plain clamp. Pure math —
   consumes no rng. Content validation rejects negative DEF.
+
+### Status effects
+
+- Status effects support flat `amount`, percentage `percent`, or both.
+  Stat percentages use the equipment-inclusive baseline before statuses;
+  multiple percentages add, then flat modifiers apply afterward.
+- DoT is evaluated at each round-end tick from the target's current
+  equipment-inclusive MaxHP: `amount + floor(MaxHP × percent / 100)`.
+  Percentage DoTs are uncapped and keep scaling with target MaxHP; flat
+  damage remains additive. A positive DoT deals at least 1 damage before
+  the remaining-HP clamp. DoT bypasses defense and can kill.
+- A status's application round counts toward its duration. Stat effects are
+  active immediately; DoT ticks at that round's end. Reapplying the same
+  status ID refreshes it to the longest duration without stacking, while
+  different statuses combine or tick independently.
 
 ### Kill XP
 
@@ -665,14 +681,25 @@ field is required as authored and validated at startup:
   in statuses.json.
 - `weight` — the move's default AI weight (monster picks); ≥ 1.
 
-**Status asset** (`statuses.json`). Every field is required — statuses
-have no absent-field defaults:
+**Status asset** (`statuses.json`). Identity, kind, effect type, and
+duration are required; the effect's numeric components are optional and
+omitted components mean zero:
 
 - `id`, `name` — identity.
 - `kind` — `buff` or `debuff`.
-- `effect` — one of `{type: dot, amount ≥ 1}` (damage per turn) or
-  `{type: stat, stat: dmg|def|spd, amount ≠ 0}`.
-- `duration` — turns the status lasts; ≥ 1.
+- `effect` — `{type: dot, amount?, percent?}` or
+  `{type: stat, stat: dmg|def|spd, amount?, percent?}`. At least one of
+  `amount` or `percent` must be nonzero. DoT components must be
+  nonnegative; a present DoT percentage must be in [1, 100] and is
+  uncapped. Stat components may be positive or negative. Stat percentages
+  are summed, applied to the equipment-inclusive baseline with flooring,
+  then flat amounts are summed and added; effective DMG/DEF/SPD retain
+  their existing minimums.
+- `duration` — rounds the status lasts; ≥ 1. The application round
+  counts toward the duration: stat effects apply immediately, and DoT
+  ticks at that round's end. Same-ID reapplications refresh to the
+  longest remaining duration without stacking; different statuses
+  combine their stat effects or tick their DoTs independently.
 
 **Where moves attach:**
 

@@ -86,9 +86,24 @@ func overlayStatusLine(a game.StatusAsset) string {
 func statusEffectText(a game.StatusAsset) string {
 	switch a.Effect.Type {
 	case "dot":
-		return fmt.Sprintf("%d dmg/turn", a.Effect.Amount)
+		parts := make([]string, 0, 2)
+		if a.Effect.Amount != 0 {
+			parts = append(parts, fmt.Sprintf("%d", a.Effect.Amount))
+		}
+		if a.Effect.Percent != 0 {
+			p := fmt.Sprintf("%d%% max HP", a.Effect.Percent)
+			parts = append(parts, p)
+		}
+		return strings.Join(parts, " + ") + " dmg/turn"
 	case "stat":
-		return fmt.Sprintf("%+d %s", a.Effect.Amount, strings.ToUpper(a.Effect.Stat))
+		parts := make([]string, 0, 2)
+		if a.Effect.Amount != 0 {
+			parts = append(parts, fmt.Sprintf("%+d", a.Effect.Amount))
+		}
+		if a.Effect.Percent != 0 {
+			parts = append(parts, fmt.Sprintf("%+d%%", a.Effect.Percent))
+		}
+		return strings.Join(parts, " and ") + " " + strings.ToUpper(a.Effect.Stat)
 	default:
 		return "unknown effect"
 	}

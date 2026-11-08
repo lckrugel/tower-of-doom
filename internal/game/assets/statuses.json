@@ -5,7 +5,8 @@
     "kind": "debuff",
     "effect": {
       "type": "dot",
-      "amount": 3
+      "amount": 3,
+      "percent": 2
     },
     "duration": 3
   },
@@ -27,7 +28,8 @@
     "effect": {
       "type": "stat",
       "stat": "spd",
-      "amount": -3
+      "amount": -3,
+      "percent": 10
     },
     "duration": 3
   },
