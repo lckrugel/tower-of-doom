@@ -295,6 +295,9 @@ func modelOf(next tea.Model, t *testing.T) Model {
 }
 
 func TestEventLogIsTrimmedToTheNewestLines(t *testing.T) {
+	if maxLogLines != middleHeight {
+		t.Fatalf("log retention = %d lines, want the %d-row log viewport", maxLogLines, middleHeight)
+	}
 	m := New(testEngine())
 	for i := range maxLogLines + 3 {
 		m.log = append(m.log, fmt.Sprintf("line %d", i))

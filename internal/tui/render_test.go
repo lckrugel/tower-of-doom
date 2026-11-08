@@ -31,10 +31,10 @@ func TestCombatHealRendering(t *testing.T) {
 		target, want string
 		healed       int
 	}{
-		{"hero actual restore", engine.ActorHero, "Hero", "You use Mend and restore 12 HP (80/100 HP).", 12},
-		{"hero zero at cap", engine.ActorHero, "Hero", "You use Mend, but Hero is already at full health (100/100 HP).", 0},
-		{"monster actual restore", engine.ActorEnemy, "Goblin", "The Goblin uses Mend and restores 12 HP (30/30 HP).", 12},
-		{"monster zero at cap", engine.ActorEnemy, "Goblin", "The Goblin uses Mend, but it is already at full health (30/30 HP).", 0},
+		{"hero actual restore", engine.ActorHero, "Hero", "You use Mend and restore 12 HP.", 12},
+		{"hero zero at cap", engine.ActorHero, "Hero", "You use Mend, but Hero is already at full health.", 0},
+		{"monster actual restore", engine.ActorEnemy, "Goblin", "The Goblin uses Mend and restores 12 HP.", 12},
+		{"monster zero at cap", engine.ActorEnemy, "Goblin", "The Goblin uses Mend, but it is already at full health.", 0},
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
@@ -147,13 +147,13 @@ func TestEventText(t *testing.T) {
 		{
 			"plain damage dealt",
 			withoutExact(damagedGoblin(5, false)),
-			"You hit the Goblin for 5 damage (83% HP left).",
+			"You hit the Goblin for 5 damage",
 			nil,
 		},
 		{
 			"critical damage dealt",
 			withoutExact(damagedGoblin(10, true)),
-			"You land a devastating blow on the Goblin — CRIT! 10 damage (66% HP left).",
+			"You land a devastating blow on the Goblin — CRIT! 10 damage",
 			nil,
 		},
 		{
@@ -165,13 +165,13 @@ func TestEventText(t *testing.T) {
 		{
 			"plain damage taken",
 			withoutExact(damagedHero(2, false)),
-			"You take 2 damage (98% HP left).",
+			"You take 2 damage",
 			nil,
 		},
 		{
 			"critical damage taken",
 			withoutExact(damagedHero(4, true)),
-			"A crushing hit lands on you — CRIT! You take 4 damage (96% HP left).",
+			"A crushing hit lands on you — CRIT! You take 4 damage",
 			nil,
 		},
 		// Events carrying the exact HP pair render absolute values
@@ -179,13 +179,13 @@ func TestEventText(t *testing.T) {
 		{
 			"exact HP on a plain hit",
 			withEnemyExact(damagedGoblin(12, false), 8, 45),
-			"You hit the Goblin for 12 damage (8/45 HP left).",
+			"You hit the Goblin for 12 damage",
 			nil,
 		},
 		{
 			"exact HP on a critical hit",
 			withEnemyExact(damagedGoblin(12, true), 8, 45),
-			"You land a devastating blow on the Goblin — CRIT! 12 damage (8/45 HP left).",
+			"You land a devastating blow on the Goblin — CRIT! 12 damage",
 			nil,
 		},
 		{
@@ -197,7 +197,7 @@ func TestEventText(t *testing.T) {
 		{
 			"exact HP on damage taken",
 			withHeroExact(damagedHero(12, false), 88, 100),
-			"You take 12 damage (88/100 HP left).",
+			"You take 12 damage",
 			nil,
 		},
 		{
@@ -213,7 +213,7 @@ func TestEventText(t *testing.T) {
 				"damage_dealt": 3, "crit": false,
 				"enemy_hp_exact": "not an int", "enemy_max_hp": 30,
 			}},
-			"You hit the Goblin for 3 damage (90% HP left).",
+			"You hit the Goblin for 3 damage",
 			nil,
 		},
 		{
@@ -456,13 +456,13 @@ func TestEventText(t *testing.T) {
 		{
 			"dealt names the move",
 			damagedGoblinWithMove(5, false, "Power Slash"),
-			"You hit the Goblin with Power Slash for 5 damage (25/30 HP left).",
+			"You hit the Goblin with Power Slash for 5 damage",
 			nil,
 		},
 		{
 			"critical dealt names the move",
 			damagedGoblinWithMove(10, true, "Power Slash"),
-			"You land a devastating blow on the Goblin with Power Slash — CRIT! 10 damage (20/30 HP left).",
+			"You land a devastating blow on the Goblin with Power Slash — CRIT! 10 damage",
 			nil,
 		},
 		{
@@ -474,13 +474,13 @@ func TestEventText(t *testing.T) {
 		{
 			"taken names the enemy's move",
 			damagedHeroWithMove(2, false, "Venom Bite"),
-			"You take 2 damage from Venom Bite (98/100 HP left).",
+			"You take 2 damage from Venom Bite",
 			nil,
 		},
 		{
 			"critical taken names the enemy's move",
 			damagedHeroWithMove(4, true, "Venom Bite"),
-			"A crushing hit lands on you — CRIT! You take 4 damage from Venom Bite (96/100 HP left).",
+			"A crushing hit lands on you — CRIT! You take 4 damage from Venom Bite",
 			nil,
 		},
 		{
@@ -689,7 +689,7 @@ func TestMoveNamesRenderAsAccentSpans(t *testing.T) {
 		"damage_dealt": 5, "crit": false, "move": "Power Slash",
 	}}
 	want = styleDamage.Render("You hit the Goblin with ") + styleXP.Render("Power Slash") +
-		styleDamage.Render(" for 5 damage (83% HP left).")
+		styleDamage.Render(" for 5 damage")
 	if got := renderEvent(dealt); got != want {
 		t.Errorf("dealt line = %q, want %q", got, want)
 	}
@@ -701,13 +701,13 @@ func TestMoveNamesRenderAsAccentSpans(t *testing.T) {
 		"damage_taken": 2, "hero_hp": 98, "hero_alive": true, "move": "Venom Bite",
 	}}
 	want = styleHurt.Render("You take 2 damage from ") + styleHurt.Bold(true).Render("Venom Bite") +
-		styleHurt.Render(" (98% HP left).")
+		styleHurt.Render("")
 	if got := renderEvent(taken); got != want {
 		t.Errorf("taken line = %q, want %q", got, want)
 	}
 
 	legacy := damagedGoblin(5, false)
-	want = styleDamage.Render("You hit the Goblin for 5 damage (25/30 HP left).")
+	want = styleDamage.Render("You hit the Goblin for 5 damage")
 	if got := renderEvent(legacy); got != want {
 		t.Errorf("legacy dealt line = %q, want the whole-tone line %q", got, want)
 	}

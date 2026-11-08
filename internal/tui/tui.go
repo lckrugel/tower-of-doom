@@ -10,7 +10,7 @@ import (
 )
 
 // maxLogLines bounds the event log panel to the most recent lines.
-const maxLogLines = 8
+const maxLogLines = middleHeight
 
 // Model wraps the game engine for bubbletea. It owns no game logic: every
 // action goes through engine.Process and the events drive the log.
