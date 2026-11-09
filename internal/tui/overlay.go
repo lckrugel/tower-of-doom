@@ -52,7 +52,7 @@ func (m Model) overlayPanel() string {
 
 	// The live state's key map — the same chips the action bar shows.
 	rows = append(rows, styleDim.Render("KEYS — "+badgeText(m.engine.State)))
-	rows = append(rows, "  "+truncateRunes(m.overlayKeys(), contentWidth-4))
+	rows = append(rows, "  "+truncateRunes(m.overlayKeys(), m.layout().ContentWidth-4))
 	if m.engine.State == engine.StateCombat {
 		// The moves live in the grid there: the legend says so.
 		rows = append(rows, styleDim.Render("  1-4 or arrows pick a move · ⏎ use it"))
