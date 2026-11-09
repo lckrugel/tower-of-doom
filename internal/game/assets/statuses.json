@@ -8,7 +8,7 @@
       "amount": 3,
       "percent": 2
     },
-    "duration": 3
+    "duration": 4
   },
   {
     "id": "weaken",
@@ -17,7 +17,8 @@
     "effect": {
       "type": "stat",
       "stat": "dmg",
-      "amount": -3
+      "amount": -3,
+      "percent": -5
     },
     "duration": 3
   },
@@ -29,7 +30,7 @@
       "type": "stat",
       "stat": "spd",
       "amount": -3,
-      "percent": 10
+      "percent": -10
     },
     "duration": 3
   },
@@ -40,7 +41,8 @@
     "effect": {
       "type": "stat",
       "stat": "def",
-      "amount": 5
+      "amount": 5,
+      "percent": 10
     },
     "duration": 2
   },
@@ -52,9 +54,9 @@
       "type": "stat",
       "stat": "dmg",
       "amount": 0,
-      "percent": 35
+      "percent": 40
     },
-    "duration": 2
+    "duration": 3
   },
   {
     "id": "open_guard",
@@ -72,28 +74,28 @@
     "id": "burning",
     "name": "Burning",
     "kind": "debuff",
-    "effect": { "type": "dot", "amount": 8, "percent": 0 },
+    "effect": { "type": "dot", "amount": 6, "percent": 3 },
     "duration": 2
   },
   {
     "id": "frailty",
     "name": "Frailty",
     "kind": "debuff",
-    "effect": { "type": "stat", "stat": "dmg", "amount": -6, "percent": 0 },
+    "effect": { "type": "stat", "stat": "dmg", "amount": -3, "percent": -15 },
     "duration": 3
   },
   {
     "id": "windstep",
     "name": "Windstep",
     "kind": "buff",
-    "effect": { "type": "stat", "stat": "spd", "amount": 5, "percent": 10 },
-    "duration": 3
+    "effect": { "type": "stat", "stat": "spd", "amount": 5, "percent": 25 },
+    "duration": 5
   },
   {
     "id": "deep_wound",
     "name": "Deep Wound",
     "kind": "debuff",
-    "effect": { "type": "dot", "amount": 1, "percent": 3 },
+    "effect": { "type": "dot", "amount": 1, "percent": 4 },
     "duration": 3
   },
   {
