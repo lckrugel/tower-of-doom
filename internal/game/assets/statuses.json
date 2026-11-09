@@ -8,7 +8,7 @@
       "amount": 3,
       "percent": 2
     },
-    "duration": 3
+    "duration": 4
   },
   {
     "id": "weaken",
@@ -74,7 +74,7 @@
     "id": "burning",
     "name": "Burning",
     "kind": "debuff",
-    "effect": { "type": "dot", "amount": 8, "percent": 0 },
+    "effect": { "type": "dot", "amount": 7, "percent": 3 },
     "duration": 2
   },
   {
@@ -95,7 +95,7 @@
     "id": "deep_wound",
     "name": "Deep Wound",
     "kind": "debuff",
-    "effect": { "type": "dot", "amount": 1, "percent": 10 },
+    "effect": { "type": "dot", "amount": 1, "percent": 6 },
     "duration": 3
   },
   {
