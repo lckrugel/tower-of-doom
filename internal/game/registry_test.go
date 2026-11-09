@@ -926,7 +926,7 @@ func TestLoadEmbeddedMovesAndStatuses(t *testing.T) {
 		}},
 		"ironroot_guard": {"Ironroot Guard", 3, 3, 25, []MoveEffectAsset{
 			{Type: "status", Target: "self", Status: &MoveStatusEffectAsset{ID: "guard", Chance: 100}},
-			{Type: "heal", Target: "self", Flat: ptr(3)},
+			{Type: "heal", Target: "self", Flat: ptr(5)},
 		}},
 		"sanguine_rupture": {"Sanguine Rupture", 4, 3, 20, []MoveEffectAsset{
 			{Type: "damage", Target: "enemy", DmgModifier: ptr(120)},
@@ -953,8 +953,8 @@ func TestLoadEmbeddedMovesAndStatuses(t *testing.T) {
 			{Type: "status", Target: "enemy", Status: &MoveStatusEffectAsset{ID: "deep_wound", Chance: 60}},
 		}},
 		"rallying_cut": {"Rallying Cut", 3, 3, 20, []MoveEffectAsset{
-			{Type: "damage", Target: "enemy", DmgModifier: ptr(110)},
-			{Type: "heal", Target: "self", Flat: ptr(3), Percent: ptr(3)},
+			{Type: "damage", Target: "enemy", DmgModifier: ptr(85)},
+			{Type: "heal", Target: "self", Flat: ptr(5), Percent: ptr(3)},
 		}},
 	}
 	for id, want := range wantNew {
