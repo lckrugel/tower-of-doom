@@ -42,8 +42,8 @@
       {
         "type": "damage",
         "target": "enemy",
-        "dmg_modifier": 60,
-        "crit_bonus": 20
+        "dmg_modifier": 70,
+        "crit_bonus": 25
       }
     ]
   },
@@ -354,7 +354,7 @@
         "target": "self",
         "status": { "id": "guard", "chance": 100 }
       },
-      { "type": "heal", "target": "self", "flat": 5 }
+      { "type": "heal", "target": "self", "flat": 10 }
     ]
   },
   {
@@ -453,11 +453,11 @@
     "cooldown": 3,
     "weight": 20,
     "effects": [
-      { "type": "damage", "target": "enemy", "dmg_modifier": 100 },
+      { "type": "damage", "target": "enemy", "dmg_modifier": 80 },
       {
         "type": "status",
         "target": "enemy",
-        "status": { "id": "deep_wound", "chance": 60 }
+        "status": { "id": "deep_wound", "chance": 100 }
       }
     ]
   },
