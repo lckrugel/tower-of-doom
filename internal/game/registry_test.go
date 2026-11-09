@@ -92,6 +92,42 @@ func TestValidateAcceptsEmbeddedAssets(t *testing.T) {
 	}
 }
 
+func TestMonsterAIValidation(t *testing.T) {
+	base := func() *Registry {
+		r := makeReg([]MonsterAsset{{ID: "rat", Name: "Rat", Difficulty: 1, HP: 10, Moves: []MoveRef{{ID: "hit", Weight: 1}}, AI: &MonsterAIAsset{Fallback: []string{"hit"}, Priorities: []MonsterPriorityAsset{{When: []MonsterConditionAsset{{Type: "hp_below", Target: "self", Percent: 50}}, Moves: []string{"hit"}}}}}}, []SectionAsset{{ID: "s", MinFloor: 1, MaxFloor: -1, BaseDifficulty: 1, Spawns: []SpawnEntry{{MonsterID: "rat", Weight: 1}}}})
+		r.Moves["hit"] = MoveAsset{ID: "hit", Type: "creature", Tier: 1, Weight: 1, Effects: []MoveEffectAsset{{Type: "damage", Target: "enemy", DmgModifier: intPtr(100)}}}
+		return r
+	}
+	if err := base().Validate(10); err != nil {
+		t.Fatalf("valid AI: %v", err)
+	}
+	tests := []struct {
+		name   string
+		change func(*MonsterAsset)
+	}{
+		{"empty fallback", func(m *MonsterAsset) { m.AI.Fallback = nil }},
+		{"move outside kit", func(m *MonsterAsset) { m.AI.Fallback = []string{"missing"} }},
+		{"empty conditions", func(m *MonsterAsset) { m.AI.Priorities[0].When = nil }},
+		{"empty rule moves", func(m *MonsterAsset) { m.AI.Priorities[0].Moves = nil }},
+		{"invalid condition", func(m *MonsterAsset) { m.AI.Priorities[0].When[0].Type = "wat" }},
+		{"hp target", func(m *MonsterAsset) { m.AI.Priorities[0].When[0].Target = "enemy" }},
+		{"hp range", func(m *MonsterAsset) { m.AI.Priorities[0].When[0].Percent = 101 }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := base()
+			m := r.Monsters["rat"]
+			tt.change(&m)
+			r.Monsters["rat"] = m
+			if err := r.Validate(10); err == nil {
+				t.Fatal("Validate = nil, want AI validation error")
+			}
+		})
+	}
+}
+
+func intPtr(n int) *int { return &n }
+
 func TestValidateRejectsInvalidContent(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -1038,7 +1074,7 @@ func TestLoadEmbeddedMovesAndStatuses(t *testing.T) {
 	}
 
 	wantMonsterMoves := map[string][]string{
-		"dragonling":    {"cinderbite", "skull_crusher"},
+		"dragonling":    {"cinderbite", "skull_crusher", "brand_of_the_breach"},
 		"hobgoblin":     {"crushing_blow", "crippling_howl"},
 		"ghoul":         {"venom_bite", "windstep"},
 		"orc_warlord":   {"crushing_blow", "deep_wound", "guard_strike"},
