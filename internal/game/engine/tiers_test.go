@@ -104,21 +104,28 @@ func TestAscendArmorRespectsTiers(t *testing.T) {
 }
 
 func TestSectionBoundaryAscendRewardUsesNewSectionTiers(t *testing.T) {
-	r, err := game.Load("")
-	if err != nil {
-		t.Fatal(err)
+	e := tieredEngine(nil, 0)
+	e.reg.Sections = []game.SectionAsset{
+		{
+			ID: "first", Name: "First Fixture Section", BaseDifficulty: 1,
+			MinFloor: 1, MaxFloor: 13,
+			Spawns: []game.SpawnEntry{{MonsterID: "goblin", Weight: 1}},
+		},
+		{
+			ID: "next", Name: "Next Fixture Section", BaseDifficulty: 1,
+			MinFloor: 14, MaxFloor: -1, ItemTiers: []int{2},
+			Spawns: []game.SpawnEntry{{MonsterID: "goblin", Weight: 1}},
+		},
 	}
-	e := NewEngine(r)
 	e.CurrentFloor = 13
 	e.CanAscend = true
-	e.rng = &stubRng{values: []int{0}}
 
 	events := e.Process(Command{Type: CmdAscend})
 	if got, want := eventTypes(events), []EventType{EventFloorEntered, EventLootFound}; !typesEqual(got, want...) {
 		t.Fatalf("boundary ascend events = %v, want %v", got, want)
 	}
-	if name := events[0].Data["section"]; name != "Underdark Reaches" {
-		t.Fatalf("entered section = %v, want new section Underdark Reaches", name)
+	if name := events[0].Data["section"]; name != "Next Fixture Section" {
+		t.Fatalf("entered section = %v, want next fixture section", name)
 	}
 	item := events[1].Data["item"].(*entities.Item)
 	if item.Tier < 2 || item.Tier > 3 {
