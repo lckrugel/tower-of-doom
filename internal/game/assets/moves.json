@@ -354,7 +354,7 @@
         "target": "self",
         "status": { "id": "guard", "chance": 100 }
       },
-      { "type": "heal", "target": "self", "flat": 3 }
+      { "type": "heal", "target": "self", "flat": 5 }
     ]
   },
   {
