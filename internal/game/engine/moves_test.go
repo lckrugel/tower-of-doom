@@ -798,3 +798,84 @@ func TestMonsterCooldownsRecover(t *testing.T) {
 		t.Errorf("monster move after the cooldown = %v, want Heavy Slash again", move)
 	}
 }
+
+func TestMonsterAIPrioritiesAndFallback(t *testing.T) {
+	makeAIEngine := func(t *testing.T, hpDamage int, rules []game.MonsterPriorityAsset, fallback []string, moves ...game.MoveRef) (*Engine, *stubRng) {
+		t.Helper()
+		e := movesEngine()
+		asset := game.MonsterAsset{
+			ID: "ai_monster", Name: "AI Monster", Difficulty: 1, HP: 100, Damage: 2, Speed: 10,
+			AI: &game.MonsterAIAsset{Priorities: rules, Fallback: fallback},
+		}
+		e.reg.Monsters[asset.ID] = asset
+		enemy := monsterWithMoves(asset, moves...)
+		startEncounter(e, enemy)
+		e.enemyCombat = newCombatantState()
+		if hpDamage > 0 {
+			e.currentEnemy().TakeDmg(hpDamage)
+		}
+		stub := &stubRng{values: []int{0}}
+		e.rng = stub
+		return e, stub
+	}
+	condition := func(kind, target string, percent int, status string) game.MonsterConditionAsset {
+		return game.MonsterConditionAsset{Type: kind, Target: target, Percent: percent, StatusID: status}
+	}
+
+	t.Run("hp threshold is strict and conditions use current exact hp", func(t *testing.T) {
+		rule := game.MonsterPriorityAsset{When: []game.MonsterConditionAsset{condition("hp_below", "self", 35, "")}, Moves: []string{"heavy_slash"}}
+		for _, tc := range []struct {
+			damage int
+			want   string
+		}{{65, "Quick Stab"}, {66, "Heavy Slash"}} {
+			e, stub := makeAIEngine(t, tc.damage, []game.MonsterPriorityAsset{rule}, []string{"quick_stab"}, game.MoveRef{ID: "heavy_slash", Weight: 1}, game.MoveRef{ID: "quick_stab", Weight: 1})
+			if got := e.enemyTurnMove().Name; got != tc.want {
+				t.Errorf("at %d damage selected %q, want %q", tc.damage, got, tc.want)
+			}
+			if stub.calls != 1 {
+				t.Errorf("pick calls = %d, want one", stub.calls)
+			}
+		}
+	})
+
+	t.Run("all conditions must match and first applicable rule wins", func(t *testing.T) {
+		rules := []game.MonsterPriorityAsset{
+			{When: []game.MonsterConditionAsset{condition("status_present", "self", 0, "breachfire"), condition("status_absent", "enemy", 0, "poison")}, Moves: []string{"heavy_slash"}},
+			{When: []game.MonsterConditionAsset{condition("status_present", "self", 0, "breachfire")}, Moves: []string{"assassins_strike"}},
+		}
+		e, stub := makeAIEngine(t, 0, rules, []string{"quick_stab"}, game.MoveRef{ID: "heavy_slash", Weight: 1}, game.MoveRef{ID: "assassins_strike", Weight: 1}, game.MoveRef{ID: "quick_stab", Weight: 1})
+		e.enemyCombat.applyStatus(entities.Status{ID: "breachfire", Duration: 2})
+		if got := e.enemyTurnMove().ID; got != "heavy_slash" {
+			t.Errorf("first matching rule selected %q, want heavy_slash", got)
+		}
+		if stub.calls != 1 {
+			t.Errorf("condition evaluation consumed RNG: calls=%d, want 1 pick", stub.calls)
+		}
+	})
+
+	t.Run("cooldown-blocked priority allows lower rule", func(t *testing.T) {
+		rules := []game.MonsterPriorityAsset{
+			{When: []game.MonsterConditionAsset{condition("status_present", "self", 0, "breachfire")}, Moves: []string{"heavy_slash"}},
+			{When: []game.MonsterConditionAsset{condition("status_present", "self", 0, "breachfire")}, Moves: []string{"assassins_strike"}},
+		}
+		e, stub := makeAIEngine(t, 0, rules, []string{"quick_stab"}, game.MoveRef{ID: "heavy_slash", Weight: 1}, game.MoveRef{ID: "assassins_strike", Weight: 1}, game.MoveRef{ID: "quick_stab", Weight: 1})
+		e.enemyCombat.applyStatus(entities.Status{ID: "breachfire", Duration: 2})
+		e.enemyCombat.cooldowns["heavy_slash"] = 1
+		if got := e.enemyTurnMove().ID; got != "assassins_strike" {
+			t.Errorf("selected %q, want lower-priority ready move", got)
+		}
+		if stub.calls != 1 {
+			t.Errorf("pick calls = %d, want one", stub.calls)
+		}
+	})
+
+	t.Run("configured fallback only and preserves weighted pick", func(t *testing.T) {
+		e, stub := makeAIEngine(t, 0, nil, []string{"quick_stab"}, game.MoveRef{ID: "heavy_slash", Weight: 100}, game.MoveRef{ID: "quick_stab", Weight: 1})
+		if got := e.enemyTurnMove().ID; got != "quick_stab" {
+			t.Errorf("fallback selected %q, want only configured quick_stab", got)
+		}
+		if stub.calls != 1 {
+			t.Errorf("pick calls = %d, want one", stub.calls)
+		}
+	})
+}

@@ -47,7 +47,19 @@
         "id": "guard_strike",
         "weight": 40
       }
-    ]
+    ],
+    "ai": {
+      "priorities": [
+        {
+          "when": [
+            { "type": "hp_below", "target": "self", "percent": 60 },
+            { "type": "status_absent", "target": "self", "status_id": "guard" }
+          ],
+          "moves": ["guard_strike"]
+        }
+      ],
+      "fallback": ["heavy_slash"]
+    }
   },
   {
     "id": "hobgoblin",
@@ -311,7 +323,16 @@
         "id": "rallying_cut",
         "weight": 20
       }
-    ]
+    ],
+    "ai": {
+      "priorities": [
+        {
+          "when": [{ "type": "hp_below", "target": "self", "percent": 35 }],
+          "moves": ["rallying_cut"]
+        }
+      ],
+      "fallback": ["assassins_strike"]
+    }
   },
   {
     "id": "beholder",
@@ -374,8 +395,27 @@
       {
         "id": "skull_crusher",
         "weight": 50
+      },
+      {
+        "id": "brand_of_the_breach",
+        "weight": 25
       }
-    ]
+    ],
+    "ai": {
+      "priorities": [
+        {
+          "when": [
+            {
+              "type": "status_present",
+              "target": "self",
+              "status_id": "breachfire"
+            }
+          ],
+          "moves": ["skull_crusher"]
+        }
+      ],
+      "fallback": ["cinderbite"]
+    }
   },
   {
     "id": "young_red_dragon",

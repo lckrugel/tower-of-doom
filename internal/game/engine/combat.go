@@ -283,20 +283,95 @@ func (e *Engine) resolveMoveEffects(move *entities.Move, attacker, defender Comb
 func (e *Engine) enemyTurnMove() *entities.Move {
 	moves := e.currentEnemy().Moves()
 	filtered := make([]entities.Move, 0, len(moves))
-	weights := make([]int, 0, len(moves))
 	for _, m := range moves {
 		if e.enemyCombat.onCooldown(m.ID) {
 			continue
 		}
 		filtered = append(filtered, m)
-		weights = append(weights, m.Weight)
 	}
 	if len(filtered) == 0 {
 		basic := e.basicAttack()
 		return &basic
 	}
-	picked := weightedPick(e.rng, filtered, weights)
+	asset, ok := e.reg.Monsters[e.currentEnemy().ID]
+	if !ok || asset.AI == nil {
+		picked := pickMonsterMove(e, filtered)
+		return &picked
+	}
+	for _, rule := range asset.AI.Priorities {
+		matches := true
+		for _, condition := range rule.When {
+			if !e.monsterConditionMatches(condition) {
+				matches = false
+				break
+			}
+		}
+		if !matches {
+			continue
+		}
+		candidates := movesByIDs(filtered, rule.Moves)
+		if len(candidates) != 0 {
+			picked := pickMonsterMove(e, candidates)
+			return &picked
+		}
+	}
+	fallback := movesByIDs(filtered, asset.AI.Fallback)
+	if len(fallback) == 0 {
+		basic := e.basicAttack()
+		return &basic
+	}
+	picked := pickMonsterMove(e, fallback)
 	return &picked
+}
+
+func pickMonsterMove(e *Engine, moves []entities.Move) entities.Move {
+	weights := make([]int, len(moves))
+	for i, move := range moves {
+		weights[i] = move.Weight
+	}
+	return weightedPick(e.rng, moves, weights)
+}
+
+func movesByIDs(moves []entities.Move, ids []string) []entities.Move {
+	var result []entities.Move
+	for _, id := range ids {
+		for _, move := range moves {
+			if move.ID == id {
+				result = append(result, move)
+				break
+			}
+		}
+	}
+	return result
+}
+
+func (e *Engine) monsterConditionMatches(c game.MonsterConditionAsset) bool {
+	var target Combatant
+	state := &e.enemyCombat
+	if c.Target == "self" {
+		target = e.currentEnemy()
+	} else {
+		target = e.Player
+		state = &e.heroCombat
+	}
+	switch c.Type {
+	case "hp_below":
+		return c.Target == "self" && target.HP()*100 < target.MaxHP()*c.Percent
+	case "status_present", "status_absent":
+		present := false
+		for _, status := range state.statuses {
+			if status.status.ID == c.StatusID {
+				present = true
+				break
+			}
+		}
+		if c.Type == "status_present" {
+			return present
+		}
+		return !present
+	default:
+		return false
+	}
 }
 
 // enemyStrike performs the current enemy's attack against the Hero with

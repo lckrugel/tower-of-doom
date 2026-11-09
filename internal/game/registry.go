@@ -71,7 +71,25 @@ type MonsterAsset struct {
 	// Absent/empty falls back to the canonical basic_attack, so older
 	// assets/mods keep working. Validated: known ids, at most MaxMoves
 	// entries, weights >= 1.
-	Moves []MoveRef `json:"moves"`
+	Moves []MoveRef       `json:"moves"`
+	AI    *MonsterAIAsset `json:"ai,omitempty"`
+}
+
+type MonsterAIAsset struct {
+	Priorities []MonsterPriorityAsset `json:"priorities"`
+	Fallback   []string               `json:"fallback"`
+}
+
+type MonsterPriorityAsset struct {
+	When  []MonsterConditionAsset `json:"when"`
+	Moves []string                `json:"moves"`
+}
+
+type MonsterConditionAsset struct {
+	Type     string `json:"type"`
+	Target   string `json:"target"`
+	Percent  int    `json:"percent,omitempty"`
+	StatusID string `json:"status_id,omitempty"`
 }
 
 // Combat 2.0 move-set caps, enforced at load time (content bugs fail at
@@ -672,6 +690,63 @@ func (r *Registry) Validate(topFloor int) error {
 	// absent from every spawn table still cannot carry broken moves).
 	for _, id := range sortedIDs(r.Monsters) {
 		m := r.Monsters[id]
+		if m.AI != nil {
+			kit := make(map[string]bool, len(m.Moves))
+			for _, ref := range m.Moves {
+				kit[ref.ID] = true
+			}
+			checkAIMoves := func(where string, moves []string, required bool) {
+				if required && len(moves) == 0 {
+					fail("monster %q AI %s must not be empty", m.ID, where)
+				}
+				seen := make(map[string]bool, len(moves))
+				for _, moveID := range moves {
+					if seen[moveID] {
+						fail("monster %q AI %s contains duplicate move %q", m.ID, where, moveID)
+					}
+					seen[moveID] = true
+					if !kit[moveID] {
+						fail("monster %q AI %s references move %q outside its move kit", m.ID, where, moveID)
+					}
+				}
+			}
+			checkAIMoves("fallback", m.AI.Fallback, true)
+			for i, rule := range m.AI.Priorities {
+				prefix := fmt.Sprintf("priority %d", i)
+				if len(rule.When) == 0 {
+					fail("monster %q AI %s must have at least one condition", m.ID, prefix)
+				}
+				checkAIMoves(prefix, rule.Moves, true)
+				for _, condition := range rule.When {
+					switch condition.Type {
+					case "hp_below":
+						if condition.Target != "self" {
+							fail("monster %q AI %s hp_below target must be self", m.ID, prefix)
+						}
+						if condition.Percent < 1 || condition.Percent > 100 {
+							fail("monster %q AI %s hp_below percent must be within [1, 100]", m.ID, prefix)
+						}
+						if condition.StatusID != "" {
+							fail("monster %q AI %s hp_below cannot specify status_id", m.ID, prefix)
+						}
+					case "status_present", "status_absent":
+						if condition.Target != "self" && condition.Target != "enemy" {
+							fail("monster %q AI %s has invalid status target %q", m.ID, prefix, condition.Target)
+						}
+						if condition.StatusID == "" {
+							fail("monster %q AI %s status condition has empty status_id", m.ID, prefix)
+						} else if _, ok := r.StatusByID(condition.StatusID); !ok {
+							fail("monster %q AI %s references unknown status %q", m.ID, prefix, condition.StatusID)
+						}
+						if condition.Percent != 0 {
+							fail("monster %q AI %s status condition cannot specify percent", m.ID, prefix)
+						}
+					default:
+						fail("monster %q AI %s has unknown condition type %q", m.ID, prefix, condition.Type)
+					}
+				}
+			}
+		}
 		if len(m.Moves) > MaxMoves {
 			// An over-cap move list is one fault: its entries are not
 			// re-checked (the cap is the bug a modder fixes first).
