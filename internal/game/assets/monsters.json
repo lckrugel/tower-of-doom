@@ -406,6 +406,16 @@
         {
           "when": [
             {
+              "type": "status_absent",
+              "target": "self",
+              "status_id": "breachfire"
+            }
+          ],
+          "moves": ["brand_of_the_breach"]
+        },
+        {
+          "when": [
+            {
               "type": "status_present",
               "target": "self",
               "status_id": "breachfire"
