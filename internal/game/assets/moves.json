@@ -354,7 +354,7 @@
         "target": "self",
         "status": { "id": "guard", "chance": 100 }
       },
-      { "type": "heal", "target": "self", "flat": 3 }
+      { "type": "heal", "target": "self", "flat": 5 }
     ]
   },
   {
@@ -469,8 +469,8 @@
     "cooldown": 3,
     "weight": 20,
     "effects": [
-      { "type": "damage", "target": "enemy", "dmg_modifier": 110 },
-      { "type": "heal", "target": "self", "flat": 3, "percent": 3 }
+      { "type": "damage", "target": "enemy", "dmg_modifier": 85 },
+      { "type": "heal", "target": "self", "flat": 5, "percent": 3 }
     ]
   }
 ]
