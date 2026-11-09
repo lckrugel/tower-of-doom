@@ -137,13 +137,26 @@ func TestStatusOmissionKeepsDescriptionsAligned(t *testing.T) {
 }
 
 func TestHealingPotionIsAnActionInCombatAndTurnFreeWhileExploring(t *testing.T) {
-	r, err := game.Load("")
-	if err != nil {
-		t.Fatal(err)
+	newEngine := func() *engine.Engine {
+		e := engine.NewEngine(&game.Registry{
+			Monsters: map[string]game.MonsterAsset{
+				"goblin": {ID: "goblin", Name: "Goblin", Difficulty: 1, HP: 30, Damage: 2, Speed: 10},
+			},
+			Items: map[string]game.ItemAsset{},
+			Consumables: map[string]game.ConsumableAsset{
+				"healing_potion": {ID: "healing_potion", Name: "Healing Potion", HealPercent: 25},
+			},
+			Sections: []game.SectionAsset{{
+				ID: "fixture", Name: "Fixture", BaseDifficulty: 1, MinFloor: 1, MaxFloor: -1,
+				Spawns: []game.SpawnEntry{{MonsterID: "goblin", Weight: 1}},
+			}},
+		})
+		e.Player.ForgetMove(entities.Punch().ID)
+		return e
 	}
 
 	t.Run("exploring use is free and visible", func(t *testing.T) {
-		e := engine.NewEngine(r)
+		e := newEngine()
 		e.Player.CurrentHP = 50
 		e.Player.AddConsumable("healing_potion")
 		m := New(e)
@@ -168,7 +181,7 @@ func TestHealingPotionIsAnActionInCombatAndTurnFreeWhileExploring(t *testing.T) 
 	})
 
 	t.Run("combat use spends the turn", func(t *testing.T) {
-		e := engine.NewEngine(r)
+		e := newEngine()
 		e.Player.AddConsumable("healing_potion")
 		m := enterCombat(t, e)
 		e.Player.CurrentHP = 50
