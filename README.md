@@ -46,11 +46,19 @@ tower-of-doom --mods ~/my-mod # play with a specific mod directory
 the TUI. Exit codes are shared by the commands: `0` ok, `1` invalid content,
 `2` usage error.
 
+## Terminal display
+
+The TUI requires a terminal at least 100 columns wide and 24 rows high. At
+larger sizes, the existing two-column game frame expands to use the available
+space, providing more room for the game body and log. The layout updates live
+when the terminal is resized; resizing does not restart the game or reset its
+state. Text remains the same terminal-cell size—there is no font scaling.
+
 ## Modding
 
-A mod is a flat directory holding any of five JSON files:
+A mod is a flat directory holding any of six JSON files:
 
-`monsters.json` · `items.json` · `moves.json` · `statuses.json` · `sections.json`
+`monsters.json` · `items.json` · `moves.json` · `statuses.json` · `consumables.json` · `sections.json`
 
 The overlay is per file: a file present in the directory replaces the embedded
 one as a whole, and any file you leave out falls back to the embedded version.
