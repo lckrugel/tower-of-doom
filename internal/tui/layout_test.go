@@ -16,6 +16,38 @@ import (
 	"github.com/lckrugel/tower-of-doom/internal/game/engine/entities"
 )
 
+func TestCalculateLayout(t *testing.T) {
+	tests := []struct {
+		name                                                              string
+		width, height                                                     int
+		contentWidth, contentHeight, mainWidth, logWidth, workspaceHeight int
+		tooSmall                                                          bool
+	}{
+		{"minimum", 100, 24, 96, 22, 46, 50, 20, false},
+		{"one extra column and row", 101, 25, 97, 23, 46, 51, 21, false},
+		{"roomy", 140, 40, 136, 38, 66, 70, 36, false},
+		{"wide and tall", 200, 60, 196, 58, 96, 100, 56, false},
+		{"narrow", 80, 40, 76, 38, 36, 41, 36, true},
+		{"short", 120, 20, 116, 18, 56, 60, 16, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := CalculateLayout(tt.width, tt.height)
+			if got.ContentWidth != tt.contentWidth || got.ContentHeight != tt.contentHeight ||
+				got.MainWidth != tt.mainWidth || got.LogWidth != tt.logWidth ||
+				got.WorkspaceHeight != tt.workspaceHeight || got.TooSmall != tt.tooSmall {
+				t.Errorf("CalculateLayout(%d, %d) = %+v", tt.width, tt.height, got)
+			}
+			if got.HeroHeight != 4 || got.HeaderHeight != 1 || got.ActionBarHeight != 1 {
+				t.Errorf("fixed bands = hero %d, header %d, action bar %d", got.HeroHeight, got.HeaderHeight, got.ActionBarHeight)
+			}
+			if !got.TooSmall && got.MainWidth+got.LogWidth != got.ContentWidth {
+				t.Errorf("columns total %d, want content width %d", got.MainWidth+got.LogWidth, got.ContentWidth)
+			}
+		})
+	}
+}
+
 // viewModels builds a Model per game state, as close to real play as
 // possible (encounters populated, partial HP damage in combat).
 func viewModels() map[string]Model {
@@ -306,7 +338,7 @@ func TestShrineBodyFitsTheBodySlot(t *testing.T) {
 // longLog fills the event log to its cap.
 func longLog() Model {
 	m := New(testEngine())
-	for i := range maxLogLines {
+	for i := range middleHeight {
 		m.log = append(m.log, fmt.Sprintf("log line %d", i))
 	}
 	return m
@@ -441,6 +473,7 @@ func TestHeroStatsAnchorAboveTheActionBar(t *testing.T) {
 // never reflows for it.
 func TestOverlayKeepsTheConstantFrame(t *testing.T) {
 	m := New(testEngine())
+	m.width, m.height = minWidth, minHeight
 	m.overlay = true
 
 	lines := viewLines(m.View())
@@ -490,9 +523,34 @@ func TestViewAtUnknownSizeRendersTheFullCanvas(t *testing.T) {
 	}
 }
 
-// Sending the size must record it without changing anything the view
-// renders: a roomy terminal gets exactly the same fixed frame.
-func TestWindowSizeMsgIsStoredWithoutRedrawing(t *testing.T) {
+// Sending a size updates the frame dimensions in every game state.
+func TestResponsiveViewFillsAvailableTerminal(t *testing.T) {
+	sizes := []struct{ width, height int }{
+		{100, 24}, {101, 25}, {140, 40}, {200, 60},
+	}
+	for _, size := range sizes {
+		for name, m := range viewModels() {
+			m.width, m.height = size.width, size.height
+			lines := viewLines(m.View())
+			if len(lines) != size.height {
+				t.Errorf("%s at %dx%d: rendered %d rows, want %d", name, size.width, size.height, len(lines), size.height)
+			}
+			for i, line := range lines {
+				if width := ansiLen(line); width != size.width {
+					t.Errorf("%s at %dx%d: row %d has width %d, want %d", name, size.width, size.height, i, width, size.width)
+				}
+			}
+		}
+		overlay := New(testEngine())
+		overlay.width, overlay.height, overlay.overlay = size.width, size.height, true
+		lines := viewLines(overlay.View())
+		if len(lines) != size.height || ansiLen(lines[0]) != size.width {
+			t.Errorf("overlay at %dx%d rendered %d rows × %d columns", size.width, size.height, len(lines), ansiLen(lines[0]))
+		}
+	}
+}
+
+func TestWindowSizeMsgResizesTheView(t *testing.T) {
 	models := viewModels()
 
 	for name, m := range models {
@@ -502,9 +560,46 @@ func TestWindowSizeMsgIsStoredWithoutRedrawing(t *testing.T) {
 		if sized.width != 200 || sized.height != 60 {
 			t.Errorf("%s: size stored as %dx%d, want 200x60", name, sized.width, sized.height)
 		}
-		if got, want := sized.View(), m.View(); got != want {
-			t.Errorf("%s: view changed after the size message:\n%q", name, got)
+		lines := viewLines(sized.View())
+		if len(lines) != 60 || ansiLen(lines[0]) != 200 {
+			t.Errorf("%s: resized view is %d rows × %d columns, want 60×200", name, len(lines), ansiLen(lines[0]))
 		}
+	}
+}
+
+func TestResizingKeepsGameStateAndExposesMoreLogHistory(t *testing.T) {
+	m := viewModels()["combat"]
+	m.gridCursor = 1
+	for i := range 60 {
+		m.log = append(m.log, fmt.Sprintf("history %d", i))
+	}
+	engineState := m.engine.State
+	lastLog := m.log[len(m.log)-1]
+
+	for _, size := range []tea.WindowSizeMsg{{Width: 140, Height: 40}, {Width: 80, Height: 20}, {Width: 200, Height: 60}} {
+		next, _ := m.Update(size)
+		m = modelOf(next, t)
+		if m.engine.State != engineState || m.gridCursor != 1 || m.log[len(m.log)-1] != lastLog {
+			t.Errorf("resize to %dx%d changed game/UI state", size.Width, size.Height)
+		}
+	}
+	if got, want := len(strings.Split(stripANSI(m.logPanel()), "\n")), 56; got != want {
+		t.Errorf("large log viewport has %d rows, want %d", got, want)
+	}
+}
+
+func TestResizingPreservesOverlayAndQuitConfirmation(t *testing.T) {
+	for _, mode := range []string{"overlay", "quit confirmation"} {
+		t.Run(mode, func(t *testing.T) {
+			m := New(testEngine())
+			m.overlay = mode == "overlay"
+			m.confirmQuit = mode == "quit confirmation"
+			next, _ := m.Update(tea.WindowSizeMsg{Width: 140, Height: 40})
+			m = modelOf(next, t)
+			if m.overlay != (mode == "overlay") || m.confirmQuit != (mode == "quit confirmation") {
+				t.Errorf("resize changed %s mode", mode)
+			}
+		})
 	}
 }
 

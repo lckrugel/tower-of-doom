@@ -302,6 +302,25 @@ func TestViewCombatShowsTheMoveGrid(t *testing.T) {
 	}
 }
 
+func TestMoveGridExpandsAndDistributesOddColumn(t *testing.T) {
+	for _, size := range []struct{ width, height int }{{102, 24}, {140, 40}, {200, 60}} {
+		m := fourMoveModel(t)
+		m.width, m.height = size.width, size.height
+		layout := m.layout()
+		if got := m.gridCellWidth(0) + m.gridCellWidth(1); got != layout.MainWidth {
+			t.Errorf("at %dx%d: grid cells total %d columns, want main width %d", size.width, size.height, got, layout.MainWidth)
+		}
+		if layout.MainWidth%2 == 1 && m.gridCellWidth(1) != m.gridCellWidth(0)+1 {
+			t.Errorf("at %dx%d: odd spare column was not given to the second cell (%d, %d)", size.width, size.height, m.gridCellWidth(0), m.gridCellWidth(1))
+		}
+		for i, line := range viewLines(m.moveGrid())[1:] {
+			if got := ansiLen(line); got != layout.MainWidth {
+				t.Errorf("at %dx%d: move-grid row %d is %d columns, want %d", size.width, size.height, i, got, layout.MainWidth)
+			}
+		}
+	}
+}
+
 func TestGridTagsRenderOrderedMoveEffects(t *testing.T) {
 	m := Model{}
 	cases := []struct {

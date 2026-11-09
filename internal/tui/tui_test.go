@@ -291,18 +291,18 @@ func modelOf(next tea.Model, t *testing.T) Model {
 	return model
 }
 
-func TestEventLogIsTrimmedToTheNewestLines(t *testing.T) {
-	if maxLogLines != middleHeight {
-		t.Fatalf("log retention = %d lines, want the %d-row log viewport", maxLogLines, middleHeight)
+func TestEventLogIsTrimmedToTheNewestEntries(t *testing.T) {
+	if maxLogEntries != 500 {
+		t.Fatalf("log retention = %d entries, want 500", maxLogEntries)
 	}
 	m := New(testEngine())
-	for i := range maxLogLines + 3 {
+	for i := range maxLogEntries + 3 {
 		m.log = append(m.log, fmt.Sprintf("line %d", i))
 	}
 	m.log = trimLog(m.log)
 
-	if len(m.log) != maxLogLines {
-		t.Fatalf("log length = %d, want %d", len(m.log), maxLogLines)
+	if len(m.log) != maxLogEntries {
+		t.Fatalf("log length = %d, want %d", len(m.log), maxLogEntries)
 	}
 	for i, line := range m.log {
 		want := fmt.Sprintf("line %d", i+3)

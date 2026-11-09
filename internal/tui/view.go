@@ -17,8 +17,9 @@ import (
 const barWidth = 10
 
 // Two-column canvas: game area on the left, event log on the right.
-// Content is fitted to the slots, so the window never changes size as
-// the game progresses. Everything on the bottom row must be anchored —
+// Content is fitted to the slots at the current terminal size, so the
+// window never changes size as the game progresses. Everything on the
+// bottom row must be anchored —
 // the plan is: hero stats sit directly above the shortcut bar.
 const (
 	// Total inner canvas: the terminal frame is 2 wider/taller (border
@@ -80,29 +81,43 @@ var (
 // Terminals that can't hold the fixed canvas get the bare fallback
 // screen instead of a clipped frame.
 func (m Model) View() string {
+	layout := m.layout()
 	if m.tooSmall() {
 		return tooSmallView(m.width, m.height)
 	}
 	if m.overlay {
 		// The lore overlay replaces the canvas while open — same window
 		// frame, same fixed size (see overlayPanel).
-		return styleWindow.Render(slot(m.overlayPanel(), contentWidth, contentHeight, lipgloss.Top))
+		return styleWindow.Render(slot(m.overlayPanel(), layout.ContentWidth, layout.ContentHeight, lipgloss.Top))
 	}
 
 	left := lipgloss.JoinVertical(lipgloss.Left,
-		slot(m.body(), mainColWidth, bodyHeight, lipgloss.Top),
-		slot(m.heroPanel(), mainColWidth, heroHeight, lipgloss.Top),
+		slot(m.body(), layout.MainWidth, layout.BodyHeight, lipgloss.Top),
+		slot(m.heroPanel(), layout.MainWidth, layout.HeroHeight, lipgloss.Top),
 	)
 	right := styleLogColumn.Render(
-		slot(m.rightColumn(), logColWidth-1, middleHeight, m.rightAnchor()),
+		slot(m.rightColumn(), layout.LogWidth-1, layout.WorkspaceHeight, m.rightAnchor()),
 	)
 
 	content := lipgloss.JoinVertical(lipgloss.Left,
-		slot(m.header(), contentWidth, 1, lipgloss.Top),
+		slot(m.header(), layout.ContentWidth, layout.HeaderHeight, lipgloss.Top),
 		lipgloss.JoinHorizontal(lipgloss.Top, left, right),
-		slot(m.actionBar(), contentWidth, 1, lipgloss.Top),
+		slot(m.actionBar(), layout.ContentWidth, layout.ActionBarHeight, lipgloss.Top),
 	)
 	return styleWindow.Render(content)
+}
+
+// layout returns the current responsive geometry. Before Bubble Tea reports
+// the initial window size, render using the documented minimum canvas.
+func (m Model) layout() Layout {
+	width, height := m.width, m.height
+	if width <= 0 {
+		width = minWidth
+	}
+	if height <= 0 {
+		height = minHeight
+	}
+	return CalculateLayout(width, height)
 }
 
 // rightColumn is the right band's content: the event log console
@@ -143,10 +158,10 @@ func (m Model) showsEquipment() bool {
 // counts as fine: the model renders its canvas and learns the truth with
 // the first resize event.
 func (m Model) tooSmall() bool {
-	if m.width == 0 {
+	if m.width == 0 || m.height == 0 {
 		return false
 	}
-	return m.width < minWidth || m.height < minHeight
+	return m.layout().TooSmall
 }
 
 // tooSmallView is the fallback for terminals smaller than the canvas:
@@ -345,7 +360,7 @@ func (m Model) panelHeading(title string) string {
 	if m.feedback == "" {
 		return heading
 	}
-	room := max(0, mainColWidth-lipgloss.Width(title)-3)
+	room := max(0, m.layout().MainWidth-lipgloss.Width(title)-3)
 	return heading + " " + styleHurt.Render(truncateRunes(m.feedback, room))
 }
 
@@ -355,7 +370,7 @@ func (m Model) panelHeading(title string) string {
 // on slot() to be clipped.
 func (m Model) shopRow(index int, item *entities.Item, price string) string {
 	label := item.Name + itemBonusList(item)
-	if over := lipgloss.Width(label) + lipgloss.Width(price) + 2 - mainColWidth; over > 0 {
+	if over := lipgloss.Width(label) + lipgloss.Width(price) + 2 - m.layout().MainWidth; over > 0 {
 		label = truncateRunes(label, lipgloss.Width(label)-over)
 	}
 	if index == m.merchantCursor() {
@@ -370,11 +385,6 @@ func (m Model) merchantCursor() int {
 	n := len(m.engine.MerchantStock) + len(m.engine.Player.Bag())
 	return min(max(m.bagCursor, 0), max(n-1, 0))
 }
-
-// moveRowNameWidth is the shrine forget rows' name budget: the longest
-// shipped move ("Assassin's Strike", 17 runes) plus slack; modded names
-// truncate inside the row instead of stretching the frame.
-const moveRowNameWidth = 20
 
 // shrinePanel is the shrine screen (StateLearn). The screen plays TWO
 // steps, DERIVED from the engine's pending state (never stored): offers
@@ -433,12 +443,13 @@ func (m Model) shrineDossier(move entities.Move, selected bool) string {
 	if selected {
 		prefix, style = "▶ ", styleSelected
 	}
-	name := prefix + style.Render(truncateRunes(move.Name, mainColWidth-3))
+	mainWidth := m.layout().MainWidth
+	name := prefix + style.Render(truncateRunes(move.Name, mainWidth-3))
 	tags := strings.TrimLeft(m.gridTags(move, false, glyphLearned), " ")
-	tier := truncateRunes(fmt.Sprintf("    tier %d · %s", move.Tier, tags), mainColWidth)
+	tier := truncateRunes(fmt.Sprintf("    tier %d · %s", move.Tier, tags), mainWidth)
 	line := name + "\n" + styleDim.Render(tier) + "\n"
 	if expl := m.moveEffectsExplanation(move); expl != "" {
-		line += styleDim.Render(truncateDescription("    "+expl, mainColWidth)) + "\n"
+		line += styleDim.Render(truncateDescription("    "+expl, mainWidth)) + "\n"
 	}
 	return line
 }
@@ -449,13 +460,14 @@ func (m Model) shrineDossier(move entities.Move, selected bool) string {
 func (m Model) shrineForgetStep() string {
 	var b strings.Builder
 	if chosen := m.engine.ChosenMove; chosen != nil {
-		learning := truncateRunes("learning: "+chosen.Name, mainColWidth-2)
+		mainWidth := m.layout().MainWidth
+		learning := truncateRunes("learning: "+chosen.Name, mainWidth-2)
 		tags := strings.TrimLeft(m.gridTags(*chosen, false, glyphLearned), " ")
-		tier := truncateRunes(fmt.Sprintf("    tier %d · %s", chosen.Tier, tags), mainColWidth)
+		tier := truncateRunes(fmt.Sprintf("    tier %d · %s", chosen.Tier, tags), mainWidth)
 		b.WriteString("  " + stylePanelTitle.Render(learning) + "\n")
 		b.WriteString(styleDim.Render(tier) + "\n")
 		if expl := m.moveEffectsExplanation(*chosen); expl != "" {
-			b.WriteString(styleDim.Render(truncateDescription("    "+expl, mainColWidth)) + "\n")
+			b.WriteString(styleDim.Render(truncateDescription("    "+expl, mainWidth)) + "\n")
 		}
 	}
 	learned := m.engine.Player.LearnedMoves()
@@ -467,12 +479,12 @@ func (m Model) shrineForgetStep() string {
 	for _, mv := range learned {
 		width = max(width, runewidth.StringWidth(mv.Name))
 	}
-	width = min(width, moveRowNameWidth)
+	width = min(width, max(0, m.layout().MainWidth-3))
 	selected := min(max(m.bagCursor, 0), len(learned)-1)
 	for i, mv := range learned {
 		rowTags := strings.TrimLeft(m.gridTags(mv, false, glyphLearned), " ")
-		label := padRight(truncateRunes(mv.Name, moveRowNameWidth), width) + "  " + rowTags
-		label = truncateRunes(label, mainColWidth-3)
+		label := padRight(truncateRunes(mv.Name, width), width) + "  " + rowTags
+		label = truncateRunes(label, m.layout().MainWidth-3)
 		if i == selected {
 			b.WriteString(styleSelected.Render("▶ "+label) + "\n")
 		} else {
@@ -522,10 +534,10 @@ func (m Model) encounterPanel() string {
 		return b.String() + styleDim.Render("   (no enemies in sight)")
 	}
 	// Pad names so the HP bars line up across the queue.
-	nameWidth := maxNameWidth(monsters)
+	nameWidth := min(maxNameWidth(monsters), max(1, m.layout().MainWidth-2-2-barWidth-5))
 	for i := range monsters {
 		mon := monsters[i]
-		b.WriteString("  " + styleAction.Render(padRight(mon.Name(), nameWidth)) +
+		b.WriteString("  " + styleAction.Render(padRight(truncateRunes(mon.Name(), nameWidth), nameWidth)) +
 			"  " + hpBar(mon.CurrentHP, mon.MaxHP()) + "\n")
 		b.WriteString("    " + statLine(mon) + "\n")
 	}
@@ -535,7 +547,9 @@ func (m Model) encounterPanel() string {
 // enemyNameWidth is the front enemy's name budget on the combat line:
 // the marker, the gap and the HP bar with its percentage share the row
 // (marker 2 + gap 2 + bar 10 + " NN%" 5).
-const enemyNameWidth = mainColWidth - 2 - 2 - barWidth - 5
+func (m Model) enemyNameWidth() int {
+	return m.layout().MainWidth - 2 - 2 - barWidth - 5
+}
 
 // combatPanel is the combat screen: the enemy currently in front of the
 // hero — the rest of the queue appears only as a counter — with its stat
@@ -558,7 +572,7 @@ func (m Model) combatPanel() string {
 	}
 	combat := m.engine.CombatView()
 	stats := combat.Enemy.Stats
-	b.WriteString("▶ " + stylePanelTitle.Render(truncateRunes(combat.Enemy.Name, enemyNameWidth)) +
+	b.WriteString("▶ " + stylePanelTitle.Render(truncateRunes(combat.Enemy.Name, m.enemyNameWidth())) +
 		"  " + hpBar(stats.HP, stats.MaxHP) + "\n")
 	b.WriteString("  " + effectiveStatLine(stats) + "\n")
 	if rows := m.enemyStatusRows(); rows != "" {
@@ -574,12 +588,16 @@ func (m Model) combatPanel() string {
 // The move grid: a 2×2 block of cells, two per row, each cell TWO lines
 // tall (the move name over its tags) so the widest shipped move
 // ("Assassin's Strike", 17 runes) and its tags always fit the
-// half-column. gridCellWidth is exactly half the game column; the rows
-// join two padded cells and never exceed mainColWidth.
-const (
-	gridCols      = 2
-	gridCellWidth = mainColWidth / gridCols // 23
-)
+// half-column. Each row divides the current game column between its cells.
+const gridCols = 2
+
+func (m Model) gridCellWidth(col int) int {
+	width := m.layout().MainWidth / gridCols
+	if col == gridCols-1 {
+		width += m.layout().MainWidth % gridCols
+	}
+	return width
+}
 
 // moveGrid renders the combat move grid: four fixed cells in the hero's
 // effective move order — the exact order CmdMove's index points into.
@@ -642,9 +660,10 @@ func (m Model) moveSourceGlyph(moveID string) string {
 // modded assets longer than any shipped move ("Assassin's Strike",
 // 17 runes, always fits).
 func (m Model) gridCell(moves []entities.Move, i int) (name, tags string) {
+	cellWidth := m.gridCellWidth(i % gridCols)
 	if i >= len(moves) {
-		return styleDim.Render(padRight("—", gridCellWidth)),
-			strings.Repeat(" ", gridCellWidth)
+		return styleDim.Render(padRight("—", cellWidth)),
+			strings.Repeat(" ", cellWidth)
 	}
 	move := moves[i]
 	cooling := m.cooldownLeft(move.ID) > 0
@@ -657,10 +676,10 @@ func (m Model) gridCell(moves []entities.Move, i int) (name, tags string) {
 		name = "▶ " + move.Name
 		style = styleSelected
 	}
-	name = truncateRunes(name, gridCellWidth)
+	name = truncateRunes(name, cellWidth)
 	source := m.moveSourceGlyph(move.ID)
-	return style.Render(padRight(name, gridCellWidth)),
-		style.Render(padRight(truncateRunes(m.gridTags(move, cooling, source), gridCellWidth), gridCellWidth))
+	return style.Render(padRight(name, cellWidth)),
+		style.Render(padRight(truncateRunes(m.gridTags(move, cooling, source), cellWidth), cellWidth))
 }
 
 // gridTags is a move's tag line: the damage modifier, the status tag
@@ -807,12 +826,13 @@ func shownStatuses(statuses []combatStatus, maxWidth, maxRows int) []combatStatu
 func (m Model) enemyStatusRows() string {
 	statuses := combatStatuses(m.engine.CombatView().Enemy)
 	chips := statusChips(statuses)
-	rows, _ := wrapChips(chips, mainColWidth-2, maxStatusRows)
+	width := m.layout().MainWidth - 2
+	rows, _ := wrapChips(chips, width, maxStatusRows)
 	for i := range rows {
 		rows[i] = "  " + rows[i]
 	}
-	if expl := m.statusExplanation(shownStatuses(statuses, mainColWidth-2, maxStatusRows)); expl != "" {
-		rows = append(rows, "  "+styleDim.Render(truncateRunes(expl, mainColWidth-2)))
+	if expl := m.statusExplanation(shownStatuses(statuses, width, maxStatusRows)); expl != "" {
+		rows = append(rows, "  "+styleDim.Render(truncateRunes(expl, width)))
 	}
 	return strings.Join(rows, "\n")
 }
@@ -902,20 +922,21 @@ func (m Model) heroPanel() string {
 // full lore. The cut is applied to the PLAIN text before styling (never
 // mid-escape).
 func (m Model) heroHPRow() string {
+	mainWidth := m.layout().MainWidth
 	p := m.engine.Player
 	row := fmt.Sprintf("  HP %s %d/%d", hpBarPlain(p.CurrentHP, p.MaxHP()), p.CurrentHP, p.MaxHP())
 	statuses := combatStatuses(m.engine.CombatView().Hero)
 	chips := statusChips(statuses)
 	var visible []combatStatus
 	for _, chip := range chips {
-		if lipgloss.Width(row)+1+lipgloss.Width(chip) > mainColWidth {
+		if lipgloss.Width(row)+1+lipgloss.Width(chip) > mainWidth {
 			break
 		}
 		row += " " + chip
 		visible = append(visible, statuses[len(visible)])
 	}
 	if expl := m.statusExplanation(visible); expl != "" {
-		if room := mainColWidth - lipgloss.Width(row) - 1; room > 0 {
+		if room := mainWidth - lipgloss.Width(row) - 1; room > 0 {
 			row += " " + styleDim.Render(truncateRunes(expl, room))
 		}
 	}
@@ -923,13 +944,14 @@ func (m Model) heroHPRow() string {
 }
 
 func (m Model) logPanel() string {
-	rows := make([]string, 0, middleHeight)
+	layout := m.layout()
+	rows := make([]string, 0, layout.WorkspaceHeight)
 	for _, line := range m.log {
-		wrapped := restoreANSIStyleAtLineStarts(ansi.Wrap(line, logColWidth-1, ""))
+		wrapped := restoreANSIStyleAtLineStarts(ansi.Wrap(line, layout.LogWidth-1, ""))
 		rows = append(rows, strings.Split(wrapped, "\n")...)
 	}
-	if len(rows) > middleHeight {
-		rows = rows[len(rows)-middleHeight:]
+	if len(rows) > layout.WorkspaceHeight {
+		rows = rows[len(rows)-layout.WorkspaceHeight:]
 	}
 	return strings.Join(rows, "\n")
 }
@@ -978,6 +1000,7 @@ func restoreANSIStyleAtLineStarts(s string) string {
 // lines, well inside the middle band's 20, and both lines of an
 // occupied slot are width-guarded — nothing leans on slot() to clip.
 func (m Model) equippedPanel() string {
+	width := m.layout().LogWidth - 1
 	rows := []string{stylePanelTitle.Render("◈ EQUIPPED")}
 	for _, s := range equippedSlots(m.engine.Player) {
 		label := padRight(s.label, equippedLabelWidth)
@@ -988,10 +1011,10 @@ func (m Model) equippedPanel() string {
 		// The width guard only ever bites on a modded asset longer than
 		// any shipped name; the bonus list cannot overflow the rest.
 		rows = append(rows, fmt.Sprintf("  %s  %s",
-			label, truncateRunes(s.item.Name, logColWidth-1-equippedIndent)))
+			label, truncateRunes(s.item.Name, width-equippedIndent)))
 		if bonus := itemBonusList(s.item); bonus != "" {
 			rows = append(rows, styleDim.Render(
-				strings.Repeat(" ", equippedIndent)+truncateRunes(bonus, logColWidth-1-equippedIndent)))
+				strings.Repeat(" ", equippedIndent)+truncateRunes(bonus, width-equippedIndent)))
 		}
 	}
 	return strings.Join(rows, "\n")

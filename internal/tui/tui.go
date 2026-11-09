@@ -9,8 +9,8 @@ import (
 	"github.com/lckrugel/tower-of-doom/internal/game/engine"
 )
 
-// maxLogLines bounds the event log panel to the most recent lines.
-const maxLogLines = middleHeight
+// maxLogEntries bounds the event history independently of the viewport.
+const maxLogEntries = 500
 
 // Model wraps the game engine for bubbletea. It owns no game logic: every
 // action goes through engine.Process and the events drive the log.
@@ -379,7 +379,7 @@ func (m *Model) absorb(ev engine.Event) {
 	// information in the combat log. Keep the engine event for other
 	// consumers, but omit this presentation-only line.
 	if ev.Type != engine.EventMoveUsed {
-		m.log = append(m.log, renderEvent(ev))
+		m.log = trimLog(append(m.log, renderEvent(ev)))
 	}
 	if ev.Type == engine.EventHeroDefeated {
 		m.recap = recapFromEvent(ev)
@@ -413,10 +413,10 @@ func recapFromEvent(ev engine.Event) *runRecap {
 	return recap
 }
 
-// trimLog keeps only the newest lines so the panel stays bounded.
+// trimLog keeps only the newest rendered entries in the model's history.
 func trimLog(log []string) []string {
-	if len(log) > maxLogLines {
-		return log[len(log)-maxLogLines:]
+	if len(log) > maxLogEntries {
+		return log[len(log)-maxLogEntries:]
 	}
 	return log
 }
