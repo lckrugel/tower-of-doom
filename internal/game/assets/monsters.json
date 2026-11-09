@@ -129,11 +129,11 @@
     "moves": [
       {
         "id": "crushing_blow",
-        "weight": 50
+        "weight": 60
       },
       {
         "id": "deep_wound",
-        "weight": 40
+        "weight": 30
       },
       {
         "id": "guard_strike",
@@ -327,7 +327,7 @@
     "ai": {
       "priorities": [
         {
-          "when": [{ "type": "hp_below", "target": "self", "percent": 35 }],
+          "when": [{ "type": "hp_below", "target": "self", "percent": 50 }],
           "moves": ["rallying_cut"]
         }
       ],
