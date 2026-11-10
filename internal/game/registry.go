@@ -98,7 +98,7 @@ const (
 	// MaxMoves is the cap on every combatant's move set.
 	MaxMoves = 4
 	// MaxWeaponMoves is how many moves a single weapon may grant.
-	MaxWeaponMoves = 2
+	MaxWeaponMoves = 1
 )
 
 // MoveRef references a move in a monster's move list. The weight is the
@@ -147,6 +147,9 @@ type MoveAsset struct {
 	// Weight is the move's default AI weight (monster picks); a monster's
 	// move refs carry their own overriding weight.
 	Weight int `json:"weight"`
+	// Learnable moves can be taught to the hero; creature-compatible
+	// learnable moves must have a cooldown.
+	Learnable bool `json:"learnable"`
 	// Effects is the ordered move payload.
 	Effects []MoveEffectAsset `json:"effects,omitempty"`
 }
@@ -406,8 +409,8 @@ func (r *Registry) MovesForTiers(tiers []int) []MoveAsset {
 	}
 	moves := make([]MoveAsset, 0, len(r.Moves))
 	for _, move := range r.Moves {
-		if !moveUsableByCreatures(move.Type) {
-			continue // weapon-only: never offerable at a shrine
+		if !move.Learnable {
+			continue // only explicitly learnable moves are shrine-offerable
 		}
 		if !restricted || allowed[move.Tier] {
 			moves = append(moves, move)
@@ -611,6 +614,17 @@ func (r *Registry) Validate(topFloor int) error {
 
 	for _, id := range sortedIDs(r.Moves) {
 		mv := r.Moves[id]
+		if mv.ID == "punch" {
+			if mv.Learnable {
+				fail("move %q is the virtual unarmed basic action and must not be learnable", mv.ID)
+			}
+			if !moveUsableByWeapons(mv.Type) {
+				fail("move %q is the virtual unarmed basic action and must be weapon-compatible", mv.ID)
+			}
+			if mv.Cooldown != 0 {
+				fail("move %q is the virtual unarmed basic action and must have cooldown 0", mv.ID)
+			}
+		}
 		// Load defaults the absent tier to 1, so a non-positive tier here
 		// is a content bug, not a missing field.
 		if mv.Tier < 1 {
@@ -619,6 +633,9 @@ func (r *Registry) Validate(topFloor int) error {
 		}
 		if mv.Cooldown < 0 {
 			fail("move %q has cooldown %d, want >= 0 (0 = spammable)", mv.ID, mv.Cooldown)
+		}
+		if mv.Learnable && (!moveUsableByCreatures(mv.Type) || mv.Cooldown <= 0) {
+			fail("move %q is learnable, but must be creature-compatible with cooldown > 0", mv.ID)
 		}
 		// The type word is required (no absent-field default): it gates
 		// which consumer may carry the move.
@@ -789,17 +806,8 @@ func (r *Registry) Validate(topFloor int) error {
 		// The old behavior — a move-less weapon keeping the basic_attack
 		// fallback — is gone (BREAKING for mods, intended): a weapon
 		// without an explicit list no longer loads.
-		if len(item.Moves) == 0 {
-			fail("weapon %q grants no moves, want an explicit list with at least one "+
-				"cooldown-0 move (move-less weapons no longer keep the basic_attack fallback)",
-				item.ID)
-			continue
-		}
-		if len(item.Moves) > MaxWeaponMoves {
-			// An over-cap grant list is one fault: its entries are not
-			// re-checked (the cap is the bug a modder fixes first).
-			fail("weapon %q grants %d moves, want at most %d",
-				item.ID, len(item.Moves), MaxWeaponMoves)
+		if len(item.Moves) != 1 {
+			fail("weapon %q grants %d moves, want exactly one", item.ID, len(item.Moves))
 			continue
 		}
 		unknownRef := false
@@ -818,25 +826,13 @@ func (r *Registry) Validate(topFloor int) error {
 			}
 		}
 		if unknownRef {
-			// The spammable rule needs every grant resolved; the unknown
-			// refs are already reported above.
 			continue
 		}
-		// The spammable rule: granting moves REPLACES the canonical
-		// basic_attack fallback, so the grant list must carry at least
-		// one cooldown-0 move — a weapon whose every move is locked can
-		// never act. (Every weapon reaches this point WITH a list: the
-		// move-less case failed above.)
-		hasSpammable := false
 		for _, moveID := range item.Moves {
-			if move, _ := r.MoveByID(moveID); move.Cooldown == 0 {
-				hasSpammable = true
+			move, _ := r.MoveByID(moveID)
+			if move.Cooldown != 0 {
+				fail("weapon %q grants move %q with cooldown %d, want cooldown 0", item.ID, moveID, move.Cooldown)
 			}
-		}
-		if !hasSpammable {
-			fail("weapon %q grants moves, but none has cooldown 0 — "+
-				"want at least one spammable (the grants replace the basic_attack fallback)",
-				item.ID)
 		}
 	}
 
@@ -904,7 +900,7 @@ func (r *Registry) Validate(topFloor int) error {
 		}
 		for _, tier := range slices.Sorted(maps.Keys(listedMoves)) {
 			if len(r.MovesForTiers([]int{tier})) == 0 {
-				fail("section %q allows move tier %d, but the registry has no moves of that tier",
+				fail("section %q allows move tier %d, but the registry has no learnable moves of that tier",
 					s.ID, tier)
 			}
 		}

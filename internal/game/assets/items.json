@@ -9,7 +9,9 @@
     "bonus_def": 0,
     "bonus_spd": 0,
     "durability": 50,
-    "moves": ["basic_attack"]
+    "moves": [
+      "basic_attack"
+    ]
   },
   {
     "id": "leather_armor",
@@ -65,7 +67,9 @@
     "bonus_def": 0,
     "bonus_spd": 0,
     "durability": 75,
-    "moves": ["quick_stab"]
+    "moves": [
+      "quick_stab"
+    ]
   },
   {
     "id": "iron_helmet",
@@ -110,7 +114,9 @@
     "bonus_def": 0,
     "bonus_spd": 0,
     "durability": 100,
-    "moves": ["steel_flurry", "heavy_slash"]
+    "moves": [
+      "steel_flurry"
+    ]
   },
   {
     "id": "steel_body_armor",
@@ -188,7 +194,9 @@
     "bonus_def": 0,
     "bonus_spd": 5,
     "durability": 250,
-    "moves": ["assassins_strike", "dragons_might"]
+    "moves": [
+      "assassins_strike"
+    ]
   },
   {
     "id": "dragon_scale_armor",
