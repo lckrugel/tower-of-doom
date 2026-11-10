@@ -281,7 +281,9 @@ func (m Model) lootPanel() string {
 	var b strings.Builder
 	b.WriteString(m.panelHeading("◈ CHEST LOOT") + "\n")
 	if item := m.engine.PendingLoot; item != nil {
-		b.WriteString("  " + stylePanelTitle.Render(item.Name) + itemBonusList(item) + "\n")
+		itemLine := "  " + stylePanelTitle.Render(item.Name) + itemBonusList(item)
+		wrapped := restoreANSIStyleAtLineStarts(ansi.Wrap(itemLine, m.layout().MainWidth, ""))
+		b.WriteString(wrapped + "\n")
 	} else {
 		b.WriteString(styleDim.Render("   (the chest is empty)") + "\n")
 	}
