@@ -36,21 +36,39 @@ func (e *Engine) currentEnemy() *entities.Monster {
 	return &e.CurrentEncounter.Monsters[0]
 }
 
-// CombatMoves returns the move set the Hero fights with in StateCombat:
-// the hero's effective set (learned moves first, then weapon-granted —
-// see Hero.EffectiveMoves), or the canonical basic attack when that set
-// is empty. The fallback is a deliberate combat-integration decision
-// (the entity layer leaves the empty set meaning open): a hero without
-// moves must still be able to act, mirroring the monster-side rule that
-// a monster without a move set fights with basic_attack — move-less
-// mods and starter gear keep working. The set is rebuilt per call; the
-// CmdMove index points into exactly this list.
+// CombatMoves returns the hero's combat actions in the same order as
+// CombatMovesWithSource. The basic action (weapon grant or virtual Unarmed
+// Punch) is first, followed by learned cooldown moves.
 func (e *Engine) CombatMoves() []entities.Move {
-	moves := e.Player.EffectiveMoves(e.Player.Weapon)
-	if len(moves) == 0 {
-		return []entities.Move{e.basicAttack()}
+	sourced := e.CombatMovesWithSource()
+	moves := make([]entities.Move, len(sourced))
+	for i := range sourced {
+		moves[i] = sourced[i].Move
 	}
 	return moves
+}
+
+// CombatMovesWithSource is the authoritative hero loadout for combat,
+// command indexing, and UI display. A weapon supplies the first basic
+// action; without a weapon the engine supplies registry-resolved Punch as
+// a virtual weapon-source action. Learned moves follow in learning order.
+func (e *Engine) CombatMovesWithSource() []entities.SourcedMove {
+	if e.Player.Weapon != nil {
+		return e.Player.EffectiveMovesWithSource(e.Player.Weapon)
+	}
+	moves := make([]entities.SourcedMove, 0, entities.MaxMoves)
+	moves = append(moves, entities.SourcedMove{Move: e.unarmedPunch(), Source: entities.SourceWeapon})
+	moves = append(moves, e.Player.EffectiveMovesWithSource(nil)...)
+	return moves
+}
+
+// unarmedPunch resolves the virtual Unarmed action from the active
+// registry, with the canonical entity definition as a safe fallback.
+func (e *Engine) unarmedPunch() entities.Move {
+	if asset, ok := e.reg.MoveByID(entities.Punch().ID); ok {
+		return entities.NewMoveFromAsset(asset)
+	}
+	return entities.Punch()
 }
 
 // basicAttack resolves the canonical fallback from the active registry. The

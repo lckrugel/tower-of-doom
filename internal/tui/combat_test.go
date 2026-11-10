@@ -44,9 +44,6 @@ func combatEngine() *engine.Engine {
 			Spawns: []game.SpawnEntry{{MonsterID: "goblin", Weight: 1}},
 		}},
 	})
-	// The punch start (NewPlayer pre-learns it) would eat the learned
-	// slot every fixture below assumes — the fixture hero is bare.
-	e.Player.ForgetMove(entities.Punch().ID)
 	return e
 }
 
@@ -67,6 +64,11 @@ func jab() entities.Move {
 // learnMove teaches the hero a hand-built runtime move (the registry is
 // only consulted for status resolution at strike time).
 func learnMove(e *engine.Engine, move entities.Move) {
+	move.Learnable = true
+	move.Type = entities.MoveTypeCreature
+	if move.Cooldown <= 0 {
+		move.Cooldown = 1
+	}
 	if _, ok := e.Player.LearnMove(move); !ok {
 		panic("test fixture: could not learn " + move.ID)
 	}
@@ -151,7 +153,6 @@ func TestHealingPotionIsAnActionInCombatAndTurnFreeWhileExploring(t *testing.T) 
 				Spawns: []game.SpawnEntry{{MonsterID: "goblin", Weight: 1}},
 			}},
 		})
-		e.Player.ForgetMove(entities.Punch().ID)
 		return e
 	}
 
@@ -244,8 +245,7 @@ func wildSwing() entities.Move {
 }
 
 // equipWeapon puts a weapon granting the given runtime moves on the hero
-// — the second half of a 4-move hero set (MaxLearnedMoves caps learning
-// at 2; weapon moves sit on top).
+	// — weapon grants supplement the learned moves.
 func equipWeapon(e *engine.Engine, moves ...entities.Move) {
 	weapon := entities.NewItemFromAsset(game.ItemAsset{
 		ID: "fang_blade", Name: "Fang Blade", Slot: "weapon",
@@ -253,14 +253,15 @@ func equipWeapon(e *engine.Engine, moves ...entities.Move) {
 	e.Player.EquipItem(&weapon)
 }
 
-// fourMoveModel is a real combat model with a full grid: two learned
-// moves plus two weapon-granted ones.
+// fourMoveModel is a real combat model with a full grid: three learned
+// moves plus one weapon-granted move.
 func fourMoveModel(t *testing.T) Model {
 	t.Helper()
 	e := combatEngine()
 	learnMove(e, envenom(0))
 	learnMove(e, jab())
-	equipWeapon(e, stoneEdge(), wildSwing())
+	learnMove(e, heavy())
+	equipWeapon(e, stoneEdge())
 	return enterCombat(t, e)
 }
 
@@ -382,20 +383,20 @@ func TestViewGridShowsPlaceholdersForMissingMoves(t *testing.T) {
 	}
 }
 
-// The 2+2 split made visible: every grid cell trails its move's source
+// The 3+1 split made visible: every grid cell trails its move's source
 // glyph — ◆ for the learned set (shrine teaching), ⚔ for weapon
 // grants — resolved from the hero's effective set
 // (Hero.EffectiveMovesWithSource).
 func TestGridCellsTagTheMoveSource(t *testing.T) {
-	m := fourMoveModel(t) // two learned moves + two weapon-granted
+	m := fourMoveModel(t) // three learned moves + one weapon-granted
 
 	grid := stripControls(stripANSI(m.moveGrid()))
 
 	for _, want := range []string{
 		"☠poison 100% ◆", // Envenom: learned
 		"100% ◆",         // Jab: learned
+		"175% ◆",         // Heavy Slash: learned
 		"90% ⚔",          // Stone Edge: weapon-granted
-		"110% ⚔",         // Wild Swing: weapon-granted
 	} {
 		if !strings.Contains(grid, want) {
 			t.Errorf("move grid missing the source tag %q:\n%s", want, grid)

@@ -17,8 +17,9 @@ func testMoves() map[string]game.MoveAsset {
 	}
 	return map[string]game.MoveAsset{
 		"basic_attack":     {ID: "basic_attack", Name: "Basic Attack", Tier: 1, Effects: damage(100, 0), Weight: 100, Type: "both"},
-		"heavy_slash":      {ID: "heavy_slash", Name: "Heavy Slash", Tier: 2, Effects: damage(175, 0), Cooldown: 2, Weight: 60, Type: "both"},
-		"quick_stab":       {ID: "quick_stab", Name: "Quick Stab", Tier: 1, Effects: damage(60, 20), Weight: 100, Type: "both"},
+		"guard_strike":     {ID: "guard_strike", Name: "Guard Strike", Tier: 3, Effects: damage(75, 0), Cooldown: 2, Weight: 50, Type: "both", Learnable: true},
+		"heavy_slash":      {ID: "heavy_slash", Name: "Heavy Slash", Tier: 2, Effects: damage(175, 0), Cooldown: 2, Weight: 60, Type: "both", Learnable: true},
+		"quick_stab":       {ID: "quick_stab", Name: "Quick Stab", Tier: 1, Effects: damage(60, 20), Cooldown: 1, Weight: 100, Type: "both", Learnable: true},
 		"assassins_strike": {ID: "assassins_strike", Name: "Assassin's Strike", Tier: 3, Effects: damage(110, 35), Cooldown: 3, Weight: 30, Type: "both"},
 	}
 }
@@ -30,19 +31,22 @@ func movesEngine(rngValues ...int) *Engine {
 	return e
 }
 
-func TestCanonicalBasicAttackUsesRegistryDefinitionInEngine(t *testing.T) {
+func TestRegistryResolvedUnarmedPunchAndMonsterBasicFallback(t *testing.T) {
 	e := movesEngine()
 	asset := game.MoveAsset{
-		ID: "basic_attack", Name: "Modded Basic", Type: "both", Tier: 1,
+		ID: "punch", Name: "Modded Punch", Type: "both", Tier: 1,
 		Effects: []game.MoveEffectAsset{{Type: "damage", Target: "enemy", DmgModifier: intPtr(135), CritBonus: intPtr(7)}}, Cooldown: 1, Weight: 25,
 	}
 	e.reg.Moves[asset.ID] = asset
-	e.Player.ForgetMove(entities.Punch().ID)
 
 	heroMoves := e.CombatMoves()
-	if len(heroMoves) != 1 || heroMoves[0].Name != "Modded Basic" || heroMoves[0].Effects[0].DmgModifier != 135 || heroMoves[0].Cooldown != 1 {
-		t.Fatalf("hero fallback = %+v, want registry-defined basic attack", heroMoves)
+	if len(heroMoves) != 1 || heroMoves[0].Name != "Modded Punch" || heroMoves[0].Effects[0].DmgModifier != 135 || heroMoves[0].Cooldown != 1 {
+		t.Fatalf("hero unarmed action = %+v, want registry-defined Punch", heroMoves)
 	}
+	delete(e.reg.Moves, "punch")
+	basic := game.MoveAsset{ID: "basic_attack", Name: "Modded Basic", Type: "both", Tier: 1,
+		Effects: []game.MoveEffectAsset{{Type: "damage", Target: "enemy", DmgModifier: intPtr(135)}}, Weight: 25}
+	e.reg.Moves[basic.ID] = basic
 	monsterMoves, err := e.monsterMoves(game.MonsterAsset{ID: "rat"})
 	if err != nil || len(monsterMoves) != 1 || monsterMoves[0].Name != "Modded Basic" || monsterMoves[0].Weight != 25 {
 		t.Fatalf("monster fallback = %+v, err %v; want registry-defined basic attack", monsterMoves, err)
@@ -58,7 +62,7 @@ func TestCanonicalBasicAttackUsesRegistryDefinitionInEngine(t *testing.T) {
 	e.State = StateCombat
 	e.enemyCombat = newCombatantState()
 	e.enemyCombat.cooldowns[locked.ID] = 2
-	if got := e.enemyTurnMove(); got.ID != asset.ID || got.Name != asset.Name || got.Effects[0].DmgModifier != 135 {
+	if got := e.enemyTurnMove(); got.ID != basic.ID || got.Name != basic.Name || got.Effects[0].DmgModifier != 135 {
 		t.Errorf("all-locked enemy fallback = %+v, want registry-defined basic attack", got)
 	}
 }
@@ -66,15 +70,17 @@ func TestCanonicalBasicAttackUsesRegistryDefinitionInEngine(t *testing.T) {
 func TestUtilityHealMoveResolvesWithoutDamageRollAndEnemyStillActs(t *testing.T) {
 	e := movesEngine(0, 1, 50)
 	flat, percent := 7, 10
-	asset := game.MoveAsset{ID: "mend", Name: "Mend", Type: "both", Weight: 1, Effects: []game.MoveEffectAsset{{Type: "heal", Target: "self", Flat: &flat, Percent: &percent}}}
+	asset := game.MoveAsset{ID: "mend", Name: "Mend", Type: "both", Learnable: true, Cooldown: 1, Weight: 1, Effects: []game.MoveEffectAsset{{Type: "heal", Target: "self", Flat: &flat, Percent: &percent}}}
 	e.reg.Moves[asset.ID] = asset
 	learn(e, "mend")
 	e.Player.CurrentHP = 80
 	startEncounter(e, monsterFromFixture("goblin"))
 	e.State = StateCombat
+	e.heroCombat = newCombatantState()
+	e.enemyCombat = newCombatantState()
 	stub := &stubRng{values: []int{0, 1, 50}}
 	e.rng = stub
-	events := e.Process(Command{Type: CmdMove, Index: 0})
+	events := e.Process(Command{Type: CmdMove, Index: combatMoveIndex(e, "mend")})
 	if got := eventTypes(events); !typesEqual(got, EventMoveUsed, EventCombatHealed, EventMoveUsed, EventCombatDamageTaken) {
 		t.Fatalf("events = %v, want utility use/heal followed by enemy action", got)
 	}
@@ -94,7 +100,7 @@ func TestUtilityMoveCooldownTicksOnCompletedRounds(t *testing.T) {
 	flat := 7
 	e := movesEngine(0, 1, 50, 1, 50, 0, 1, 50, 1, 50, 0, 1, 50)
 	e.reg.Moves["mend"] = game.MoveAsset{
-		ID: "mend", Name: "Mend", Type: "both", Weight: 1, Cooldown: 2,
+		ID: "mend", Name: "Mend", Type: "both", Learnable: true, Weight: 1, Cooldown: 2,
 		Effects: []game.MoveEffectAsset{{Type: "heal", Target: "self", Flat: &flat}},
 	}
 	heroWithDamage(e, 5)
@@ -103,7 +109,8 @@ func TestUtilityMoveCooldownTicksOnCompletedRounds(t *testing.T) {
 	e.Process(Command{Type: CmdFight})
 	e.heroCombat.statuses = []activeStatus{{status: entities.Status{ID: "guard", Name: "Guard", Kind: entities.StatusBuff, Stat: entities.StatDEF, StatAmount: 5}, turnsLeft: 3}}
 
-	events := e.Process(Command{Type: CmdMove, Index: 0}) // Mend starts its full cooldown after its turn.
+	mendIndex, quickIndex := combatMoveIndex(e, "mend"), combatMoveIndex(e, "quick_stab")
+	events := e.Process(Command{Type: CmdMove, Index: mendIndex}) // Mend starts its full cooldown after its turn.
 	if got := eventTypes(events); !typesEqual(got, EventMoveUsed, EventCombatHealed, EventMoveUsed, EventCombatDamageTaken) {
 		t.Fatalf("utility round events = %v, want heal followed by enemy action", got)
 	}
@@ -117,7 +124,7 @@ func TestUtilityMoveCooldownTicksOnCompletedRounds(t *testing.T) {
 		t.Errorf("Guard turns after utility round = %d, want 2", got)
 	}
 
-	blocked := e.Process(Command{Type: CmdMove, Index: 0})
+	blocked := e.Process(Command{Type: CmdMove, Index: mendIndex})
 	if got := eventTypes(blocked); !typesEqual(got, EventMessage) {
 		t.Fatalf("cooling utility events = %v, want blocked move only", got)
 	}
@@ -127,7 +134,7 @@ func TestUtilityMoveCooldownTicksOnCompletedRounds(t *testing.T) {
 
 	// One intervening valid action ticks the cooldown once; a second one
 	// completes the full lock while the enemy and status still progress.
-	events = e.Process(Command{Type: CmdMove, Index: 1})
+	events = e.Process(Command{Type: CmdMove, Index: quickIndex})
 	if got := eventTypes(events); !typesEqual(got, EventMoveUsed, EventCombatDamageDealt, EventMoveUsed, EventCombatDamageTaken) {
 		t.Fatalf("intervening round events = %v, want hero and enemy actions", got)
 	}
@@ -138,11 +145,11 @@ func TestUtilityMoveCooldownTicksOnCompletedRounds(t *testing.T) {
 		t.Errorf("Guard turns after second completed round = %d, want 1", got)
 	}
 
-	e.Process(Command{Type: CmdMove, Index: 1})
+	e.Process(Command{Type: CmdMove, Index: quickIndex})
 	if e.heroCombat.onCooldown("mend") {
 		t.Fatal("Mend should be available after its two locked rounds")
 	}
-	events = e.Process(Command{Type: CmdMove, Index: 0})
+	events = e.Process(Command{Type: CmdMove, Index: mendIndex})
 	if got := eventTypes(events); !typesEqual(got, EventMoveUsed, EventCombatHealed, EventMoveUsed, EventCombatDamageTaken) {
 		t.Fatalf("ready utility events = %v, want Mend followed by enemy action", got)
 	}
@@ -286,6 +293,15 @@ func learn(e *Engine, ids ...string) {
 		asset, ok := e.reg.MoveByID(id)
 		if !ok {
 			panic("test fixture: unknown move " + id)
+		}
+		// This helper creates an eligible test move without coupling
+		// mechanics tests to the shipped learnability classification.
+		asset.Learnable = true
+		if asset.Type != "creature" && asset.Type != "both" {
+			asset.Type = "creature"
+		}
+		if asset.Cooldown <= 0 {
+			asset.Cooldown = 1
 		}
 		if _, learned := e.Player.LearnMove(entities.NewMoveFromAsset(asset)); !learned {
 			panic("test fixture: could not learn " + id)
@@ -522,57 +538,58 @@ func TestKillRoundLocksWithoutTicking(t *testing.T) {
 	}
 }
 
-// The hero's opening move set: Punch PRE-LEARNED (learned slot 1 of 2)
-// plus the starter sword's explicit Basic Strike grant. With the punch
-// in the learned set the effective set is never empty for a fresh hero —
-// the registry-defined basic_attack is reserved for empty move sets.
-func TestFreshHeroStartsWithThePunch(t *testing.T) {
-	// starterEngine builds an engine whose registry carries the starter
-	// sword (equipped by id) and the move its grant references.
-	starterEngine := func() *Engine {
-		return NewEngine(&game.Registry{
-			Monsters: testMonsters(),
-			Items: map[string]game.ItemAsset{
-				starterItemID: {
-					ID: "wooden_sword", Name: "Espada de Madeira", Slot: "weapon",
-					BonusDMG: 5, Durability: 50, Moves: []string{"basic_attack"},
-				},
-			},
-			Moves: map[string]game.MoveAsset{
-				"basic_attack": {ID: "basic_attack", Name: "Basic Strike", Tier: 1,
-					Effects: []game.MoveEffectAsset{{Type: "damage", Target: "enemy", DmgModifier: intPtr(100)}}, Weight: 100, Type: "both"},
-			},
-			Sections: testSections(),
-		})
+// A fresh hero starts with the equipped wooden sword's basic action and
+// no learned moves. Without a weapon, the engine supplies registry-backed
+// virtual Punch first, then learned cooldown moves.
+func TestFreshHeroHasOneBasicActionAndNoLearnedMoves(t *testing.T) {
+	makeRegistry := func(withWeapon, withPunch bool) *game.Registry {
+		reg := &game.Registry{Monsters: testMonsters(), Items: map[string]game.ItemAsset{}, Moves: testMoves(), Sections: testSections()}
+		if withWeapon {
+			reg.Items[starterItemID] = game.ItemAsset{
+				ID: "wooden_sword", Name: "Wooden Sword", Slot: "weapon", BonusDMG: 5,
+				Durability: 50, Moves: []string{"basic_attack"},
+			}
+			reg.Moves["basic_attack"] = game.MoveAsset{ID: "basic_attack", Name: "Basic Strike", Type: "both", Effects: []game.MoveEffectAsset{{Type: "damage", Target: "enemy", DmgModifier: intPtr(100)}}}
+		}
+		if withPunch {
+			reg.Moves["punch"] = game.MoveAsset{ID: "punch", Name: "Custom Punch", Type: "both", Effects: []game.MoveEffectAsset{{Type: "damage", Target: "enemy", DmgModifier: intPtr(80)}}}
+		}
+		return reg
 	}
 
-	t.Run("the engine hero's learned set is exactly [Punch]", func(t *testing.T) {
-		got := starterEngine().Player.LearnedMoves()
-
-		if len(got) != 1 || got[0].ID != entities.Punch().ID {
-			t.Errorf("learned set = %+v, want [Punch] (pre-learned)", got)
+	t.Run("starter weapon is the first action and learned set starts empty", func(t *testing.T) {
+		e := NewEngine(makeRegistry(true, false))
+		if got := e.Player.LearnedMoves(); len(got) != 0 {
+			t.Fatalf("new hero learned moves = %+v, want none", got)
 		}
-	})
-
-	t.Run("effective set with the starter = [Punch, Basic Strike]", func(t *testing.T) {
-		moves := starterEngine().CombatMoves()
-
-		if len(moves) != 2 || moves[0].ID != entities.Punch().ID || moves[1].ID != "basic_attack" {
-			t.Errorf("combat moves = %+v, want [Punch Basic Strike] (learned first, weapon grant after)", moves)
-		}
-	})
-
-	t.Run("a weaponless fresh hero still has the punch — the fallback never fires", func(t *testing.T) {
-		// No starter item in the registry: the hero fights bare-fisted.
-		e := NewEngine(&game.Registry{
-			Monsters: testMonsters(),
-			Items:    map[string]game.ItemAsset{},
-			Sections: testSections(),
-		})
-
 		moves := e.CombatMoves()
-		if len(moves) != 1 || moves[0].ID != entities.Punch().ID {
-			t.Errorf("combat moves = %+v, want [Punch] (the set is never empty)", moves)
+		if len(moves) != 1 || moves[0].ID != "basic_attack" {
+			t.Errorf("combat actions = %+v, want [basic_attack]", moves)
+		}
+		sourced := e.CombatMovesWithSource()
+		if len(sourced) != 1 || sourced[0].Source != entities.SourceWeapon {
+			t.Errorf("sourced actions = %+v, want one weapon-source action", sourced)
+		}
+	})
+
+	t.Run("weaponless action resolves Punch from registry before learned moves", func(t *testing.T) {
+		e := NewEngine(makeRegistry(false, true))
+		learn(e, "quick_stab")
+		moves := e.CombatMoves()
+		if len(moves) != 2 || moves[0].ID != "punch" || moves[0].Name != "Custom Punch" || moves[0].Effects[0].DmgModifier != 80 || moves[1].ID != "quick_stab" {
+			t.Errorf("combat actions = %+v, want registry Punch then learned quick_stab", moves)
+		}
+		sourced := e.CombatMovesWithSource()
+		if len(sourced) != 2 || sourced[0].Source != entities.SourceWeapon || sourced[1].Source != entities.SourceLearned {
+			t.Errorf("sourced actions = %+v, want basic action then learned action", sourced)
+		}
+	})
+
+	t.Run("canonical Punch is the fallback when registry definition is absent", func(t *testing.T) {
+		e := NewEngine(makeRegistry(false, false))
+		moves := e.CombatMoves()
+		if len(moves) != 1 || moves[0].ID != entities.Punch().ID || moves[0].Name != entities.Punch().Name {
+			t.Errorf("combat actions = %+v, want canonical Punch", moves)
 		}
 	})
 }

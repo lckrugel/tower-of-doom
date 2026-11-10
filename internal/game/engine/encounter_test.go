@@ -659,10 +659,11 @@ func TestShrineOfferRngContract(t *testing.T) {
 	})
 
 	t.Run("a one-move pool = one offer roll", func(t *testing.T) {
-		// quick_stab learned: the filtered pool holds heavy_slash only.
+		// quick_stab and guard_strike learned: the filtered tier pool holds
+		// heavy_slash only.
 		e := shrineEngine(30, 0)
 		stub := e.rng.(*stubRng)
-		learn(e, "quick_stab")
+		learn(e, "quick_stab", "guard_strike")
 
 		e.Process(Command{Type: CmdExplore})
 
@@ -733,7 +734,7 @@ func TestShrineSkipsWeaponGrantedMoves(t *testing.T) {
 
 // The canonical basic_attack is never offered: it is the move-less
 // fallback every combatant already fights with — teaching it would waste
-// one of the two learned slots.
+// one of the three learned slots.
 func TestShrineNeverOffersTheCanonicalBasicAttack(t *testing.T) {
 	e := shrineEngine(30)
 	e.reg.Moves = map[string]game.MoveAsset{
@@ -757,7 +758,7 @@ func TestShrineWithNothingNewToOffer(t *testing.T) {
 	t.Run("every pool move is known", func(t *testing.T) {
 		e := shrineEngine(30)
 		stub := e.rng.(*stubRng)
-		learn(e, "quick_stab", "heavy_slash")
+		learn(e, "quick_stab", "heavy_slash", "guard_strike")
 
 		events := e.Process(Command{Type: CmdExplore})
 
@@ -796,9 +797,9 @@ func TestShrineWithNothingNewToOffer(t *testing.T) {
 // forget prompt.
 func TestExploreShrineAtCapOpensTheChooseStep(t *testing.T) {
 	e := shrineEngine(30, 0)
-	learn(e, "quick_stab", "heavy_slash")
+	learn(e, "quick_stab", "heavy_slash", "guard_strike")
 	e.reg.Moves["power_surge"] = game.MoveAsset{
-		ID: "power_surge", Name: "Power Surge", Tier: 2, Effects: []game.MoveEffectAsset{{Type: "damage", Target: "enemy", DmgModifier: intPtr(150)}}, Weight: 10, Type: "both",
+		ID: "power_surge", Name: "Power Surge", Tier: 2, Cooldown: 1, Learnable: true, Effects: []game.MoveEffectAsset{{Type: "damage", Target: "enemy", DmgModifier: intPtr(150)}}, Weight: 10, Type: "both",
 	}
 
 	events := e.Process(Command{Type: CmdExplore})
@@ -818,7 +819,7 @@ func TestExploreShrineAtCapOpensTheChooseStep(t *testing.T) {
 	if e.ChosenMove != nil {
 		t.Error("a choice was recorded before the player picked")
 	}
-	if len(e.Player.LearnedMoves()) != 2 {
+	if len(e.Player.LearnedMoves()) != 3 {
 		t.Error("the offer was learned without the player's choice")
 	}
 	if e.CanAscend {
@@ -826,14 +827,14 @@ func TestExploreShrineAtCapOpensTheChooseStep(t *testing.T) {
 	}
 }
 
-// shrineAtCap is an engine in StateLearn's CHOOSING step: the hero's two
+// shrineAtCap is an engine in StateLearn's CHOOSING step: the hero's three
 // learned moves are in and the shrine offers ONE unlearned move
 // (power_surge — the only unknown left in the tier pool).
 func shrineAtCap() *Engine {
 	e := shrineEngine(30, 0)
-	learn(e, "quick_stab", "heavy_slash")
+	learn(e, "quick_stab", "heavy_slash", "guard_strike")
 	e.reg.Moves["power_surge"] = game.MoveAsset{
-		ID: "power_surge", Name: "Power Surge", Tier: 2, Effects: []game.MoveEffectAsset{{Type: "damage", Target: "enemy", DmgModifier: intPtr(150)}}, Weight: 10, Type: "both",
+		ID: "power_surge", Name: "Power Surge", Tier: 2, Cooldown: 1, Learnable: true, Effects: []game.MoveEffectAsset{{Type: "damage", Target: "enemy", DmgModifier: intPtr(150)}}, Weight: 10, Type: "both",
 	}
 	if events := e.Process(Command{Type: CmdExplore}); len(events) != 1 || events[0].Type != EventShrineOffered {
 		panic("test fixture: expected a shrine offer (StateLearn, choosing step)")
@@ -863,9 +864,12 @@ func shrineTwoOffersAtCap() *Engine {
 	// rng 30 → shrine kind; Intn(2) = 0 → assassins_strike, Intn(1) = 0
 	// → power_surge.
 	e := shrineEngine(30, 0, 0)
-	learn(e, "quick_stab", "heavy_slash")
+	learn(e, "quick_stab", "heavy_slash", "guard_strike")
 	e.reg.Moves["power_surge"] = game.MoveAsset{
-		ID: "power_surge", Name: "Power Surge", Tier: 2, Effects: []game.MoveEffectAsset{{Type: "damage", Target: "enemy", DmgModifier: intPtr(150)}}, Weight: 10, Type: "both",
+		ID: "power_surge", Name: "Power Surge", Tier: 3, Cooldown: 1, Learnable: true, Effects: []game.MoveEffectAsset{{Type: "damage", Target: "enemy", DmgModifier: intPtr(150)}}, Weight: 10, Type: "both",
+	}
+	e.reg.Moves["oath"] = game.MoveAsset{
+		ID: "oath", Name: "Oath", Tier: 3, Cooldown: 1, Learnable: true, Effects: []game.MoveEffectAsset{{Type: "damage", Target: "enemy", DmgModifier: intPtr(110)}}, Weight: 10, Type: "both",
 	}
 	e.reg.Sections[0].MoveTiers = []int{1, 2, 3}
 	if events := e.Process(Command{Type: CmdExplore}); len(events) != 1 || events[0].Type != EventShrineOffered {
@@ -898,7 +902,7 @@ func TestShrineChooseAtCapAdvancesToTheForgettingStep(t *testing.T) {
 	if e.ChosenMove == nil || e.ChosenMove.ID != "power_surge" {
 		t.Errorf("chosen move = %+v, want power_surge (offer 1)", e.ChosenMove)
 	}
-	if len(e.Player.LearnedMoves()) != 2 {
+	if len(e.Player.LearnedMoves()) != 3 {
 		t.Error("the choice learned without the forget")
 	}
 	if len(e.PendingMoves) != 2 {
@@ -920,9 +924,9 @@ func TestShrineForgetLearnsTheChosenOffer(t *testing.T) {
 		wantForgotten string
 		wantLearned   []string
 	}{
-		{"the chosen second offer replaces the first learned", 1, 0, "quick_stab", []string{"heavy_slash", "power_surge"}},
-		{"the chosen second offer replaces the second learned", 1, 1, "heavy_slash", []string{"quick_stab", "power_surge"}},
-		{"the chosen first offer replaces the second learned", 0, 1, "heavy_slash", []string{"quick_stab", "assassins_strike"}},
+		{"the chosen second offer replaces the first learned", 1, 0, "quick_stab", []string{"heavy_slash", "guard_strike", "power_surge"}},
+		{"the chosen second offer replaces the second learned", 1, 1, "heavy_slash", []string{"quick_stab", "guard_strike", "power_surge"}},
+		{"the chosen first offer replaces the second learned", 0, 1, "heavy_slash", []string{"quick_stab", "guard_strike", "oath"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -934,14 +938,14 @@ func TestShrineForgetLearnsTheChosenOffer(t *testing.T) {
 			if got := eventTypes(events); !typesEqual(got, EventMoveLearned) {
 				t.Fatalf("events = %v, want [move-learned]", got)
 			}
-			if move, _ := events[0].Data["move"].(entities.Move); move.ID != tt.wantLearned[1] {
-				t.Errorf("learned move = %+v, want %v", move, tt.wantLearned[1])
+			if move, _ := events[0].Data["move"].(entities.Move); move.ID != tt.wantLearned[2] {
+				t.Errorf("learned move = %+v, want replacement %q", move, tt.wantLearned[2])
 			}
 			if forgotten, _ := events[0].Data["forgotten"].(entities.Move); forgotten.ID != tt.wantForgotten {
 				t.Errorf("forgotten = %+v, want %v", forgotten, tt.wantForgotten)
 			}
 			learned := e.Player.LearnedMoves()
-			if len(learned) != 2 || learned[0].ID != tt.wantLearned[0] || learned[1].ID != tt.wantLearned[1] {
+			if len(learned) != 3 || learned[0].ID != tt.wantLearned[0] || learned[1].ID != tt.wantLearned[1] || learned[2].ID != tt.wantLearned[2] {
 				t.Errorf("learned set = %+v, want %v", learned, tt.wantLearned)
 			}
 			if !shrineCleared(e) {
@@ -968,7 +972,7 @@ func TestShrineDeclineKeepsBothMoves(t *testing.T) {
 		if msg := events[0].Data["message"]; msg != "You leave the shrine's teaching behind." {
 			t.Errorf("message = %q, want the decline flavor", msg)
 		}
-		if got := e.Player.LearnedMoves(); len(got) != 2 {
+		if got := e.Player.LearnedMoves(); len(got) != 3 {
 			t.Errorf("learned set = %+v, want both moves kept", got)
 		}
 		if !shrineCleared(e) {
@@ -1004,7 +1008,7 @@ func TestShrineForgetOutOfRangeIndexIsRejected(t *testing.T) {
 	stub := &stubRng{values: []int{0}}
 	e.rng = stub
 
-	events := e.Process(Command{Type: CmdForget, Index: 2})
+	events := e.Process(Command{Type: CmdForget, Index: 3})
 
 	if got := eventTypes(events); !typesEqual(got, EventMessage) {
 		t.Fatalf("events = %v, want [message (invalid command)]", got)
@@ -1015,7 +1019,7 @@ func TestShrineForgetOutOfRangeIndexIsRejected(t *testing.T) {
 	if e.ChosenMove == nil || len(e.PendingMoves) != 1 {
 		t.Error("the rejected forget consumed the pending offers")
 	}
-	if len(e.Player.LearnedMoves()) != 2 {
+	if len(e.Player.LearnedMoves()) != 3 {
 		t.Error("the rejected forget changed the learned set")
 	}
 	if stub.calls != 0 {
@@ -1048,7 +1052,7 @@ func TestShrineChooseOfferOutOfRangeIndexIsRejected(t *testing.T) {
 			if e.State != StateLearn {
 				t.Errorf("state = %v, want StateLearn (rejected, decision intact)", e.State)
 			}
-			if e.ChosenMove != nil || len(e.Player.LearnedMoves()) != 2 {
+			if e.ChosenMove != nil || len(e.Player.LearnedMoves()) != 3 {
 				t.Error("the rejected choose changed the hero")
 			}
 			if stub.calls != 0 {
@@ -1072,7 +1076,7 @@ func TestShrineForgetInTheChooseStepIsRejected(t *testing.T) {
 	if e.State != StateLearn {
 		t.Errorf("state = %v, want StateLearn (rejected, decision intact)", e.State)
 	}
-	if e.ChosenMove != nil || len(e.Player.LearnedMoves()) != 2 {
+	if e.ChosenMove != nil || len(e.Player.LearnedMoves()) != 3 {
 		t.Error("the rejected forget changed the hero")
 	}
 }

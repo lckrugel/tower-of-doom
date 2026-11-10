@@ -404,6 +404,13 @@ func (e *Engine) handleLearn(cmd Command) []Event {
 			// offer. Refuse safely, never panic.
 			return []Event{NewMessage("Unhandled command")}
 		}
+		if !chosen.Learnable {
+			// Refuse a corrupt or stale offer before removing an existing
+			// move. Valid shrine pools never reach this branch.
+			e.clearShrine()
+			e.State = StateExploring
+			return []Event{NewMessage(shrineNothingNewMessage)}
+		}
 		forgotten := e.Player.LearnedMoves()[cmd.Index]
 		e.Player.ForgetMove(forgotten.ID)
 		// Unreachable failure: the offer was filtered to unlearned and a

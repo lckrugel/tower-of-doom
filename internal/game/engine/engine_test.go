@@ -54,14 +54,21 @@ func newTestEngine(rngValues ...int) *Engine {
 		Items:    map[string]game.ItemAsset{},
 		Sections: testSections(),
 	})
-	// The punch start (NewPlayer pre-learns it) would eat the learned
-	// slot every move-set fixture below assumes — the fixture hero is
-	// bare; the punch start has its own tests (TestFreshHeroStartsWithThePunch).
-	e.Player.ForgetMove(entities.Punch().ID)
 	if len(rngValues) > 0 {
 		e.rng = &stubRng{values: rngValues}
 	}
 	return e
+}
+
+// combatMoveIndex resolves an explicitly selected move in the basic-first
+// combat action list.
+func combatMoveIndex(e *Engine, id string) int {
+	for i, move := range e.CombatMoves() {
+		if move.ID == id {
+			return i
+		}
+	}
+	return -1
 }
 
 // pastFirstExplore marks the run's forced first combat (the pacing rule —

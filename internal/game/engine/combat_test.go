@@ -18,6 +18,12 @@ func startEncounter(e *Engine, monsters ...entities.Monster) {
 // Helper: a hero that can actually deal damage.
 func heroWithDamage(e *Engine, dmg int) {
 	e.Player.BaseDMG = dmg
+	if e.Player.Weapon == nil {
+		// Most engine behavior tests need the neutral basic action, not the
+		// weaker Unarmed Punch. Unarmed composition has focused tests.
+		weapon := entities.NewItemFromAsset(game.ItemAsset{ID: "test_weapon", Name: "Test Weapon", Slot: "weapon"}, entities.BasicAttack())
+		e.Player.EquipItem(&weapon)
+	}
 }
 
 func potionEngine() *Engine {
@@ -211,7 +217,7 @@ func TestCombatViewContract(t *testing.T) {
 	second := entities.NewMonsterFromAsset(game.MonsterAsset{ID: "two", Name: "Twin", Difficulty: 1, HP: 20, Damage: 3, Speed: 4})
 	startEncounter(e, first, second)
 	e.Process(Command{Type: CmdFight})
-	e.heroCombat.cooldowns["basic_attack"] = 2
+	e.heroCombat.cooldowns[entities.Punch().ID] = 2
 	e.heroCombat.statuses = []activeStatus{{status: entities.Status{ID: "guard", Name: "Twin", Kind: entities.StatusBuff, Stat: entities.StatDEF, StatAmount: 5}, turnsLeft: 3}}
 	e.enemyCombat.statuses = []activeStatus{{status: entities.Status{ID: "poison", Name: "Twin", Kind: entities.StatusDebuff}, turnsLeft: 1}}
 
@@ -227,13 +233,13 @@ func TestCombatViewContract(t *testing.T) {
 	}
 	var move *CombatMoveView
 	for i := range view.Hero.Moves {
-		if view.Hero.Moves[i].ID == "basic_attack" {
+		if view.Hero.Moves[i].ID == entities.Punch().ID {
 			move = &view.Hero.Moves[i]
 			break
 		}
 	}
 	if move == nil || move.CooldownLeft != 2 {
-		t.Errorf("hero move view = %+v, want basic_attack cooldown 2", view.Hero.Moves)
+		t.Errorf("hero move view = %+v, want virtual Punch cooldown 2", view.Hero.Moves)
 	}
 	if len(view.Hero.Statuses) != 1 || view.Hero.Statuses[0].ID != "guard" || view.Hero.Statuses[0].TurnsLeft != 3 || len(view.Enemy.Statuses) != 1 || view.Enemy.Statuses[0].ID != "poison" {
 		t.Errorf("status view = %+v / %+v", view.Hero.Statuses, view.Enemy.Statuses)
