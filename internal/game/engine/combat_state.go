@@ -30,7 +30,7 @@ func (a activeStatus) remaining(turn int) int {
 
 // combatantState is one combatant's combat-scoped bookkeeping: the
 // statuses afflicting them (in application order) and, per move id, how
-// many more rounds the move stays locked (absent or 0 = ready).
+// many subsequent full turns the move stays locked (absent or 0 = ready).
 type combatantState struct {
 	turn      int
 	statuses  []activeStatus
@@ -41,24 +41,21 @@ func newCombatantState() combatantState {
 	return combatantState{cooldowns: make(map[string]int)}
 }
 
-// onCooldown reports whether the move id is locked this round.
+// onCooldown reports whether the move id is locked this turn.
 func (s *combatantState) onCooldown(moveID string) bool {
 	return s.cooldowns[moveID] > 0
 }
 
-// startCooldown locks a just-used move for exactly its cooldown's
-// rounds. Callers set it AFTER the round-end tick so the round of use
-// doesn't eat one turn of the lock: with cooldown C the move is unusable
-// for exactly C full rounds after the round it was used in. Cooldown 0
-// never locks.
+// startCooldown locks a used move after existing cooldowns have advanced.
+// Its application turn never consumes the C subsequent unavailable turns.
+// Cooldown 0 never locks.
 func (s *combatantState) startCooldown(move entities.Move) {
 	if move.Cooldown > 0 {
 		s.cooldowns[move.ID] = move.Cooldown
 	}
 }
 
-// tickCooldowns counts one round off every lock, removing the spent ones
-// (round end).
+// tickCooldowns advances existing locks once at every consumed turn end.
 func (s *combatantState) tickCooldowns() {
 	for id, left := range s.cooldowns {
 		if left <= 1 {

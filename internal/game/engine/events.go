@@ -310,7 +310,7 @@ func statusLifetime(status entities.Status) (unit, category string) {
 	return "turns", "stat"
 }
 
-// NewStatusExpired reports a status effect whose last round ticked away.
+// NewStatusExpired reports an effect whose last full turn or DoT tick completed.
 //
 // Payload:
 //   - "target": the (formerly) afflicted combatant's name.

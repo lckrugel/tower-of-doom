@@ -465,6 +465,7 @@ func TestLethalDotsFollowCapturedInitiative(t *testing.T) {
 			poison := entities.NewStatusFromAsset(testStatuses()["poison"])
 			e.heroCombat.applyStatus(poison)
 			e.enemyCombat.applyStatus(poison)
+			e.heroCombat.applyStatus(entities.Status{ID: "ending_guard", Stat: entities.StatDEF, StatAmount: 1, Duration: 1})
 			events := e.Process(Command{Type: CmdMove, Index: combatMoveIndex(e, "basic_attack")})
 			var targets []any
 			for _, event := range events {
@@ -484,6 +485,9 @@ func TestLethalDotsFollowCapturedInitiative(t *testing.T) {
 			}
 			if !tc.heroDies && e.heroCombat.statuses[0].remaining(e.heroCombat.turn) != poison.Duration {
 				t.Fatal("skipped surviving hero DoT consumed a tick")
+			}
+			if !tc.heroDies && (len(e.heroCombat.statuses) != 1 || e.heroStat(entities.StatDEF) != 0) {
+				t.Fatal("skipping the hero DoT also skipped unrelated stat expiration")
 			}
 		})
 	}
@@ -770,5 +774,72 @@ func TestTickOrderCapturedInitiative(t *testing.T) {
 				t.Errorf("second tick target = %v, want %s", target, tc.second)
 			}
 		})
+	}
+}
+
+func TestSpeedChangeDoesNotReorderCurrentTurn(t *testing.T) {
+	e := statusesEngine(1, 50, 0, 0, 1, 50)
+	heroWithDamage(e, 1)
+	selfSlow := statusMoveAssets()["sure_slow"]
+	selfSlow.ID = "self_slow"
+	selfSlow.Effects[1].Target = "self"
+	e.reg.Moves[selfSlow.ID] = selfSlow
+	learn(e, "self_slow")
+	monster := entities.NewMonsterFromAsset(game.MonsterAsset{ID: "rat", Name: "Rat", Difficulty: 1, HP: 50, Damage: 1, Speed: 12})
+	startEncounter(e, monster)
+	e.Process(Command{Type: CmdFight})
+	// The hero begins faster but its own first action slows it below the monster.
+	e.heroCombat.applyStatus(entities.Status{ID: "haste", Stat: entities.StatSPD, StatAmount: 3, Duration: 3})
+	poison := entities.NewStatusFromAsset(testStatuses()["poison"])
+	e.heroCombat.applyStatus(poison)
+	e.enemyCombat.applyStatus(poison)
+	events := e.Process(Command{Type: CmdMove, Index: combatMoveIndex(e, "self_slow")})
+	if events[0].Data["side"] != ActorHero {
+		t.Fatalf("first action = %+v, want hero", events[0])
+	}
+	var targets []any
+	for _, event := range events {
+		if event.Type == EventStatusDamage {
+			targets = append(targets, event.Data["target"])
+		}
+	}
+	if len(targets) != 2 || targets[0] != "Hero" || targets[1] != "Rat" {
+		t.Fatalf("same-turn slow reordered recipients: %v", targets)
+	}
+	if e.heroStat(entities.StatSPD) >= e.enemyStat(entities.StatSPD) {
+		t.Fatal("fixture did not reverse effective initiative")
+	}
+	e.rng = &stubRng{values: []int{0, 1, 50, 1, 50}}
+	events = e.Process(Command{Type: CmdMove, Index: 0})
+	if events[0].Data["side"] != ActorEnemy {
+		t.Fatalf("next turn ignored new initiative: %+v", events[0])
+	}
+}
+
+func TestStatLifetimeContinuesAcrossKillingTurns(t *testing.T) {
+	e := statusesEngine(1, 50)
+	heroWithDamage(e, 100)
+	startEncounter(e, monsterFromFixture("goblin"), monsterFromFixture("goblin"), monsterFromFixture("goblin"), monsterFromFixture("orc"))
+	e.Process(Command{Type: CmdFight})
+	guard := entities.NewStatusFromAsset(testStatuses()["guard"])
+	// Apply during turn 1, as a move would; the following two killing
+	// turns must count even though neither victim gets to act.
+	e.combatTurn = 1
+	e.heroCombat.turn = 1
+	e.heroCombat.applyStatus(guard)
+	for turn := 2; turn <= 3; turn++ {
+		if e.heroStat(entities.StatDEF) != 5 {
+			t.Fatal("Guard expired before its full turns")
+		}
+		e.Process(Command{Type: CmdMove, Index: 0})
+		if e.combatTurn != turn || e.enemyCombat.turn != turn {
+			t.Fatal("queue advancement reset clock")
+		}
+		if e.currentEnemy().HP() != e.currentEnemy().MaxHP() || len(e.enemyCombat.statuses) != 0 {
+			t.Fatal("successor acted or inherited state")
+		}
+	}
+	if e.heroStat(entities.StatDEF) != 0 || len(e.heroCombat.statuses) != 0 {
+		t.Fatal("killing turns froze Guard expiration")
 	}
 }
