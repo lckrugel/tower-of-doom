@@ -107,7 +107,7 @@ func TestUtilityMoveCooldownTicksOnCompletedRounds(t *testing.T) {
 	learn(e, "mend", "quick_stab")
 	startEncounter(e, monsterFromFixture("goblin"))
 	e.Process(Command{Type: CmdFight})
-	e.heroCombat.statuses = []activeStatus{{status: entities.Status{ID: "guard", Name: "Guard", Kind: entities.StatusBuff, Stat: entities.StatDEF, StatAmount: 5}, turnsLeft: 3}}
+	e.heroCombat.statuses = []activeStatus{{status: entities.Status{ID: "guard", Name: "Guard", Kind: entities.StatusBuff, Stat: entities.StatDEF, StatAmount: 5}, expiresAt: e.combatTurn + 3}}
 
 	mendIndex := combatMoveIndex(e, "mend")
 	events := e.Process(Command{Type: CmdMove, Index: mendIndex}) // Mend starts its full cooldown after its turn.
@@ -120,7 +120,7 @@ func TestUtilityMoveCooldownTicksOnCompletedRounds(t *testing.T) {
 	if got := e.heroCombat.cooldowns["mend"]; got != 2 {
 		t.Errorf("Mend cooldown after use round = %d, want full value 2", got)
 	}
-	if got := e.heroCombat.statuses[0].turnsLeft; got != 2 {
+	if got := e.heroCombat.statuses[0].remaining(e.heroCombat.turn); got != 2 {
 		t.Errorf("Guard turns after utility round = %d, want 2", got)
 	}
 
@@ -142,7 +142,7 @@ func TestUtilityMoveCooldownTicksOnCompletedRounds(t *testing.T) {
 	if !e.heroCombat.onCooldown("mend") || e.heroCombat.cooldowns["mend"] != 1 {
 		t.Fatal("Mend should remain locked for one more completed round")
 	}
-	if got := e.heroCombat.statuses[0].turnsLeft; got != 1 {
+	if got := e.heroCombat.statuses[0].remaining(e.heroCombat.turn); got != 1 {
 		t.Errorf("Guard turns after second completed round = %d, want 1", got)
 	}
 
@@ -519,21 +519,41 @@ func TestBasicActionRemainsUsableWhileLearnedMoveCools(t *testing.T) {
 	}
 }
 
-// A killing blow ends the round early (the dead enemy never acts): the
-// used move still locks, but the round-end tick does not run — the lock
-// carries its full value into the next round.
-func TestKillRoundLocksWithoutTicking(t *testing.T) {
+// Killing turns advance old locks but preserve the used move's full lock.
+func TestKillingTurnAdvancesOldCooldownsAndLocksUsedMove(t *testing.T) {
 	e := movesEngine()
 	heroWithDamage(e, 40) // one-shots the goblin with any move
 	learn(e, "heavy_slash", "quick_stab")
 	startEncounter(e, monsterFromFixture("goblin"), monsterFromFixture("orc"))
 	e.Process(Command{Type: CmdFight})
+	e.heroCombat.cooldowns["quick_stab"] = 2
 
-	e.Process(Command{Type: CmdMove, Index: combatMoveIndex(e, "heavy_slash")}) // kill → the round ends early
+	e.Process(Command{Type: CmdMove, Index: combatMoveIndex(e, "heavy_slash")})
+	if got := e.heroCombat.cooldowns["quick_stab"]; got != 1 {
+		t.Errorf("old cooldown = %d, want 1 after killing turn", got)
+	}
+	if got := e.heroCombat.cooldowns["heavy_slash"]; got != 2 {
+		t.Errorf("used cooldown = %d, want full lock 2", got)
+	}
 
 	events := e.Process(Command{Type: CmdMove, Index: combatMoveIndex(e, "heavy_slash")}) // next enemy
 	if got := eventTypes(events); !typesEqual(got, EventMessage) {
 		t.Errorf("events = %v, want [message] — heavy_slash must still be locked", got)
+	}
+}
+
+func TestZeroCooldownKillAdvancesOldLocksWithoutLockingBasicAttack(t *testing.T) {
+	e := movesEngine(1, 50)
+	heroWithDamage(e, 40)
+	startEncounter(e, monsterFromFixture("goblin"), monsterFromFixture("orc"))
+	e.Process(Command{Type: CmdFight})
+	e.heroCombat.cooldowns["heavy_slash"] = 1
+	e.Process(Command{Type: CmdMove, Index: combatMoveIndex(e, "basic_attack")})
+	if e.heroCombat.onCooldown("heavy_slash") || e.heroCombat.onCooldown("basic_attack") {
+		t.Errorf("killing turn should expire old lock and leave basic attack ready: %v", e.heroCombat.cooldowns)
+	}
+	if len(e.CurrentEncounter.Monsters) != 1 || e.CurrentEncounter.Monsters[0].CurrentHP != 50 {
+		t.Fatal("queued successor should remain untouched until its own turn")
 	}
 }
 

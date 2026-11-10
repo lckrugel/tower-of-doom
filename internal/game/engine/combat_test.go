@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/lckrugel/tower-of-doom/internal/game"
@@ -218,8 +219,8 @@ func TestCombatViewContract(t *testing.T) {
 	startEncounter(e, first, second)
 	e.Process(Command{Type: CmdFight})
 	e.heroCombat.cooldowns[entities.Punch().ID] = 2
-	e.heroCombat.statuses = []activeStatus{{status: entities.Status{ID: "guard", Name: "Twin", Kind: entities.StatusBuff, Stat: entities.StatDEF, StatAmount: 5}, turnsLeft: 3}}
-	e.enemyCombat.statuses = []activeStatus{{status: entities.Status{ID: "poison", Name: "Twin", Kind: entities.StatusDebuff}, turnsLeft: 1}}
+	e.heroCombat.statuses = []activeStatus{{status: entities.Status{ID: "guard", Name: "Twin", Kind: entities.StatusBuff, Stat: entities.StatDEF, StatAmount: 5}, expiresAt: e.combatTurn + 3}}
+	e.enemyCombat.statuses = []activeStatus{{status: entities.Status{ID: "poison", Name: "Twin", Kind: entities.StatusDebuff, DotAmount: 1}, turnsLeft: 1}}
 
 	view := e.CombatView()
 	if !view.InCombat || view.Hero.Side != ActorHero || view.Enemy.Side != ActorEnemy {
@@ -439,6 +440,100 @@ func TestVictoryOnLastEnemyKill(t *testing.T) {
 	}
 	if e.CurrentEncounter.Type != EncounterCombat || e.CurrentEncounter.Boss || e.CurrentEncounter.Monsters != nil {
 		t.Errorf("CurrentEncounter after victory = %+v, want zero value", e.CurrentEncounter)
+	}
+}
+
+func TestAttackKillResolvesHeroDotBeforeRewards(t *testing.T) {
+	for _, lethal := range []bool{false, true} {
+		name := "nonlethal before level-up"
+		if lethal {
+			name = "lethal prevents level-up rescue and victory"
+		}
+		t.Run(name, func(t *testing.T) {
+			e := newTestEngine(1, 50)
+			heroWithDamage(e, 40)
+			e.Player.Xp = 95
+			e.Player.CurrentHP = 50
+			if lethal {
+				e.Player.CurrentHP = 10
+			}
+			gold := e.Player.Gold
+			startEncounter(e, monsterFromFixture("goblin"))
+			e.Process(Command{Type: CmdFight})
+			e.heroCombat.applyStatus(entities.Status{ID: "venom", Name: "Venom", Kind: entities.StatusDebuff, DotPercent: 10, Duration: 2})
+			stub := &stubRng{values: []int{1, 50}}
+			e.rng = stub
+			events := e.Process(Command{Type: CmdMove, Index: 0})
+			if stub.calls != 2 {
+				t.Errorf("rng calls = %d, want only hero's two attack rolls", stub.calls)
+			}
+			if lethal {
+				if got := eventTypes(events); !typesEqual(got, EventMoveUsed, EventCombatDamageDealt, EventStatusDamage, EventHeroDefeated) {
+					t.Errorf("events = %v, want attack, DoT, defeat without rewards", got)
+				}
+				if e.State != StateGameOver || e.Player.Xp != 95 || e.Player.Lvl != 1 || e.Player.Gold != gold || e.kills != 0 || e.CanAscend {
+					t.Errorf("lethal DoT granted rewards or progression: state=%v hero=%+v kills=%d ascend=%v", e.State, e.Player, e.kills, e.CanAscend)
+				}
+			} else {
+				if got := eventTypes(events); !typesEqual(got, EventMoveUsed, EventCombatDamageDealt, EventStatusDamage, EventEnemyDefeated, EventGoldGained, EventLevelUp, EventVictory) {
+					t.Errorf("events = %v, want DoT before defeat rewards and level-up", got)
+				}
+				// 50 - 10% of pre-level max 100 = 40; rescale to 44, heal 27.
+				if e.Player.CurrentHP != 71 || e.Player.Lvl != 2 {
+					t.Errorf("HP/level = %d/%d, want 71/2", e.Player.CurrentHP, e.Player.Lvl)
+				}
+			}
+		})
+	}
+}
+
+func TestLethalDotsSettleInInitiativeRecipientOrder(t *testing.T) {
+	for _, speed := range []int{5, 10, 12} {
+		t.Run(fmt.Sprintf("enemy speed %d", speed), func(t *testing.T) {
+			e := newTestEngine(1, 50, 0, 1, 50)
+			if speed > 10 {
+				e.rng = &stubRng{values: []int{0, 1, 50, 1, 50}}
+			}
+			heroWithDamage(e, 1)
+			e.Player.CurrentHP = 10
+			monster := entities.NewMonsterFromAsset(game.MonsterAsset{ID: "enemy", Name: "Enemy", Difficulty: 1, HP: 10, Damage: 1, Speed: speed})
+			startEncounter(e, monster)
+			e.Process(Command{Type: CmdFight})
+			dot := entities.Status{ID: "venom", Name: "Venom", Kind: entities.StatusDebuff, DotAmount: 20, Duration: 2}
+			e.heroCombat.applyStatus(dot)
+			e.enemyCombat.applyStatus(dot)
+			events := e.Process(Command{Type: CmdMove, Index: 0})
+			ticks := 0
+			for _, event := range events {
+				if event.Type == EventStatusDamage {
+					ticks++
+				}
+			}
+			want := GameState(StateGameOver) // Ties process the hero recipient first, too.
+			if speed > 10 {
+				want = StateExploring
+			}
+			if ticks != 1 || e.State != want {
+				t.Errorf("ticks/state = %d/%v, want 1/%v", ticks, e.State, want)
+			}
+		})
+	}
+}
+
+func TestDirectHeroDeathCannotBeReversedByMonsterDot(t *testing.T) {
+	e := newTestEngine(0, 1, 50)
+	heroWithDamage(e, 100)
+	e.Player.CurrentHP = 1
+	e.Player.Xp = 95
+	startEncounter(e, fastRat())
+	e.Process(Command{Type: CmdFight})
+	e.enemyCombat.applyStatus(entities.Status{ID: "venom", Name: "Venom", Kind: entities.StatusDebuff, DotAmount: 100, Duration: 2})
+	events := e.Process(Command{Type: CmdMove, Index: 0})
+	if got := eventTypes(events); !typesEqual(got, EventMoveUsed, EventCombatDamageTaken, EventHeroDefeated) {
+		t.Errorf("events = %v, want direct defeat without hero action or monster DoT", got)
+	}
+	if e.State != StateGameOver || e.Player.Xp != 95 || e.Player.CurrentHP != 0 {
+		t.Errorf("direct death reversed: state=%v HP=%d XP=%d", e.State, e.Player.CurrentHP, e.Player.Xp)
 	}
 }
 

@@ -87,6 +87,8 @@ type Engine struct {
 	// survives the encounter — see combat_state.go.
 	heroCombat  combatantState
 	enemyCombat combatantState
+	// combatTurn advances once per consumed turn and persists across the queue.
+	combatTurn int
 }
 
 // `rng` é a fonte de aleatoriedade usada pelo engine.
@@ -234,6 +236,7 @@ func (e *Engine) handleEncounter(cmd Command) []Event {
 // cooldowns, active statuses) resets — every FIGHT / failed-SNEAK / boss
 // start begins a clean slate. Nothing here survives the encounter.
 func (e *Engine) startCombat() {
+	e.combatTurn = 0
 	e.heroCombat = newCombatantState()
 	e.enemyCombat = newCombatantState()
 	e.State = StateCombat
@@ -267,11 +270,11 @@ func (e *Engine) handleCombat(cmd Command) []Event {
 			// the turn resolves as a RECOVER round (the hero doesn't act,
 			// the enemy does, everything ticks).
 			if !e.heroHasReadyMove() {
-				return e.resolveRound(nil)
+				return e.resolveTurn(nil)
 			}
 			return []Event{NewMessage("Move on cooldown.")}
 		}
-		return e.resolveRound(&move)
+		return e.resolveTurn(&move)
 	case CmdFlee:
 		return e.resolveFlee()
 	case CmdUseConsumable:
@@ -282,7 +285,7 @@ func (e *Engine) handleCombat(cmd Command) []Event {
 		if e.Player.CurrentHP >= e.Player.MaxHP() {
 			return []Event{NewMessage("You are already at full health.")}
 		}
-		return e.resolveConsumableRound(potion)
+		return e.resolveConsumableTurn(potion)
 	default:
 		return []Event{NewMessage("Unhandled command")}
 	}

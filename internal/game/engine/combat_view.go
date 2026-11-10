@@ -22,9 +22,12 @@ type CombatMoveView struct {
 }
 
 type CombatStatusView struct {
-	ID, Name  string
-	Kind      entities.StatusKind
-	TurnsLeft int
+	ID, Name string
+	Kind     entities.StatusKind
+	// TurnsLeft is the remaining count in LifetimeUnit (legacy field name).
+	TurnsLeft    int
+	LifetimeUnit string
+	Category     string
 }
 
 type CombatActorView struct {
@@ -76,7 +79,8 @@ func (e *Engine) combatActor(side ActorSide, id string, c Combatant, state *comb
 		}
 	}
 	for _, active := range state.statuses {
-		v.Statuses = append(v.Statuses, CombatStatusView{ID: active.status.ID, Name: active.status.Name, Kind: active.status.Kind, TurnsLeft: active.turnsLeft})
+		unit, category := statusLifetime(active.status)
+		v.Statuses = append(v.Statuses, CombatStatusView{ID: active.status.ID, Name: active.status.Name, Kind: active.status.Kind, TurnsLeft: active.remaining(state.turn), LifetimeUnit: unit, Category: category})
 	}
 	return v
 }

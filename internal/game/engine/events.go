@@ -66,9 +66,9 @@ const (
 	EventMoveUsed
 	// A status effect was applied to a combatant (refreshes never stack).
 	EventStatusApplied
-	// A status effect expired (its last round ticked away).
+	// A status effect expired (its final full turn or damage tick completed).
 	EventStatusExpired
-	// A DoT status damaged its afflicted at the round-end tick (it can
+	// A DoT status damaged its afflicted at the turn-end tick (it can
 	// kill — the defeat events follow when it does).
 	EventStatusDamage
 	// A normal-combat victory on the section's final floor summoned the
@@ -283,20 +283,31 @@ func NewMoveUsedOnSide(user, move string, side ActorSide) Event {
 // Payload:
 //   - "target": the afflicted combatant's name.
 //   - "status": the status's name.
-//   - "turns": rounds the status now has left.
+//   - "turns": remaining lifetime (legacy key); "lifetime_unit" distinguishes ticks/turns.
+//   - "category": "dot" or "stat". Stat turns are future full turns.
 //   - "kind": "buff" or "debuff" (additive; lets UIs tone the line).
 //   - "side": stable hero/enemy identity; target's display name is narrative only.
 func NewStatusApplied(target Combatant, status entities.Status, turns int) Event {
+	unit, category := statusLifetime(status)
 	return Event{
 		Type: EventStatusApplied,
 		Data: map[string]any{
-			"target": target.Name(),
-			"status": status.Name,
-			"turns":  turns,
-			"kind":   string(status.Kind),
-			"side":   combatantSide(target),
+			"target":        target.Name(),
+			"status":        status.Name,
+			"turns":         turns,
+			"lifetime_unit": unit,
+			"category":      category,
+			"kind":          string(status.Kind),
+			"side":          combatantSide(target),
 		},
 	}
+}
+
+func statusLifetime(status entities.Status) (unit, category string) {
+	if status.IsDot() {
+		return "ticks", "dot"
+	}
+	return "turns", "stat"
 }
 
 // NewStatusExpired reports a status effect whose last round ticked away.

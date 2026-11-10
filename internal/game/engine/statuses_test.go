@@ -352,7 +352,12 @@ func TestMultipleStatusExpirationAndLethalDoTOrdering(t *testing.T) {
 		state := newCombatantState()
 		state.applyStatus(poison)
 		state.applyStatus(guard)
-		events, dead := tickStatuses(&state, &target)
+		events, dead := tickDots(&state, &target)
+		if expired := expireStatStatuses(&state, &target); len(expired) != 0 {
+			t.Fatal("stat expired during its application turn")
+		}
+		state.turn++
+		events = append(events, expireStatStatuses(&state, &target)...)
 		if dead || !typesEqual(eventTypes(events), EventStatusDamage, EventStatusExpired, EventStatusExpired) {
 			t.Fatalf("tick events = %v, dead=%v", eventTypes(events), dead)
 		}
@@ -361,19 +366,127 @@ func TestMultipleStatusExpirationAndLethalDoTOrdering(t *testing.T) {
 		}
 	})
 
-	t.Run("lethal dot stops later status ticks and expirations", func(t *testing.T) {
+	t.Run("lethal dot stops later dots but not stat expiration", func(t *testing.T) {
 		target := entities.NewMonsterFromAsset(game.MonsterAsset{ID: "rat", Name: "Rat", HP: 2})
 		state := newCombatantState()
 		state.applyStatus(poison)
 		state.applyStatus(guard)
-		events, dead := tickStatuses(&state, &target)
+		later := poison
+		later.ID = "later"
+		state.applyStatus(later)
+		state.turn++
+		events, dead := tickDots(&state, &target)
 		if !dead || !typesEqual(eventTypes(events), EventStatusDamage) {
 			t.Fatalf("lethal tick events = %v, dead=%v; want only the first DoT", eventTypes(events), dead)
 		}
-		if len(state.statuses) != 2 || state.statuses[1].turnsLeft != 1 {
+		if len(state.statuses) != 3 || state.statuses[0].remaining(state.turn) != 0 || state.statuses[2].remaining(state.turn) != 1 {
 			t.Errorf("later status was ticked after lethal DoT: %+v", state.statuses)
 		}
+		if expired := expireStatStatuses(&state, &target); !typesEqual(eventTypes(expired), EventStatusExpired) || len(state.statuses) != 2 {
+			t.Fatalf("stat bookkeeping after lethal tick = %v / %+v", eventTypes(expired), state.statuses)
+		}
 	})
+}
+
+func TestStatStatusDeadlines(t *testing.T) {
+	for _, duration := range []int{1, 2} {
+		t.Run(string(rune('0'+duration)), func(t *testing.T) {
+			state := newCombatantState()
+			state.turn = 1
+			target := monsterFromFixture("goblin")
+			status := entities.NewStatusFromAsset(testStatuses()["guard"])
+			status.Duration = duration
+			if got := state.applyStatus(status); got != duration {
+				t.Fatalf("application lifetime = %d, want %d", got, duration)
+			}
+			for turn := 1; turn <= 1+duration; turn++ {
+				state.turn = turn
+				if flat, _ := state.statMods(entities.StatDEF); flat != 5 {
+					t.Fatalf("turn %d: guard inactive before turn end", turn)
+				}
+				if events, dead := tickDots(&state, &target); dead || len(events) != 0 {
+					t.Fatal("stat status produced a DoT tick")
+				}
+				events := expireStatStatuses(&state, &target)
+				if turn < 1+duration && len(events) != 0 {
+					t.Fatal("stat expired before its deadline")
+				}
+			}
+			if len(state.statuses) != 0 {
+				t.Fatal("stat remained after deadline")
+			}
+		})
+	}
+}
+
+func TestStatRefreshUsesLaterDeadline(t *testing.T) {
+	for _, duration := range []int{1, 3, 5} {
+		state := newCombatantState()
+		state.turn = 1
+		status := entities.NewStatusFromAsset(testStatuses()["guard"])
+		status.Duration = 4
+		state.applyStatus(status)
+		state.turn = 2
+		status.Duration = duration
+		want := max(5, 2+duration)
+		if got := state.applyStatus(status); got != want-2 {
+			t.Fatalf("refresh duration %d: lifetime = %d, want %d", duration, got, want-2)
+		}
+		if len(state.statuses) != 1 || state.statuses[0].expiresAt != want {
+			t.Fatalf("refresh stacked or changed deadline: %+v", state.statuses)
+		}
+		flat, _ := state.statMods(entities.StatDEF)
+		if flat != 5 {
+			t.Fatalf("refresh stacked modifier: %d", flat)
+		}
+	}
+}
+
+func TestLethalDotsFollowCapturedInitiative(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		speed    int
+		heroDies bool
+	}{
+		{"hero faster", 5, true},
+		{"tie favors hero", 10, true},
+		{"monster faster", 15, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := statusesEngine(1, 50, 0, 1, 50)
+			if tc.speed > 10 {
+				e.rng = &stubRng{values: []int{0, 1, 50, 1, 50}}
+			}
+			heroWithDamage(e, 0)
+			e.Player.CurrentHP = 3
+			monster := entities.NewMonsterFromAsset(game.MonsterAsset{ID: "rat", Name: "Rat", Difficulty: 1, HP: 3, Damage: 0, Speed: tc.speed})
+			startEncounter(e, monster, monsterFromFixture("orc"))
+			e.Process(Command{Type: CmdFight})
+			poison := entities.NewStatusFromAsset(testStatuses()["poison"])
+			e.heroCombat.applyStatus(poison)
+			e.enemyCombat.applyStatus(poison)
+			events := e.Process(Command{Type: CmdMove, Index: combatMoveIndex(e, "basic_attack")})
+			var targets []any
+			for _, event := range events {
+				if event.Type == EventStatusDamage {
+					targets = append(targets, event.Data["target"])
+				}
+			}
+			wantTarget := "Rat"
+			if tc.heroDies {
+				wantTarget = "Hero"
+			}
+			if len(targets) != 1 || targets[0] != wantTarget {
+				t.Fatalf("DoT targets = %v, want only %s", targets, wantTarget)
+			}
+			if (e.State == StateGameOver) != tc.heroDies {
+				t.Fatalf("state = %v, hero death expected = %v", e.State, tc.heroDies)
+			}
+			if !tc.heroDies && e.heroCombat.statuses[0].remaining(e.heroCombat.turn) != poison.Duration {
+				t.Fatal("skipped surviving hero DoT consumed a tick")
+			}
+		})
+	}
 }
 
 func TestCombinedPercentageStatusCalculations(t *testing.T) {
@@ -616,29 +729,46 @@ func TestStatusesResetPerEncounter(t *testing.T) {
 	}
 }
 
-// Both sides afflicted at once: the round-end tick runs the HERO's
-// statuses first (deterministic order), then the enemy's.
-func TestTickOrderHeroFirst(t *testing.T) {
-	// Both strikes are chance-100 poison: each side ends up afflicted,
-	// and both ticks fire at round end — hero first.
-	e := statusesEngine(1, 50, 0, 0, 1, 50)
-	heroWithDamage(e, 5)
-	learn(e, "sure_poison")
-	startEncounter(e, spitterWithPoison(1))
-	e.Process(Command{Type: CmdFight})
+// DoT recipient order follows initiative captured before either action.
+func TestTickOrderCapturedInitiative(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		speed         int
+		first, second string
+	}{
+		{"hero faster", 5, "Hero", "Spitter"},
+		{"tie favors hero", 10, "Hero", "Spitter"},
+		{"monster faster", 15, "Spitter", "Hero"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Both strikes carry poison; action and recipient order match
+			// the initiative captured at turn start.
+			e := statusesEngine(1, 50, 0, 0, 1, 50, 0)
+			if tc.speed > 10 {
+				e.rng = &stubRng{values: []int{0, 1, 50, 0, 1, 50, 0}}
+			}
+			heroWithDamage(e, 5)
+			learn(e, "sure_poison")
+			monster := entities.NewMonsterFromAsset(game.MonsterAsset{ID: "spitter", Name: "Spitter", Difficulty: 2, HP: 60, Damage: 1, Speed: tc.speed}, entities.NewMoveFromAsset(statusMoveAssets()["sure_poison"]))
+			startEncounter(e, monster)
+			e.Process(Command{Type: CmdFight})
 
-	events := e.Process(Command{Type: CmdMove, Index: combatMoveIndex(e, "sure_poison")})
+			events := e.Process(Command{Type: CmdMove, Index: combatMoveIndex(e, "sure_poison")})
 
-	if got := eventTypes(events); !typesEqual(got,
-		EventMoveUsed, EventCombatDamageDealt, EventStatusApplied,
-		EventMoveUsed, EventCombatDamageTaken, EventStatusApplied,
-		EventStatusDamage, EventStatusDamage) {
-		t.Fatalf("events = %v, want two status-damage ticks", got)
-	}
-	if target := events[6].Data["target"]; target != "Hero" {
-		t.Errorf("first tick target = %v, want Hero (hero afflictions tick first)", target)
-	}
-	if target := events[7].Data["target"]; target != "Spitter" {
-		t.Errorf("second tick target = %v, want Spitter", target)
+			want := []EventType{EventMoveUsed, EventCombatDamageDealt, EventStatusApplied,
+				EventMoveUsed, EventCombatDamageTaken, EventStatusApplied, EventStatusDamage, EventStatusDamage}
+			if tc.speed > 10 {
+				want[1], want[4] = want[4], want[1]
+			}
+			if got := eventTypes(events); !typesEqual(got, want...) {
+				t.Fatalf("events = %v, want two status-damage ticks", got)
+			}
+			if target := events[6].Data["target"]; target != tc.first {
+				t.Errorf("first tick target = %v, want %s", target, tc.first)
+			}
+			if target := events[7].Data["target"]; target != tc.second {
+				t.Errorf("second tick target = %v, want %s", target, tc.second)
+			}
+		})
 	}
 }

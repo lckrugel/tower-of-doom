@@ -13,17 +13,26 @@ import (
 // (Hero.learnedMoves); this is per-fight bookkeeping only.
 
 // activeStatus is one status effect afflicting a combatant: the runtime
-// status (resolved from the registry at application time) and how many
-// rounds it still has.
+// status, remaining DoT ticks, and the end-of-turn deadline for stat effects.
 type activeStatus struct {
 	status    entities.Status
 	turnsLeft int
+	expiresAt int
+}
+
+// remaining reports DoT ticks or subsequent full turns, never a deadline.
+func (a activeStatus) remaining(turn int) int {
+	if a.status.IsDot() {
+		return max(0, a.turnsLeft)
+	}
+	return max(0, a.expiresAt-turn)
 }
 
 // combatantState is one combatant's combat-scoped bookkeeping: the
 // statuses afflicting them (in application order) and, per move id, how
 // many more rounds the move stays locked (absent or 0 = ready).
 type combatantState struct {
+	turn      int
 	statuses  []activeStatus
 	cooldowns map[string]int
 }
@@ -61,17 +70,20 @@ func (s *combatantState) tickCooldowns() {
 }
 
 // applyStatus (re)applies a status to the combatant. Effects NEVER
-// stack: a status already active refreshes to the LONGEST duration
-// (max of the rounds left and the fresh duration); a new one appends in
-// application order. Returns the rounds the status now has left.
+// stack: stat effects retain the later deadline, DoTs the larger tick count.
+// New effects append in application order. Returns authoritative lifetime.
 func (s *combatantState) applyStatus(status entities.Status) int {
 	for i := range s.statuses {
 		if s.statuses[i].status.ID == status.ID {
-			s.statuses[i].turnsLeft = max(s.statuses[i].turnsLeft, status.Duration)
-			return s.statuses[i].turnsLeft
+			if status.IsDot() {
+				s.statuses[i].turnsLeft = max(s.statuses[i].turnsLeft, status.Duration)
+			} else {
+				s.statuses[i].expiresAt = max(s.statuses[i].expiresAt, s.turn+status.Duration)
+			}
+			return s.statuses[i].remaining(s.turn)
 		}
 	}
-	s.statuses = append(s.statuses, activeStatus{status: status, turnsLeft: status.Duration})
+	s.statuses = append(s.statuses, activeStatus{status: status, turnsLeft: status.Duration, expiresAt: s.turn + status.Duration})
 	return status.Duration
 }
 
@@ -92,28 +104,44 @@ func statusDotDamage(status entities.Status, target Combatant) int {
 	return max(1, status.DotAmount+percent)
 }
 
-// tickStatuses runs the round-end status tick for one combatant, in
-// application order: a DoT damages the afflicted (a plain TakeDmg clamp
-// — no mitigation, CAN kill), then every status counts a round down;
-// reaching 0 expires it. Returns the tick's events and whether the DoT
-// killed the afflicted (the caller handles the defeat paths and stops).
-func tickStatuses(st *combatantState, target Combatant) (events []Event, dead bool) {
+// tickDots damages a living recipient in application order, consuming only
+// ticks actually run. A lethal tick stops damage immediately; stat expiration
+// remains a separate, unconditional end-of-turn bookkeeping phase.
+func tickDots(st *combatantState, target Combatant) (events []Event, dead bool) {
+	if !target.IsAlive() {
+		return nil, true
+	}
 	for i := 0; i < len(st.statuses); {
 		a := &st.statuses[i]
 		if a.status.IsDot() {
 			dmg := target.TakeDmg(statusDotDamage(a.status, target))
 			events = append(events, NewStatusDamage(target, a.status, dmg))
+			a.turnsLeft--
 			if !target.IsAlive() {
 				return events, true
 			}
+			if a.turnsLeft <= 0 {
+				events = append(events, NewStatusExpired(target, a.status))
+				st.statuses = slices.Delete(st.statuses, i, i+1)
+				continue
+			}
 		}
-		a.turnsLeft--
-		if a.turnsLeft <= 0 {
+		i++
+	}
+	return events, false
+}
+
+// expireStatStatuses removes stat effects at their deadline, after actions and
+// DoTs. This runs even when lethal damage stopped the DoT phase early.
+func expireStatStatuses(st *combatantState, target Combatant) (events []Event) {
+	for i := 0; i < len(st.statuses); {
+		a := st.statuses[i]
+		if !a.status.IsDot() && a.expiresAt <= st.turn {
 			events = append(events, NewStatusExpired(target, a.status))
 			st.statuses = slices.Delete(st.statuses, i, i+1)
 			continue
 		}
 		i++
 	}
-	return events, false
+	return events
 }
