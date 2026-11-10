@@ -123,6 +123,35 @@ func TestFinalFloorWithoutBossKeepsTheOldRegime(t *testing.T) {
 
 // ——— The challenge command ———
 
+func TestLethalDotAfterFinalKillGrantsNoBossProgression(t *testing.T) {
+	for _, boss := range []bool{false, true} {
+		name := "normal victory cannot unlock boss"
+		if boss {
+			name = "boss victory cannot grant loot or open gate"
+		}
+		t.Run(name, func(t *testing.T) {
+			e := newBossEngine(1, 50)
+			e.CurrentFloor = 5
+			e.reg.Items = bossTierItems()
+			heroWithDamage(e, 100)
+			e.Player.CurrentHP = 1
+			e.Player.Xp = 95
+			gold := e.Player.Gold
+			startEncounter(e, monsterFromFixture("goblin"))
+			e.CurrentEncounter.Boss = boss
+			e.Process(Command{Type: CmdFight})
+			e.heroCombat.applyStatus(entities.Status{ID: "venom", Name: "Venom", Kind: entities.StatusDebuff, DotAmount: 1, Duration: 2})
+			events := e.Process(Command{Type: CmdMove, Index: 0})
+			if got := eventTypes(events); !typesEqual(got, EventMoveUsed, EventCombatDamageDealt, EventStatusDamage, EventHeroDefeated) {
+				t.Errorf("events = %v, want lethal DoT without victory/rewards", got)
+			}
+			if e.State != StateGameOver || e.CanAscend || e.BossUnlocked || e.PendingLoot != nil || e.Player.Gold != gold || e.Player.Xp != 95 || e.Player.Lvl != 1 {
+				t.Errorf("premature progression: state=%v ascend=%v boss=%v loot=%v gold=%d XP=%d level=%d", e.State, e.CanAscend, e.BossUnlocked, e.PendingLoot, e.Player.Gold, e.Player.Xp, e.Player.Lvl)
+			}
+		})
+	}
+}
+
 // The challenge command exists in StateExploring only.
 func TestChallengeBossAllowedCommands(t *testing.T) {
 	if got := AllowedCommands(StateExploring); !slices.Contains(got, CmdChallengeBoss) {

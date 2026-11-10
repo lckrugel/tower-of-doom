@@ -219,10 +219,79 @@ func TestCombatRenderingReadsLiveEngineView(t *testing.T) {
 	m := enterCombat(t, e)
 	m = useMove(t, m, 1)
 	view := stripANSI(m.View())
+	status := e.CombatView().Enemy.Statuses[0]
+	if status.TurnsLeft != 2 || status.LifetimeUnit != "ticks" || status.Category != "dot" {
+		t.Errorf("post-application poison snapshot = %+v", status)
+	}
 	for _, want := range []string{"Poison(2)", "(2 turns)", "DMG 1 · DEF 0 · SPD 10"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("combat view missing engine snapshot value %q:\n%s", want, view)
 		}
+	}
+}
+
+func TestStatusLifetimePresentation(t *testing.T) {
+	m := New(combatEngine())
+	for _, tc := range []struct{ id, unit, want string }{
+		{"poison", "ticks", "2 ticks left"},
+		{"guard", "turns", "2 turns left"},
+	} {
+		actor := engine.CombatActorView{Statuses: []engine.CombatStatusView{{ID: tc.id, Name: tc.id, TurnsLeft: 2, LifetimeUnit: tc.unit}}}
+		if got := m.statusExplanation(combatStatuses(actor)); !strings.Contains(got, tc.want) {
+			t.Errorf("description = %q, want %q", got, tc.want)
+		}
+	}
+	for _, tc := range []struct{ effect, want string }{
+		{"dot", "2 ticks (first at application turn end)"},
+		{"stat", "2 future full turns (active immediately)"},
+	} {
+		a := game.StatusAsset{Name: "Test", Duration: 2, Effect: game.StatusEffectAsset{Type: tc.effect}}
+		if got := overlayStatusLine(a); !strings.Contains(got, tc.want) {
+			t.Errorf("lore = %q, want %q", got, tc.want)
+		}
+	}
+	hero := combatEngine().Player
+	for _, tc := range []struct{ effect, unit, text string }{
+		{"dot", "ticks", "2 ticks"}, {"stat", "turns", "2 future full turns"},
+	} {
+		status := entities.Status{Name: "Test", Stat: entities.StatDEF}
+		if tc.effect == "dot" {
+			status.Stat = ""
+			status.DotAmount = 1
+		}
+		event := engine.NewStatusApplied(hero, status, 2)
+		if event.Data["lifetime_unit"] != tc.unit || event.Data["category"] != tc.effect {
+			t.Errorf("application metadata = %v", event.Data)
+		}
+		if got := statusAppliedText(event.Data); !strings.Contains(got, tc.text) {
+			t.Errorf("application text = %q, want %q", got, tc.text)
+		}
+	}
+}
+
+func TestStatSnapshotKeepsFutureFullTurns(t *testing.T) {
+	e := combatEngine()
+	learnMove(e, entities.Move{ID: "guard_move", Name: "Guard", Effects: []entities.MoveEffect{{Type: "status", Target: entities.TargetSelf, Status: entities.MoveStatus{ID: "guard", Chance: 100}}}})
+	m := enterCombat(t, e)
+	m = useMove(t, m, 1)
+	for _, remaining := range []int{2, 1} {
+		before := e.CombatView()
+		if len(before.Hero.Statuses) != 1 {
+			t.Fatalf("guard disappeared with %d turns expected", remaining)
+		}
+		status := before.Hero.Statuses[0]
+		if status.TurnsLeft != remaining || status.LifetimeUnit != "turns" || status.Category != "stat" {
+			t.Errorf("guard snapshot = %+v, want %d future turns", status, remaining)
+		}
+		_ = m.View()
+		_ = m.overlayPanel()
+		if got := e.CombatView().Hero.Statuses[0]; got != status {
+			t.Errorf("rendering advanced status: %+v -> %+v", status, got)
+		}
+		m = useMove(t, m, 0)
+	}
+	if got := e.CombatView().Hero.Statuses; len(got) != 0 {
+		t.Errorf("guard survived its two future full turns: %+v", got)
 	}
 }
 

@@ -87,38 +87,44 @@ func (e *Engine) MoveCooldown(moveID string) int {
 	return e.heroCombat.cooldowns[moveID]
 }
 
-// resolveRound plays one full round of combat from the hero's move
-// choice: whoever has the higher EFFECTIVE Speed acts first — the Hero
-// wins ties — and both combatants act unless someone dies mid-round.
+// resolveTurn consumes one combat turn from the hero's move choice.
+// Higher effective SPD acts first (hero wins ties); dead actors skip actions,
+// but every consumed turn still reaches finalization.
 // `move` is the Hero's chosen move (the CmdMove index into
 // CombatMoves); nil means a RECOVER round — every hero move is locked,
 // so the turn advances with an announced idle round instead of a
 // soft-lock.
-func (e *Engine) resolveRound(move *entities.Move) []Event {
+func (e *Engine) resolveTurn(move *entities.Move) []Event {
 	var events []Event
 	if move == nil {
 		// RECOVER round: announced, then the enemy's turn and the
 		// round-end ticks run as usual.
 		events = append(events, NewMessage("Every move is on cooldown — you recover this turn."))
 	}
-	return e.resolveCombatRound(move, nil, events)
+	return e.resolveCombatTurn(move, nil, events)
 }
 
-// resolveConsumableRound spends the Hero's action on a consumable. The
+// resolveConsumableTurn spends the Hero's action on a consumable. The
 // consumable is applied only when the Hero reaches their initiative point.
-func (e *Engine) resolveConsumableRound(consumable game.ConsumableAsset) []Event {
-	return e.resolveCombatRound(nil, &consumable, nil)
+func (e *Engine) resolveConsumableTurn(consumable game.ConsumableAsset) []Event {
+	return e.resolveCombatTurn(nil, &consumable, nil)
 }
 
-// resolveCombatRound is the round core shared by the hero's move rounds,
-// RECOVER rounds and the enemy's free turns (failed sneak/flee): `move`
-// is the hero's chosen move (nil = the hero does not act this round) and
+// resolveCombatTurn is shared by moves, potions, RECOVER, and enemy-only
+// failure turns (failed sneak/flee). `move`
+// is the hero's chosen move (nil = no hero move action) and
 // `events` any event prefix already collected.
-func (e *Engine) resolveCombatRound(move *entities.Move, consumable *game.ConsumableAsset, events []Event) []Event {
-	// Initiative reads the EFFECTIVE speeds (stat-mod statuses included).
+func (e *Engine) resolveCombatTurn(move *entities.Move, consumable *game.ConsumableAsset, events []Event) []Event {
+	// Capture the original pair's order once. Same-turn speed changes do
+	// not reorder either action opportunities or end-of-turn DoT recipients.
 	heroFirst := e.heroStat(entities.StatSPD) >= e.enemyStat(entities.StatSPD)
+	e.combatTurn++
+	e.heroCombat.turn = e.combatTurn
+	e.enemyCombat.turn = e.combatTurn
+	var usedHeroMove, usedEnemyMove *entities.Move
 	heroActs := func() []Event {
 		if move != nil {
+			usedHeroMove = move
 			return e.heroStrike(move)
 		}
 		if consumable != nil {
@@ -127,29 +133,21 @@ func (e *Engine) resolveCombatRound(move *entities.Move, consumable *game.Consum
 		return nil
 	}
 
-	if (move != nil || consumable != nil) && heroFirst {
+	if heroFirst && e.Player.IsAlive() && e.currentEnemy().IsAlive() {
 		events = append(events, heroActs()...)
-		if !e.currentEnemy().IsAlive() {
-			return e.appendEnemyDefeat(events, move)
-		}
 	}
 
-	// The enemy always acts (first when it is faster than the Hero).
-	enemyMove := e.enemyTurnMove()
-	events = append(events, e.enemyStrike(enemyMove)...)
-	if !e.Player.IsAlive() {
-		return e.appendHeroDefeat(events)
+	// Do not pick a move or consume attack RNG for a skipped action.
+	if e.Player.IsAlive() && e.currentEnemy().IsAlive() {
+		usedEnemyMove = e.enemyTurnMove()
+		events = append(events, e.enemyStrike(usedEnemyMove)...)
 	}
 
-	if (move != nil || consumable != nil) && !heroFirst {
+	if !heroFirst && e.Player.IsAlive() && e.currentEnemy().IsAlive() {
 		events = append(events, heroActs()...)
-		if !e.currentEnemy().IsAlive() {
-			return e.appendEnemyDefeat(events, move)
-		}
 	}
 
-	// The round completed: the round-end ticks run.
-	return e.endRound(events, move, enemyMove)
+	return e.finishTurn(events, usedHeroMove, usedEnemyMove, heroFirst)
 }
 
 // effectiveStat is a combatant's EFFECTIVE stat: base+gear (the
@@ -403,38 +401,36 @@ func (e *Engine) enemyStrike(move *entities.Move) []Event {
 // failed flee attempt: the Hero does not act this round — no recover
 // announcement, just the enemy's turn.
 func (e *Engine) enemyFreeTurn() []Event {
-	return e.resolveCombatRound(nil, nil, nil)
+	return e.resolveCombatTurn(nil, nil, nil)
 }
 
-// endRound runs the round-end ticks of a COMPLETED round (both sides
-// acted — a round aborted by a death skips them), in this order:
-//
-//  1. status ticks, the HERO's afflictions first (deterministic order):
-//     every DoT damages its afflicted — a plain clamp, CAN kill (a dead
-//     monster goes through the normal defeat path, a dead hero ends the
-//     game) — then every status counts a round down, expiring at 0 with
-//     an event;
-//  2. cooldowns tick one round down (both sides);
-//  3. the moves used this round lock for their full cooldown — set
-//     AFTER the tick so the round of use doesn't eat one turn of the
-//     lock: with cooldown C the move stays locked for exactly C full
-//     rounds after this one.
-func (e *Engine) endRound(events []Event, heroMove, enemyMove *entities.Move) []Event {
-	tickEvents, heroDead := tickStatuses(&e.heroCombat, e.Player)
-	events = append(events, tickEvents...)
-	if heroDead {
-		return e.appendHeroDefeat(events)
-	}
-	tickEvents, enemyDead := tickStatuses(&e.enemyCombat, e.currentEnemy())
-	events = append(events, tickEvents...)
-	if enemyDead {
-		// Both sides completed the round before the poison tick, so existing
-		// hero cooldowns advance. appendEnemyDefeat then applies the move used
-		// this round at its full cooldown, after that completed-round tick.
-		e.heroCombat.tickCooldowns()
-		return e.appendEnemyDefeat(events, heroMove)
+// finishTurn owns all consumed-turn bookkeeping and settles outcomes only
+// afterward. The original monster remains at the queue front throughout.
+func (e *Engine) finishTurn(events []Event, heroMove, enemyMove *entities.Move, heroFirst bool) []Event {
+	enemy := e.currentEnemy()
+	if e.Player.IsAlive() {
+		recipients := []struct {
+			state *combatantState
+			actor Combatant
+		}{{&e.heroCombat, e.Player}, {&e.enemyCombat, enemy}}
+		if !heroFirst {
+			recipients[0], recipients[1] = recipients[1], recipients[0]
+		}
+		for _, recipient := range recipients {
+			if !recipient.actor.IsAlive() {
+				continue
+			}
+			ticks, dead := tickDots(recipient.state, recipient.actor)
+			events = append(events, ticks...)
+			if dead {
+				break // The first lethal tick settles the outcome.
+			}
+		}
 	}
 
+	// Non-damage time advances even after lethal actions or DoTs.
+	events = append(events, expireStatStatuses(&e.heroCombat, e.Player)...)
+	events = append(events, expireStatStatuses(&e.enemyCombat, enemy)...)
 	e.heroCombat.tickCooldowns()
 	e.enemyCombat.tickCooldowns()
 	if heroMove != nil {
@@ -443,20 +439,25 @@ func (e *Engine) endRound(events []Event, heroMove, enemyMove *entities.Move) []
 	if enemyMove != nil {
 		e.enemyCombat.startCooldown(*enemyMove)
 	}
+	if !e.Player.IsAlive() {
+		return e.appendHeroDefeat(events)
+	}
+	if !enemy.IsAlive() {
+		return e.appendEnemyDefeat(events)
+	}
 	return events
 }
 
-// appendEnemyDefeat grants the kill XP and the kill gold instantly
+// appendEnemyDefeat grants kill XP and gold after turn finalization
 // (mid-combat level ups are possible), advances the encounter queue and
 // resolves the encounter's end when the last enemy falls — one of three
 // endings: a BOSS victory (the boss rewards and the gate, see
 // appendBossVictory), the boss CHALLENGE unlocking (a normal victory on
 // the final floor of a section with a boss gate — ASCEND stays locked),
 // or the plain victory (ASCEND unlocks, as always). The gold grants
-// consume no rng. `heroMove` is the move the Hero used this round (locked
-// for its full cooldown — the round ended early, so no tick ran); the
-// next monster in the queue steps in with fresh combat-scoped state.
-func (e *Engine) appendEnemyDefeat(events []Event, heroMove *entities.Move) []Event {
+// consume no rng. The next monster steps in with fresh enemy-local state
+// and cannot act until the next turn.
+func (e *Engine) appendEnemyDefeat(events []Event) []Event {
 	enemy := e.currentEnemy()
 	xp := enemy.GetKillXp()
 	gold := goldPerDifficulty * enemy.Difficulty
@@ -473,12 +474,11 @@ func (e *Engine) appendEnemyDefeat(events []Event, heroMove *entities.Move) []Ev
 		events = append(events, NewLevelUpWithHeal(e.Player.Lvl, healed))
 	}
 
-	if heroMove != nil {
-		e.heroCombat.startCooldown(*heroMove)
-	}
 	e.enemyCombat = newCombatantState()
+	e.enemyCombat.turn = e.combatTurn
 	e.CurrentEncounter.Monsters = e.CurrentEncounter.Monsters[1:]
 	if len(e.CurrentEncounter.Monsters) == 0 {
+		e.clearCombatants()
 		if e.CurrentEncounter.Boss {
 			return e.appendBossVictory(events)
 		}
@@ -503,10 +503,20 @@ func (e *Engine) appendEnemyDefeat(events []Event, heroMove *entities.Move) []Ev
 // appendHeroDefeat ends the game, reporting the run state at death:
 // floor reached, hero level and enemies defeated so far.
 func (e *Engine) appendHeroDefeat(events []Event) []Event {
+	e.clearCombatants()
 	e.State = StateGameOver
 	events = append(events, NewHeroDefeatedWithStats(e.CurrentFloor, e.Player.Lvl, e.kills))
 	e.CurrentEncounter = Encounter{}
 	return events
+}
+
+// clearCombatants discards encounter-local effects on exit without
+// resetting the encounter clock; only startCombat begins a new clock.
+func (e *Engine) clearCombatants() {
+	e.heroCombat = newCombatantState()
+	e.enemyCombat = newCombatantState()
+	e.heroCombat.turn = e.combatTurn
+	e.enemyCombat.turn = e.combatTurn
 }
 
 // defCurveK tunes the defense mitigation curve — mitigation per hit is

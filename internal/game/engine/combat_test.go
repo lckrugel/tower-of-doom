@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/lckrugel/tower-of-doom/internal/game"
@@ -192,6 +193,79 @@ func TestEnemyCanKillHeroBeforePotionAction(t *testing.T) {
 	}
 }
 
+func TestConsumedActionCasesShareOneTurnClock(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		cmd     Command
+		rolls   []int
+		recover bool
+		sneak   bool
+	}{
+		{"potion", Command{Type: CmdUseConsumable}, []int{0, 1, 50}, false, false},
+		{"failed flee", Command{Type: CmdFlee}, []int{99, 0, 1, 50}, false, false},
+		{"failed sneak", Command{Type: CmdSneak}, []int{1, 0, 1, 50}, false, true},
+		{"recover", Command{Type: CmdMove, Index: 0}, []int{0, 1, 50}, true, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := potionEngine()
+			heroWithDamage(e, 1)
+			e.Player.CurrentHP = 50
+			startEncounter(e, monsterFromFixture("goblin"))
+			if !tc.sneak {
+				e.Process(Command{Type: CmdFight})
+				e.heroCombat.applyStatus(entities.Status{ID: "dot", DotAmount: 1, Duration: 3})
+				e.heroCombat.applyStatus(entities.Status{ID: "guard", Stat: entities.StatDEF, StatAmount: 1, Duration: 2})
+				e.heroCombat.cooldowns["old"] = 3
+				if tc.recover {
+					// Defensive recovery path: authored basic actions never lock.
+					e.heroCombat.cooldowns["basic_attack"] = 2
+				}
+			}
+			e.rng = &stubRng{values: tc.rolls}
+			events := e.Process(tc.cmd)
+			if e.combatTurn != 1 || e.heroCombat.turn != 1 || e.enemyCombat.turn != 1 {
+				t.Fatalf("clocks = %d/%d/%d, want one consumed turn", e.combatTurn, e.heroCombat.turn, e.enemyCombat.turn)
+			}
+			if tc.sneak {
+				return // Failed sneak starts a fresh encounter and consumes its first turn.
+			}
+			ticks := 0
+			for _, event := range events {
+				if event.Type == EventStatusDamage {
+					ticks++
+				}
+			}
+			if ticks != 1 || e.heroCombat.cooldowns["old"] != 2 || len(e.heroCombat.statuses) != 2 || e.heroCombat.statuses[0].remaining(1) != 2 || e.heroCombat.statuses[1].remaining(1) != 1 {
+				t.Fatalf("turn bookkeeping duplicated or skipped: ticks=%d state=%+v", ticks, e.heroCombat)
+			}
+		})
+	}
+}
+
+func TestRejectedCombatActionsDoNotAdvanceTime(t *testing.T) {
+	for _, cmd := range []Command{
+		{Type: CmdMove, Index: -1},
+		{Type: CmdMove, Index: 0}, // This fixture's selected move is locked.
+		{Type: CmdUseConsumable},  // Full health.
+	} {
+		e := potionEngine()
+		heroWithDamage(e, 1)
+		learned := entities.Move{ID: "learned", Type: entities.MoveTypeCreature, Learnable: true, Cooldown: 1}
+		e.Player.LearnMove(learned) // A ready alternative prevents automatic recovery.
+		startEncounter(e, monsterFromFixture("goblin"))
+		e.Process(Command{Type: CmdFight})
+		e.heroCombat.cooldowns["basic_attack"] = 2
+		e.heroCombat.applyStatus(entities.Status{ID: "dot", DotAmount: 1, Duration: 2})
+		stub := &stubRng{values: []int{0}}
+		e.rng = stub
+		e.Process(cmd)
+		e.CombatView() // Inspection is read-only, too.
+		if e.combatTurn != 0 || e.heroCombat.cooldowns["basic_attack"] != 2 || e.heroCombat.statuses[0].remaining(0) != 2 || stub.calls != 0 {
+			t.Fatalf("rejected command %+v advanced combat time", cmd)
+		}
+	}
+}
+
 // fightFirstRound engages the encounter (FIGHT) and resolves the first
 // round with the hero's first move — the Combat 2.0 flow: FIGHT only
 // opens the state, rounds advance from move choices.
@@ -218,8 +292,8 @@ func TestCombatViewContract(t *testing.T) {
 	startEncounter(e, first, second)
 	e.Process(Command{Type: CmdFight})
 	e.heroCombat.cooldowns[entities.Punch().ID] = 2
-	e.heroCombat.statuses = []activeStatus{{status: entities.Status{ID: "guard", Name: "Twin", Kind: entities.StatusBuff, Stat: entities.StatDEF, StatAmount: 5}, turnsLeft: 3}}
-	e.enemyCombat.statuses = []activeStatus{{status: entities.Status{ID: "poison", Name: "Twin", Kind: entities.StatusDebuff}, turnsLeft: 1}}
+	e.heroCombat.statuses = []activeStatus{{status: entities.Status{ID: "guard", Name: "Twin", Kind: entities.StatusBuff, Stat: entities.StatDEF, StatAmount: 5}, expiresAt: e.combatTurn + 3}}
+	e.enemyCombat.statuses = []activeStatus{{status: entities.Status{ID: "poison", Name: "Twin", Kind: entities.StatusDebuff, DotAmount: 1}, turnsLeft: 1}}
 
 	view := e.CombatView()
 	if !view.InCombat || view.Hero.Side != ActorHero || view.Enemy.Side != ActorEnemy {
@@ -442,6 +516,100 @@ func TestVictoryOnLastEnemyKill(t *testing.T) {
 	}
 }
 
+func TestAttackKillResolvesHeroDotBeforeRewards(t *testing.T) {
+	for _, lethal := range []bool{false, true} {
+		name := "nonlethal before level-up"
+		if lethal {
+			name = "lethal prevents level-up rescue and victory"
+		}
+		t.Run(name, func(t *testing.T) {
+			e := newTestEngine(1, 50)
+			heroWithDamage(e, 40)
+			e.Player.Xp = 95
+			e.Player.CurrentHP = 50
+			if lethal {
+				e.Player.CurrentHP = 10
+			}
+			gold := e.Player.Gold
+			startEncounter(e, monsterFromFixture("goblin"))
+			e.Process(Command{Type: CmdFight})
+			e.heroCombat.applyStatus(entities.Status{ID: "venom", Name: "Venom", Kind: entities.StatusDebuff, DotPercent: 10, Duration: 2})
+			stub := &stubRng{values: []int{1, 50}}
+			e.rng = stub
+			events := e.Process(Command{Type: CmdMove, Index: 0})
+			if stub.calls != 2 {
+				t.Errorf("rng calls = %d, want only hero's two attack rolls", stub.calls)
+			}
+			if lethal {
+				if got := eventTypes(events); !typesEqual(got, EventMoveUsed, EventCombatDamageDealt, EventStatusDamage, EventHeroDefeated) {
+					t.Errorf("events = %v, want attack, DoT, defeat without rewards", got)
+				}
+				if e.State != StateGameOver || e.Player.Xp != 95 || e.Player.Lvl != 1 || e.Player.Gold != gold || e.kills != 0 || e.CanAscend {
+					t.Errorf("lethal DoT granted rewards or progression: state=%v hero=%+v kills=%d ascend=%v", e.State, e.Player, e.kills, e.CanAscend)
+				}
+			} else {
+				if got := eventTypes(events); !typesEqual(got, EventMoveUsed, EventCombatDamageDealt, EventStatusDamage, EventEnemyDefeated, EventGoldGained, EventLevelUp, EventVictory) {
+					t.Errorf("events = %v, want DoT before defeat rewards and level-up", got)
+				}
+				// 50 - 10% of pre-level max 100 = 40; rescale to 44, heal 27.
+				if e.Player.CurrentHP != 71 || e.Player.Lvl != 2 {
+					t.Errorf("HP/level = %d/%d, want 71/2", e.Player.CurrentHP, e.Player.Lvl)
+				}
+			}
+		})
+	}
+}
+
+func TestLethalDotsSettleInInitiativeRecipientOrder(t *testing.T) {
+	for _, speed := range []int{5, 10, 12} {
+		t.Run(fmt.Sprintf("enemy speed %d", speed), func(t *testing.T) {
+			e := newTestEngine(1, 50, 0, 1, 50)
+			if speed > 10 {
+				e.rng = &stubRng{values: []int{0, 1, 50, 1, 50}}
+			}
+			heroWithDamage(e, 1)
+			e.Player.CurrentHP = 10
+			monster := entities.NewMonsterFromAsset(game.MonsterAsset{ID: "enemy", Name: "Enemy", Difficulty: 1, HP: 10, Damage: 1, Speed: speed})
+			startEncounter(e, monster)
+			e.Process(Command{Type: CmdFight})
+			dot := entities.Status{ID: "venom", Name: "Venom", Kind: entities.StatusDebuff, DotAmount: 20, Duration: 2}
+			e.heroCombat.applyStatus(dot)
+			e.enemyCombat.applyStatus(dot)
+			events := e.Process(Command{Type: CmdMove, Index: 0})
+			ticks := 0
+			for _, event := range events {
+				if event.Type == EventStatusDamage {
+					ticks++
+				}
+			}
+			want := GameState(StateGameOver) // Ties process the hero recipient first, too.
+			if speed > 10 {
+				want = StateExploring
+			}
+			if ticks != 1 || e.State != want {
+				t.Errorf("ticks/state = %d/%v, want 1/%v", ticks, e.State, want)
+			}
+		})
+	}
+}
+
+func TestDirectHeroDeathCannotBeReversedByMonsterDot(t *testing.T) {
+	e := newTestEngine(0, 1, 50)
+	heroWithDamage(e, 100)
+	e.Player.CurrentHP = 1
+	e.Player.Xp = 95
+	startEncounter(e, fastRat())
+	e.Process(Command{Type: CmdFight})
+	e.enemyCombat.applyStatus(entities.Status{ID: "venom", Name: "Venom", Kind: entities.StatusDebuff, DotAmount: 100, Duration: 2})
+	events := e.Process(Command{Type: CmdMove, Index: 0})
+	if got := eventTypes(events); !typesEqual(got, EventMoveUsed, EventCombatDamageTaken, EventHeroDefeated) {
+		t.Errorf("events = %v, want direct defeat without hero action or monster DoT", got)
+	}
+	if e.State != StateGameOver || e.Player.Xp != 95 || e.Player.CurrentHP != 0 {
+		t.Errorf("direct death reversed: state=%v HP=%d XP=%d", e.State, e.Player.CurrentHP, e.Player.Xp)
+	}
+}
+
 func TestMidCombatLevelUp(t *testing.T) {
 	e := newTestEngine()
 	heroWithDamage(e, 40)
@@ -535,6 +703,9 @@ func TestSneak(t *testing.T) {
 		if got := eventTypes(events); !typesEqual(got, EventSneakSuccess) {
 			t.Errorf("events = %v, want [sneak-success]", got)
 		}
+		if e.combatTurn != 0 {
+			t.Fatal("successful sneak consumed combat time")
+		}
 		if e.State != StateExploring {
 			t.Errorf("state after successful sneak = %v, want StateExploring", e.State)
 		}
@@ -600,11 +771,18 @@ func TestFlee(t *testing.T) {
 		heroWithDamage(e, 5)
 		startEncounter(e, monsterFromFixture("goblin"))
 		e.State = StateCombat
+		e.heroCombat.applyStatus(entities.Status{ID: "lethal", DotAmount: 1000, Duration: 1})
 
 		events := e.Process(Command{Type: CmdFlee})
 
 		if got := eventTypes(events); !typesEqual(got, EventFled) {
 			t.Errorf("events = %v, want [fled]", got)
+		}
+		if e.combatTurn != 0 || !e.Player.IsAlive() {
+			t.Fatal("successful flee ran a pending DoT or consumed combat time")
+		}
+		if len(e.heroCombat.statuses) != 0 {
+			t.Fatal("successful flee retained encounter-scoped statuses")
 		}
 		if e.State != StateExploring {
 			t.Errorf("state after fleeing = %v, want StateExploring", e.State)

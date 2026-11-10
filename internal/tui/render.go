@@ -442,17 +442,22 @@ func isHeroEvent(data map[string]any) bool {
 
 // statusAppliedText renders a status landing (fresh or refreshed —
 // never stacked). The verb follows the status's kind: buffs are gained,
-// debuffs are suffered — "You gain Guard (2 turns)." vs "The Goblin
-// suffers Poison (3 turns)."
+// debuffs are suffered. Explicit units distinguish future full turns from ticks.
 func statusAppliedText(data map[string]any) string {
 	target, _ := data["target"].(string)
 	status, _ := data["status"].(string)
 	turns, _ := data["turns"].(int)
+	unit, _ := data["lifetime_unit"].(string)
+	if unit == "turns" {
+		unit = "future full turns"
+	} else if unit == "" {
+		unit = "turns" // Legacy events did not distinguish status categories.
+	}
 	verb := statusVerb(data)
 	if side, _ := data["side"].(engine.ActorSide); side == engine.ActorHero {
-		return fmt.Sprintf("You %s %s (%d turns).", verb, status, turns)
+		return fmt.Sprintf("You %s %s (%d %s).", verb, status, turns, unit)
 	}
-	return fmt.Sprintf("The %s %ss %s (%d turns).", target, verb, status, turns)
+	return fmt.Sprintf("The %s %ss %s (%d %s).", target, verb, status, turns, unit)
 }
 
 // statusExpiredText renders a status ticking away: "The Poison wears
