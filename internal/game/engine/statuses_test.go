@@ -134,7 +134,7 @@ func TestStatusApplication(t *testing.T) {
 		startEncounter(e, monsterFromFixture("goblin"))
 		e.Process(Command{Type: CmdFight})
 
-		events := e.Process(Command{Type: CmdMove, Index: 0})
+		events := e.Process(Command{Type: CmdMove, Index: combatMoveIndex(e, "sure_poison")})
 
 		if got := eventTypes(events); !typesEqual(got,
 			EventMoveUsed, EventCombatDamageDealt, EventStatusApplied,
@@ -164,7 +164,7 @@ func TestStatusApplication(t *testing.T) {
 		startEncounter(e, monsterFromFixture("goblin"))
 		e.Process(Command{Type: CmdFight})
 
-		events := e.Process(Command{Type: CmdMove, Index: 0})
+		events := e.Process(Command{Type: CmdMove, Index: combatMoveIndex(e, "guard_strike")})
 
 		if got := eventTypes(events); !typesEqual(got,
 			EventMoveUsed, EventCombatDamageDealt, EventStatusApplied,
@@ -192,7 +192,7 @@ func TestStatusApplication(t *testing.T) {
 		stub := &stubRng{values: []int{1, 50, 0, 0, 1, 50}}
 		e.rng = stub
 
-		events := e.Process(Command{Type: CmdMove, Index: 0})
+		events := e.Process(Command{Type: CmdMove, Index: combatMoveIndex(e, "never_poison")})
 
 		if got := eventTypes(events); !typesEqual(got,
 			EventMoveUsed, EventCombatDamageDealt, EventMoveUsed, EventCombatDamageTaken) {
@@ -234,7 +234,7 @@ func TestStatusApplication(t *testing.T) {
 		stub := &stubRng{values: []int{1, 50, 0}}
 		e.rng = stub
 
-		events := e.Process(Command{Type: CmdMove, Index: 0})
+		events := e.Process(Command{Type: CmdMove, Index: combatMoveIndex(e, "sure_poison")})
 
 		if got := eventTypes(events); !typesEqual(got,
 			EventMoveUsed, EventCombatDamageDealt, EventEnemyDefeated, EventGoldGained) {
@@ -274,16 +274,18 @@ func TestStatusApplication(t *testing.T) {
 // Re-applying a status refreshes it to the LONGEST duration — never a
 // stack: the same id replaces with max(turnsLeft, duration).
 func TestStatusRefreshesToTheLongestDuration(t *testing.T) {
-	// Two rounds of Envenom: round 1 applies (3, ticked to 2 at round
-	// end), round 2 re-applies → refreshed to 3.
-	e := statusesEngine(1, 50, 0, 0, 1, 50, 1, 50, 0, 0, 1, 50)
+	// Envenom has a cooldown, so a basic-action round advances it before
+	// round 3 reapplies the poison. The status refreshes to 3 before its
+	// round-end tick.
+	e := statusesEngine(1, 50, 0, 0, 1, 50, 1, 50, 0, 1, 50, 1, 50, 0, 0, 1, 50)
 	heroWithDamage(e, 5)
 	learn(e, "sure_poison")
 	startEncounter(e, monsterFromFixture("goblin"))
 	e.Process(Command{Type: CmdFight})
-	e.Process(Command{Type: CmdMove, Index: 0})
+	e.Process(Command{Type: CmdMove, Index: combatMoveIndex(e, "sure_poison")})
+	e.Process(Command{Type: CmdMove, Index: combatMoveIndex(e, "basic_attack")})
 
-	events := e.Process(Command{Type: CmdMove, Index: 0})
+	events := e.Process(Command{Type: CmdMove, Index: combatMoveIndex(e, "sure_poison")})
 
 	applied := events[2]
 	if applied.Data["turns"] != 3 {
@@ -298,15 +300,15 @@ func TestStatusRefreshesToTheLongestDuration(t *testing.T) {
 // then counts a round down; hitting 0 expires it with an event.
 func TestStatusTicksAtRoundEnd(t *testing.T) {
 	// Round 1: Envenom applies the poison (3 turns) — the tick drops it
-	// to 2. Rounds 2-3: the status-less Dust Toss; the poison ticks at
-	// each round end and expires after its third tick.
-	e := statusesEngine(1, 50, 0, 0, 1, 50, 1, 50, 0, 0, 1, 50, 1, 50, 0, 0, 1, 50)
+	// to 2. Basic-action rounds 2-3 let the status tick and expire while
+	// the learned move is cooling down.
+	e := statusesEngine(1, 50, 0, 0, 1, 50, 1, 50, 0, 1, 50, 1, 50, 0, 1, 50)
 	heroWithDamage(e, 5)
 	learn(e, "sure_poison", "never_poison")
 	startEncounter(e, monsterFromFixture("goblin"))
 	e.Process(Command{Type: CmdFight})
 
-	events := e.Process(Command{Type: CmdMove, Index: 0}) // round 1
+	events := e.Process(Command{Type: CmdMove, Index: combatMoveIndex(e, "sure_poison")}) // round 1
 
 	dot := events[5]
 	if dot.Type != EventStatusDamage {
@@ -325,8 +327,9 @@ func TestStatusTicksAtRoundEnd(t *testing.T) {
 		t.Errorf("turns left after the tick = %d, want 2", left)
 	}
 
-	e.Process(Command{Type: CmdMove, Index: 1})          // round 2: tick → 1
-	events = e.Process(Command{Type: CmdMove, Index: 1}) // round 3: tick → expired
+	otherIndex := combatMoveIndex(e, "basic_attack")
+	e.Process(Command{Type: CmdMove, Index: otherIndex})          // round 2: tick → 1
+	events = e.Process(Command{Type: CmdMove, Index: otherIndex}) // round 3: tick → expired
 
 	if got := eventTypes(events); !typesEqual(got,
 		EventMoveUsed, EventCombatDamageDealt, EventMoveUsed, EventCombatDamageTaken,
@@ -430,7 +433,7 @@ func TestDoTKillsTheMonster(t *testing.T) {
 	startEncounter(e, fleabane)
 	e.Process(Command{Type: CmdFight})
 
-	events := e.Process(Command{Type: CmdMove, Index: 0})
+	events := e.Process(Command{Type: CmdMove, Index: combatMoveIndex(e, "sure_poison")})
 
 	// Hero chips 1; the monster's 0-DMG swing still chips 1; the
 	// round-end poison tick eats the last HP and kills.
@@ -462,13 +465,13 @@ func TestDoTKillAdvancesExistingCooldowns(t *testing.T) {
 	})
 	startEncounter(e, monster)
 	e.Process(Command{Type: CmdFight})
-	e.Process(Command{Type: CmdMove, Index: 0}) // poison; tick leaves the monster at 3 HP
+	e.Process(Command{Type: CmdMove, Index: combatMoveIndex(e, "sure_poison")}) // poison; tick leaves the monster at 3 HP
 	if hp := e.CurrentEncounter.Monsters[0].CurrentHP; hp != 3 {
 		t.Fatalf("monster HP after poison setup round = %d, want 3", hp)
 	}
 	e.heroCombat.cooldowns["prior_move"] = 2
 
-	events := e.Process(Command{Type: CmdMove, Index: 1}) // guard strike + lethal poison tick
+	events := e.Process(Command{Type: CmdMove, Index: combatMoveIndex(e, "guard_strike")}) // guard strike + lethal poison tick
 	if !slices.Contains(eventTypes(events), EventEnemyDefeated) {
 		t.Fatalf("events = %v, want a DoT enemy defeat", eventTypes(events))
 	}
@@ -489,7 +492,7 @@ func TestDoTKillsTheHero(t *testing.T) {
 	startEncounter(e, spitterWithPoison(1))
 	e.Process(Command{Type: CmdFight})
 
-	events := e.Process(Command{Type: CmdMove, Index: 0})
+	events := e.Process(Command{Type: CmdMove, Index: combatMoveIndex(e, "basic_attack")})
 
 	// Hero strikes; the spitter chips 1 (2 → 1) and poisons the hero;
 	// the round-end tick eats the last HP.
@@ -624,7 +627,7 @@ func TestTickOrderHeroFirst(t *testing.T) {
 	startEncounter(e, spitterWithPoison(1))
 	e.Process(Command{Type: CmdFight})
 
-	events := e.Process(Command{Type: CmdMove, Index: 0})
+	events := e.Process(Command{Type: CmdMove, Index: combatMoveIndex(e, "sure_poison")})
 
 	if got := eventTypes(events); !typesEqual(got,
 		EventMoveUsed, EventCombatDamageDealt, EventStatusApplied,

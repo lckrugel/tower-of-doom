@@ -290,17 +290,17 @@ func TestNumberKeysDispatchMoves(t *testing.T) {
 	e.Process(engine.Command{Type: engine.CmdFight})
 	m := New(e)
 
-	m, _ = press(m, "2")
+	m, _ = press(m, "3")
 
 	if m.engine.State != engine.StateCombat {
 		t.Fatalf("state after '2' = %v, want StateCombat", m.engine.State)
 	}
-	if m.gridCursor != 1 {
-		t.Errorf("grid cursor after '2' = %d, want 1 (jump-select)", m.gridCursor)
+	if m.gridCursor != 2 {
+		t.Errorf("grid cursor after '3' = %d, want 2 (jump-select)", m.gridCursor)
 	}
 	// The dispatch locked the move (cooldown 2): a second press is a
 	// blocked action, proving the cell really dispatched CmdMove.
-	m, _ = press(m, "2")
+	m, _ = press(m, "3")
 	last := stripANSI(m.log[len(m.log)-1])
 	if last != "Move on cooldown." {
 		t.Errorf("second '2' logged %q, want the cooldown block", last)
@@ -314,7 +314,10 @@ func TestNumberKeysDispatchMoves(t *testing.T) {
 // runtime values — the registry is only consulted for monster move refs
 // and status resolution, so no registration is needed here.
 func learnTestMove(e *engine.Engine, id, name string, cooldown int) {
+	if cooldown <= 0 {
+		cooldown = 1
+	}
 	e.Player.LearnMove(entities.Move{
-		ID: id, Name: name, Tier: 1, Effects: []entities.MoveEffect{{Type: "damage", Target: entities.TargetEnemy, DmgModifier: 100}}, Cooldown: cooldown, Weight: 10,
+		ID: id, Name: name, Tier: 1, Learnable: true, Type: entities.MoveTypeCreature, Effects: []entities.MoveEffect{{Type: "damage", Target: entities.TargetEnemy, DmgModifier: 100}}, Cooldown: cooldown, Weight: 10,
 	})
 }

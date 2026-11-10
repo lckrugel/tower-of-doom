@@ -109,7 +109,7 @@ func TestUtilityMoveCooldownTicksOnCompletedRounds(t *testing.T) {
 	e.Process(Command{Type: CmdFight})
 	e.heroCombat.statuses = []activeStatus{{status: entities.Status{ID: "guard", Name: "Guard", Kind: entities.StatusBuff, Stat: entities.StatDEF, StatAmount: 5}, turnsLeft: 3}}
 
-	mendIndex, quickIndex := combatMoveIndex(e, "mend"), combatMoveIndex(e, "quick_stab")
+	mendIndex := combatMoveIndex(e, "mend")
 	events := e.Process(Command{Type: CmdMove, Index: mendIndex}) // Mend starts its full cooldown after its turn.
 	if got := eventTypes(events); !typesEqual(got, EventMoveUsed, EventCombatHealed, EventMoveUsed, EventCombatDamageTaken) {
 		t.Fatalf("utility round events = %v, want heal followed by enemy action", got)
@@ -132,9 +132,10 @@ func TestUtilityMoveCooldownTicksOnCompletedRounds(t *testing.T) {
 		t.Errorf("blocked action changed Mend cooldown to %d, want 2", got)
 	}
 
-	// One intervening valid action ticks the cooldown once; a second one
-	// completes the full lock while the enemy and status still progress.
-	events = e.Process(Command{Type: CmdMove, Index: quickIndex})
+	// Spammable basic actions advance rounds without adding another
+	// cooldown that would itself block the next action.
+	basicIndex := combatMoveIndex(e, "basic_attack")
+	events = e.Process(Command{Type: CmdMove, Index: basicIndex})
 	if got := eventTypes(events); !typesEqual(got, EventMoveUsed, EventCombatDamageDealt, EventMoveUsed, EventCombatDamageTaken) {
 		t.Fatalf("intervening round events = %v, want hero and enemy actions", got)
 	}
@@ -145,7 +146,7 @@ func TestUtilityMoveCooldownTicksOnCompletedRounds(t *testing.T) {
 		t.Errorf("Guard turns after second completed round = %d, want 1", got)
 	}
 
-	e.Process(Command{Type: CmdMove, Index: quickIndex})
+	e.Process(Command{Type: CmdMove, Index: basicIndex})
 	if e.heroCombat.onCooldown("mend") {
 		t.Fatal("Mend should be available after its two locked rounds")
 	}
@@ -240,7 +241,7 @@ func TestMonsterPureHealThroughEngineTurn(t *testing.T) {
 		stub := &stubRng{values: []int{1, 50, 0}}
 		e.rng = stub
 
-		events := e.Process(Command{Type: CmdMove, Index: 0})
+		events := e.Process(Command{Type: CmdMove, Index: combatMoveIndex(e, "punch")})
 		if got := eventTypes(events); !typesEqual(got, EventMoveUsed, EventCombatDamageDealt, EventMoveUsed, EventCombatHealed) {
 			t.Fatalf("events = %v, want hero action then monster heal", got)
 		}
@@ -336,7 +337,7 @@ func TestMoveDamageModifier(t *testing.T) {
 	startEncounter(e, monsterFromFixture("goblin"))
 	e.Process(Command{Type: CmdFight})
 
-	events := e.Process(Command{Type: CmdMove, Index: 0})
+	events := e.Process(Command{Type: CmdMove, Index: combatMoveIndex(e, "heavy_slash")})
 
 	if got := eventTypes(events); !typesEqual(got,
 		EventMoveUsed, EventCombatDamageDealt, EventMoveUsed, EventCombatDamageTaken) {
@@ -362,7 +363,7 @@ func TestMoveCritBonus(t *testing.T) {
 		startEncounter(e, monsterFromFixture("goblin"))
 		e.Process(Command{Type: CmdFight})
 
-		events := e.Process(Command{Type: CmdMove, Index: 0})
+		events := e.Process(Command{Type: CmdMove, Index: combatMoveIndex(e, "quick_stab")})
 
 		if dmg := events[1].Data["damage_dealt"]; dmg != 6 {
 			t.Errorf("damage_dealt = %v, want 6 (3 base, crit doubled)", dmg)
@@ -379,7 +380,7 @@ func TestMoveCritBonus(t *testing.T) {
 		startEncounter(e, monsterFromFixture("goblin"))
 		e.Process(Command{Type: CmdFight})
 
-		events := e.Process(Command{Type: CmdMove, Index: 0})
+		events := e.Process(Command{Type: CmdMove, Index: combatMoveIndex(e, "quick_stab")})
 
 		if crit, _ := events[1].Data["crit"].(bool); crit {
 			t.Error("roll 30 crit with threshold 30 — must be exclusive")
@@ -397,7 +398,7 @@ func TestMoveCritThresholdClamps(t *testing.T) {
 		startEncounter(e, monsterFromFixture("goblin"))
 		e.Process(Command{Type: CmdFight})
 
-		events := e.Process(Command{Type: CmdMove, Index: 0})
+		events := e.Process(Command{Type: CmdMove, Index: combatMoveIndex(e, "overkill")})
 
 		if crit, _ := events[1].Data["crit"].(bool); !crit {
 			t.Error("crit roll 99 with a clamped 100 threshold must crit")
@@ -412,7 +413,7 @@ func TestMoveCritThresholdClamps(t *testing.T) {
 		startEncounter(e, monsterFromFixture("goblin"))
 		e.Process(Command{Type: CmdFight})
 
-		events := e.Process(Command{Type: CmdMove, Index: 0})
+		events := e.Process(Command{Type: CmdMove, Index: combatMoveIndex(e, "dull")})
 
 		if crit, _ := events[1].Data["crit"].(bool); crit {
 			t.Error("crit fired with a clamped 0 threshold")
@@ -428,11 +429,12 @@ func TestMoveCooldown(t *testing.T) {
 		learn(e, "heavy_slash", "quick_stab")
 		startEncounter(e, monsterFromFixture("goblin"))
 		e.Process(Command{Type: CmdFight})
-		e.Process(Command{Type: CmdMove, Index: 0}) // heavy_slash locks for 2
+		heavyIndex := combatMoveIndex(e, "heavy_slash")
+		e.Process(Command{Type: CmdMove, Index: heavyIndex}) // heavy_slash locks for 2
 
 		stub := &stubRng{values: []int{1, 50}}
 		e.rng = stub
-		events := e.Process(Command{Type: CmdMove, Index: 0}) // locked
+		events := e.Process(Command{Type: CmdMove, Index: heavyIndex}) // locked
 
 		// A blocked action, not an error state: a message, no change.
 		if got := eventTypes(events); !typesEqual(got, EventMessage) {
@@ -462,15 +464,17 @@ func TestMoveCooldown(t *testing.T) {
 		startEncounter(e, monsterFromFixture("goblin"))
 		e.Process(Command{Type: CmdFight})
 
-		e.Process(Command{Type: CmdMove, Index: 0})            // round 1: heavy_slash → locked 2
-		e.Process(Command{Type: CmdMove, Index: 1})            // round 2: quick_stab (tick → 1)
-		blocked := e.Process(Command{Type: CmdMove, Index: 0}) // round 3: still locked
+		heavyIndex, quickIndex := combatMoveIndex(e, "heavy_slash"), combatMoveIndex(e, "quick_stab")
+		basicIndex := combatMoveIndex(e, "basic_attack")
+		e.Process(Command{Type: CmdMove, Index: heavyIndex})            // round 1: heavy_slash → locked 2
+		e.Process(Command{Type: CmdMove, Index: quickIndex})            // round 2: quick_stab (tick → 1)
+		blocked := e.Process(Command{Type: CmdMove, Index: heavyIndex}) // round 3: still locked
 		if got := eventTypes(blocked); !typesEqual(got, EventMessage) {
 			t.Fatalf("round 3: heavy_slash unlocked one round early: %v", got)
 		}
-		e.Process(Command{Type: CmdMove, Index: 1}) // round 3 resolves (tick → 0)
+		e.Process(Command{Type: CmdMove, Index: basicIndex}) // round 3 resolves (tick → 0)
 
-		events := e.Process(Command{Type: CmdMove, Index: 0}) // round 4: ready again
+		events := e.Process(Command{Type: CmdMove, Index: heavyIndex}) // round 4: ready again
 		if got := eventTypes(events); !typesEqual(got,
 			EventMoveUsed, EventCombatDamageDealt, EventMoveUsed, EventCombatDamageTaken) {
 			t.Fatalf("round 4 events = %v, want [move-used dealt move-used taken]", got)
@@ -481,42 +485,37 @@ func TestMoveCooldown(t *testing.T) {
 	})
 }
 
-// A fully-cooled hero turn resolves as an automatic RECOVER round —
-// never a soft-lock: the hero does not act, the enemy does, and the
-// round-end ticks run as usual.
-func TestFullyCooledHeroRecovers(t *testing.T) {
-	// Crafted per round — round 1 (hero strike + monster pick + strike):
-	// [1,50, 0, 1,50]; recover rounds (pick + monster strike):
-	// [0, 1,50]; round 4 (hero strike again): [1,50, 0, 1,50].
-	e := movesEngine(1, 50, 0, 1, 50, 0, 1, 50, 0, 1, 50, 1, 50, 0, 1, 50)
+// The spammable basic action remains usable while cooldown moves are locked.
+func TestBasicActionRemainsUsableWhileLearnedMoveCools(t *testing.T) {
+	e := movesEngine(1, 50, 0, 1, 50, 1, 50, 0, 1, 50, 1, 50, 0, 1, 50, 1, 50, 0, 1, 50)
 	heroWithDamage(e, 5)
-	learn(e, "heavy_slash") // the ONLY move, cooldown 2
+	learn(e, "heavy_slash")
 	startEncounter(e, monsterFromFixture("goblin"))
 	e.Process(Command{Type: CmdFight})
-	e.Process(Command{Type: CmdMove, Index: 0}) // round 1: locked for 2
+	heavyIndex := combatMoveIndex(e, "heavy_slash")
+	basicIndex := combatMoveIndex(e, "basic_attack")
+	e.Process(Command{Type: CmdMove, Index: heavyIndex}) // round 1: locked for 2
 
-	events := e.Process(Command{Type: CmdMove, Index: 0}) // round 2: recover
-
-	if got := eventTypes(events); !typesEqual(got, EventMessage, EventMoveUsed, EventCombatDamageTaken) {
-		t.Fatalf("round 2 events = %v, want [message move-used taken (recover)]", got)
+	blocked := e.Process(Command{Type: CmdMove, Index: heavyIndex})
+	if got := eventTypes(blocked); !typesEqual(got, EventMessage) {
+		t.Fatalf("locked Heavy Slash events = %v, want a blocking message", got)
 	}
-	if hp := e.CurrentEncounter.Monsters[0].CurrentHP; hp != 21 {
-		t.Errorf("goblin HP = %d, want 21 (the hero did not strike)", hp)
-	}
-
-	// Round 3: still locked (2 locked rounds: 2 and 3) — recover again.
-	if got := eventTypes(e.Process(Command{Type: CmdMove, Index: 0})); !typesEqual(got, EventMessage, EventMoveUsed, EventCombatDamageTaken) {
-		t.Errorf("round 3 events = %v, want another recover round", got)
+	if e.heroCombat.cooldowns["heavy_slash"] != 2 {
+		t.Fatal("blocked selection advanced the cooldown")
 	}
 
-	// Round 4: the cooldown has expired — the move strikes again.
-	events = e.Process(Command{Type: CmdMove, Index: 0})
+	e.Process(Command{Type: CmdMove, Index: basicIndex}) // tick → 1
+	e.Process(Command{Type: CmdMove, Index: basicIndex}) // tick → ready
+	if e.heroCombat.onCooldown("heavy_slash") {
+		t.Fatal("Heavy Slash should be ready after two completed rounds")
+	}
+	events := e.Process(Command{Type: CmdMove, Index: heavyIndex})
 	if got := eventTypes(events); !typesEqual(got,
 		EventMoveUsed, EventCombatDamageDealt, EventMoveUsed, EventCombatDamageTaken) {
-		t.Fatalf("round 4 events = %v, want [move-used dealt move-used taken]", got)
+		t.Fatalf("ready move events = %v, want [move-used dealt move-used taken]", got)
 	}
 	if dmg := events[1].Data["damage_dealt"]; dmg != 9 {
-		t.Errorf("round 4 damage_dealt = %v, want 9", dmg)
+		t.Errorf("damage_dealt = %v, want 9", dmg)
 	}
 }
 
@@ -530,9 +529,9 @@ func TestKillRoundLocksWithoutTicking(t *testing.T) {
 	startEncounter(e, monsterFromFixture("goblin"), monsterFromFixture("orc"))
 	e.Process(Command{Type: CmdFight})
 
-	e.Process(Command{Type: CmdMove, Index: 0}) // kill → the round ends early
+	e.Process(Command{Type: CmdMove, Index: combatMoveIndex(e, "heavy_slash")}) // kill → the round ends early
 
-	events := e.Process(Command{Type: CmdMove, Index: 0}) // next enemy
+	events := e.Process(Command{Type: CmdMove, Index: combatMoveIndex(e, "heavy_slash")}) // next enemy
 	if got := eventTypes(events); !typesEqual(got, EventMessage) {
 		t.Errorf("events = %v, want [message] — heavy_slash must still be locked", got)
 	}
@@ -613,7 +612,7 @@ func TestWeaponGrantedMovesAreUsable(t *testing.T) {
 	startEncounter(e, monsterFromFixture("goblin"))
 	e.Process(Command{Type: CmdFight})
 
-	events := e.Process(Command{Type: CmdMove, Index: 0})
+	events := e.Process(Command{Type: CmdMove, Index: combatMoveIndex(e, "quick_stab")})
 
 	// quick_stab: 60% of (5 hero + 3 weapon = 8) → round(4.8) = 5.
 	if dmg := events[1].Data["damage_dealt"]; dmg != 5 {
@@ -631,7 +630,7 @@ func TestMoveUsedEventPayload(t *testing.T) {
 	startEncounter(e, monsterFromFixture("goblin"))
 	e.Process(Command{Type: CmdFight})
 
-	events := e.Process(Command{Type: CmdMove, Index: 0})
+	events := e.Process(Command{Type: CmdMove, Index: combatMoveIndex(e, "heavy_slash")})
 
 	used := events[0]
 	if used.Type != EventMoveUsed {
