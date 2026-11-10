@@ -1120,7 +1120,7 @@ func TestOverlayCapsTheStatusList(t *testing.T) {
 
 	view := stripControls(stripANSI(m.View()))
 
-	if !strings.Contains(view, "S09 — 1 dmg/turn — 2 rounds") {
+	if !strings.Contains(view, "S09 — 1 dmg/turn — 2 ticks") {
 		t.Errorf("the overlay's capped list lost an in-budget status:\n%s", view)
 	}
 	if strings.Contains(view, "S10 — ") {
@@ -1149,7 +1149,7 @@ func TestOverlayTogglesOnQuestionMark(t *testing.T) {
 	for _, want := range []string{
 		"TOWER LORE",
 		"STATUS EFFECTS",
-		"Poison — 3 dmg/turn — 3 rounds", // the lore: effect — duration
+		"Poison — 3 dmg/turn — 3 ticks", // the lore: effect — duration
 		"MOVE TAGS",
 		"N% damage", "+N HP / +N% HP healing", "✦+N crit", "☠<status> N% chance",
 		"(N turns) move locked", "◆ learned", "⚔ weapon",
@@ -1167,7 +1167,7 @@ func TestOverlayTogglesOnQuestionMark(t *testing.T) {
 		}
 	}
 	// Lore lines tone by kind: buffs green.
-	if !strings.Contains(m.View(), styleHeal.Render("Guard — +5 DEF — 2 rounds")) {
+	if !strings.Contains(m.View(), styleHeal.Render("Guard — +5 DEF — 2 future full turns (active immediately)")) {
 		t.Error("the buff lore line must take the green tone")
 	}
 
@@ -1183,7 +1183,7 @@ func TestOverlayTogglesOnQuestionMark(t *testing.T) {
 func TestMoveStatusExplanationIncludesChanceAndEffectLore(t *testing.T) {
 	m := New(testEngine())
 	got := m.moveStatusExplanation(entities.MoveStatus{ID: "poison", Chance: 60}, entities.TargetEnemy)
-	want := "☠poison 60% → enemy — 3 dmg/turn · 3 rounds"
+	want := "☠poison 60% → enemy — 3 dmg/turn · 3 ticks (first at application turn end)"
 	if got != want {
 		t.Fatalf("move status explanation = %q, want %q", got, want)
 	}

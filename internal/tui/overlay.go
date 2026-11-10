@@ -75,9 +75,16 @@ func (m Model) overlayKeys() string {
 	return strings.Join(spots, " · ")
 }
 
-// overlayStatusLine is a lore entry: "Poison — 3 dmg/turn — 3 rounds".
+// overlayStatusLine explains authored duration and when its clock starts.
 func overlayStatusLine(a game.StatusAsset) string {
-	return fmt.Sprintf("%s — %s — %d rounds", a.Name, statusEffectText(a), a.Duration)
+	return fmt.Sprintf("%s — %s — %d %s", a.Name, statusEffectText(a), a.Duration, statusDurationText(a))
+}
+
+func statusDurationText(a game.StatusAsset) string {
+	if a.Effect.Type == "dot" {
+		return "ticks (first at application turn end)"
+	}
+	return "future full turns (active immediately)"
 }
 
 // statusEffectText renders a status asset's effect: "3 dmg/turn" for a
@@ -121,7 +128,7 @@ func (m Model) statusLoreByID(id string) (game.StatusAsset, bool) {
 }
 
 // statusExplanation joins statuses into ONE dim tooltip line: "Poison —
-// 3 dmg/turn · 2 turns left; Weaken — -3 DMG · 3 turns left" — the live
+// 3 dmg/turn · 2 ticks left; Weaken — -3 DMG · 3 turns left" — the live
 // turns from the engine combat view, the effect from the registry's lore. A status
 // the registry doesn't know degrades to its live count. An empty list
 // explains nothing.
@@ -132,10 +139,10 @@ func (m Model) statusExplanation(statuses []combatStatus) string {
 	parts := make([]string, 0, len(statuses))
 	for _, s := range statuses {
 		if lore, ok := m.statusLoreByID(s.id); ok {
-			parts = append(parts, fmt.Sprintf("%s — %s · %d rounds left", s.name, statusEffectText(lore), s.turns))
+			parts = append(parts, fmt.Sprintf("%s — %s · %d %s left", s.name, statusEffectText(lore), s.turns, s.lifetimeUnit()))
 			continue
 		}
-		parts = append(parts, fmt.Sprintf("%s · %d rounds left", s.name, s.turns))
+		parts = append(parts, fmt.Sprintf("%s · %d %s left", s.name, s.turns, s.lifetimeUnit()))
 	}
 	return strings.Join(parts, "; ")
 }
@@ -150,7 +157,14 @@ func (m Model) moveStatusExplanation(s entities.MoveStatus, target entities.Move
 	if !ok {
 		return tag
 	}
-	return fmt.Sprintf("%s → %s — %s · %d rounds", tag, target, statusEffectText(lore), lore.Duration)
+	return fmt.Sprintf("%s → %s — %s · %d %s", tag, target, statusEffectText(lore), lore.Duration, statusDurationText(lore))
+}
+
+func (s combatStatus) lifetimeUnit() string {
+	if s.unit == "ticks" {
+		return "ticks"
+	}
+	return "turns"
 }
 
 // moveEffectsExplanation summarizes all effects in their authored order.
