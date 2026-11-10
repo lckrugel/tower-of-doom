@@ -478,6 +478,7 @@ func (e *Engine) appendEnemyDefeat(events []Event) []Event {
 	e.enemyCombat.turn = e.combatTurn
 	e.CurrentEncounter.Monsters = e.CurrentEncounter.Monsters[1:]
 	if len(e.CurrentEncounter.Monsters) == 0 {
+		e.clearCombatants()
 		if e.CurrentEncounter.Boss {
 			return e.appendBossVictory(events)
 		}
@@ -502,10 +503,20 @@ func (e *Engine) appendEnemyDefeat(events []Event) []Event {
 // appendHeroDefeat ends the game, reporting the run state at death:
 // floor reached, hero level and enemies defeated so far.
 func (e *Engine) appendHeroDefeat(events []Event) []Event {
+	e.clearCombatants()
 	e.State = StateGameOver
 	events = append(events, NewHeroDefeatedWithStats(e.CurrentFloor, e.Player.Lvl, e.kills))
 	e.CurrentEncounter = Encounter{}
 	return events
+}
+
+// clearCombatants discards encounter-local effects on exit without
+// resetting the encounter clock; only startCombat begins a new clock.
+func (e *Engine) clearCombatants() {
+	e.heroCombat = newCombatantState()
+	e.enemyCombat = newCombatantState()
+	e.heroCombat.turn = e.combatTurn
+	e.enemyCombat.turn = e.combatTurn
 }
 
 // defCurveK tunes the defense mitigation curve — mitigation per hit is

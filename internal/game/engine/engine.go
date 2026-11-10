@@ -248,6 +248,7 @@ func (e *Engine) startCombat() {
 func (e *Engine) resolveSneak() []Event {
 	// 50/50 for now, no stats involved.
 	if e.rng.Intn(2) == 0 {
+		e.clearCombatants()
 		e.CurrentEncounter = Encounter{}
 		e.State = StateExploring
 		return []Event{NewSneakSuccess()}
@@ -458,6 +459,7 @@ func (e *Engine) clearShrine() {
 func (e *Engine) resolveFlee() []Event {
 	chance := fleeChance(e.heroStat(entities.StatSPD), e.enemyStat(entities.StatSPD))
 	if e.rng.Intn(100) < chance {
+		e.clearCombatants()
 		boss := e.CurrentEncounter.Boss
 		e.CurrentEncounter = Encounter{}
 		e.State = StateExploring

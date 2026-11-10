@@ -781,6 +781,9 @@ func TestFlee(t *testing.T) {
 		if e.combatTurn != 0 || !e.Player.IsAlive() {
 			t.Fatal("successful flee ran a pending DoT or consumed combat time")
 		}
+		if len(e.heroCombat.statuses) != 0 {
+			t.Fatal("successful flee retained encounter-scoped statuses")
+		}
 		if e.State != StateExploring {
 			t.Errorf("state after fleeing = %v, want StateExploring", e.State)
 		}

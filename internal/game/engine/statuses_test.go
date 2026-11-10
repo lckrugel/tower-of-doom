@@ -580,7 +580,7 @@ func TestDoTKillAdvancesExistingCooldowns(t *testing.T) {
 	monster := entities.NewMonsterFromAsset(game.MonsterAsset{
 		ID: "fleabane", Name: "Fleabane", Difficulty: 1, HP: 7, Damage: 0, Speed: 5,
 	})
-	startEncounter(e, monster)
+	startEncounter(e, monster, monsterFromFixture("orc"))
 	e.Process(Command{Type: CmdFight})
 	e.Process(Command{Type: CmdMove, Index: combatMoveIndex(e, "sure_poison")}) // poison; tick leaves the monster at 3 HP
 	if hp := e.CurrentEncounter.Monsters[0].CurrentHP; hp != 3 {
@@ -706,7 +706,7 @@ func TestStatModStatuses(t *testing.T) {
 // combat starts both sides clean.
 func TestStatusesResetPerEncounter(t *testing.T) {
 	// Round 1: the spitter chips and poisons the hero. Round 2: the hero
-	// kills it (the round ends early — the poison stays on the hero).
+	// kills it. The final turn still ticks poison before encounter cleanup.
 	e := statusesEngine(1, 50, 0, 0, 1, 50, 1, 50, 0)
 	heroWithDamage(e, 30)
 	startEncounter(e, spitterWithPoison(1))
@@ -714,8 +714,8 @@ func TestStatusesResetPerEncounter(t *testing.T) {
 	e.Process(Command{Type: CmdMove, Index: 0}) // hero poisoned (tick → 2)
 	e.Process(Command{Type: CmdMove, Index: 0}) // spitter killed → victory
 
-	if got := len(e.heroCombat.statuses); got != 1 {
-		t.Fatalf("hero statuses after the fight = %d, want 1 (poison)", got)
+	if got := len(e.heroCombat.statuses); got != 0 {
+		t.Fatalf("hero statuses after the encounter = %d, want cleared", got)
 	}
 
 	// A new combat resets everything.
