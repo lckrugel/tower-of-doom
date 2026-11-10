@@ -7,10 +7,10 @@ import "github.com/lckrugel/tower-of-doom/internal/game"
 // caps against it — and is re-exported here as the runtime-facing name.
 const MaxMoves = game.MaxMoves
 
-// MaxLearnedMoves is how many moves a hero may have LEARNED (shrine
-// learning). Weapon-granted moves sit on top of the learned ones, and
-// the union is capped by MaxMoves.
-const MaxLearnedMoves = 2
+// MaxLearnedMoves is how many cooldown moves a hero may learn at shrines.
+// The weapon/Unarmed basic action sits before them; together they fit
+// within MaxMoves.
+const MaxLearnedMoves = 3
 
 // MoveTarget says who receives a move's status effect.
 type MoveTarget string
@@ -67,6 +67,8 @@ type Move struct {
 	// always come from validated assets, so the zero value only ever
 	// appears in hand-built values.
 	Type MoveType
+	// Learnable indicates whether this move may be learned by a hero.
+	Learnable bool
 	// Tier places the move on the progression ladder (1 = earliest).
 	Tier int
 	// Cooldown is how many rounds the move stays locked after use
@@ -120,12 +122,13 @@ func (m Move) TargetSelf() bool {
 // are copied through as-is, never remapped.
 func NewMoveFromAsset(asset game.MoveAsset) Move {
 	m := Move{
-		ID:       asset.ID,
-		Name:     asset.Name,
-		Type:     MoveType(asset.Type),
-		Tier:     max(1, asset.Tier),
-		Cooldown: asset.Cooldown,
-		Weight:   asset.Weight,
+		ID:        asset.ID,
+		Name:      asset.Name,
+		Type:      MoveType(asset.Type),
+		Learnable: asset.Learnable,
+		Tier:      max(1, asset.Tier),
+		Cooldown:  asset.Cooldown,
+		Weight:    asset.Weight,
 	}
 	for _, effect := range asset.Effects {
 		e := MoveEffect{Type: effect.Type, Target: MoveTarget(effect.Target)}
@@ -209,18 +212,16 @@ func NewStatusFromAsset(asset game.StatusAsset) Status {
 	return s
 }
 
-// MoveSource says where a hero's effective move comes from — the
-// learned set (shrine teaching) or the equipped weapon's grants. The
-// learned-vs-weapon split is the UI's "2+2" view of the move set.
+// MoveSource says where a hero's effective move comes from — the learned
+// set (shrine teaching) or the weapon/basic-action slot. Virtual Unarmed
+// Punch uses SourceWeapon because it occupies that same slot.
 type MoveSource int
 
 const (
-	// SourceLearned marks a move learned via LearnMove (a shrine's
-	// teaching). A move known through BOTH channels reports as learned —
-	// the learned copy wins the dedup.
+	// SourceLearned marks a move learned via LearnMove (a shrine's teaching).
 	SourceLearned MoveSource = iota
-	// SourceWeapon marks a move granted by the equipped weapon (it
-	// leaves the set when the weapon is unworn).
+	// SourceWeapon marks an equipped weapon grant or the engine's virtual
+	// Unarmed basic action.
 	SourceWeapon
 )
 
@@ -287,7 +288,7 @@ func Punch() Move {
 	return Move{
 		ID:       "punch",
 		Name:     "Punch",
-		Type:     MoveTypeCreature,
+		Type:     MoveTypeBoth,
 		Tier:     1,
 		Cooldown: 0,
 		Weight:   50,

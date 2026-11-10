@@ -59,7 +59,7 @@ type Hero struct {
 	// learnedMoves holds the hero's LEARNED moves (shrine learning) in
 	// learning order, capped at MaxLearnedMoves. Weapon-granted moves are
 	// NOT stored here — they ride the equipped weapon (EffectiveMoves).
-	// A fresh hero starts with the Punch pre-learned in slot 1.
+	// A fresh hero starts without learned moves.
 	learnedMoves []Move
 	// consumables holds expendable ids in acquisition order. It has a
 	// shared cap independent of the equipment bag.
@@ -77,13 +77,6 @@ func NewPlayer(starterItems ...*Item) *Hero {
 		BaseSPD:   baseSpd,
 		BaseDEF:   baseDef,
 	}
-	// The punch start: every hero is born knowing how to throw a fist.
-	// It is PRE-LEARNED into learned slot 1 of MaxLearnedMoves (2) — the
-	// opening set is Punch (◆) + the starter weapon's explicit grants,
-	// and a late shrine may replace it through the forget flow like any
-	// other learned move. No rng, no registry: the move is canonical.
-	hero.learnedMoves = append(hero.learnedMoves, Punch())
-
 	for _, i := range starterItems {
 		hero.EquipItem(i)
 	}
@@ -403,7 +396,7 @@ func (h *Hero) LearnedMoves() []Move {
 // on its own; the two-value shape keeps call sites uniform and leaves
 // room for a replace-style variant.
 func (h *Hero) LearnMove(m Move) (forgotten *Move, learned bool) {
-	if len(h.learnedMoves) >= MaxLearnedMoves || h.knowsMove(m.ID) {
+	if !m.Learnable || !m.UsableByCreatures() || m.Cooldown <= 0 || len(h.learnedMoves) >= MaxLearnedMoves || h.knowsMove(m.ID) {
 		return nil, false
 	}
 	h.learnedMoves = append(h.learnedMoves, m)
@@ -432,8 +425,8 @@ func (h *Hero) knowsMove(moveID string) bool {
 	return false
 }
 
-// EffectiveMoves returns the hero's combat move set: the LEARNED moves
-// first (learning order), then the equipped weapon's granted moves —
+// EffectiveMoves returns the hero's combat move set: weapon grants first,
+// then the LEARNED moves in learning order —
 // deduplicated by id (the learned copy wins) and capped at MaxMoves,
 // dropping weapon moves beyond the cap. It can therefore never exceed
 // MaxMoves entries.
@@ -453,23 +446,14 @@ func (h *Hero) EffectiveMoves(weapon *Item) []Move {
 }
 
 // EffectiveMovesWithSource is EffectiveMoves with an origin tag per
-// move — same order (learned first, weapon after), same dedup (the
-// learned copy wins, reported as SourceLearned) and same MaxMoves cap
+// move — same order (weapon first, learned after), same dedup (the
+// weapon copy wins) and same MaxMoves cap
 // (weapon moves beyond it drop). SourceWeapon entries leave the set
 // when the weapon is unworn; SourceLearned ones persist until
 // forgotten. The returned slice is a copy.
 func (h *Hero) EffectiveMovesWithSource(weapon *Item) []SourcedMove {
 	sourced := make([]SourcedMove, 0, MaxMoves)
 	seen := make(map[string]bool, MaxMoves)
-	for _, m := range h.learnedMoves {
-		if len(sourced) >= MaxMoves {
-			break
-		}
-		if !seen[m.ID] {
-			seen[m.ID] = true
-			sourced = append(sourced, SourcedMove{Move: m, Source: SourceLearned})
-		}
-	}
 	if weapon != nil {
 		for _, m := range weapon.GrantedMoves() {
 			if len(sourced) >= MaxMoves {
@@ -479,6 +463,15 @@ func (h *Hero) EffectiveMovesWithSource(weapon *Item) []SourcedMove {
 				seen[m.ID] = true
 				sourced = append(sourced, SourcedMove{Move: m, Source: SourceWeapon})
 			}
+		}
+	}
+	for _, m := range h.learnedMoves {
+		if len(sourced) >= MaxMoves {
+			break
+		}
+		if !seen[m.ID] {
+			seen[m.ID] = true
+			sourced = append(sourced, SourcedMove{Move: m, Source: SourceLearned})
 		}
 	}
 	return sourced

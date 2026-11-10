@@ -33,7 +33,7 @@ func newTestWeapon(granted ...Move) *Item {
 func TestNewMoveFromAsset(t *testing.T) {
 	m := NewMoveFromAsset(game.MoveAsset{
 		ID: "venom_bite", Name: "Venom Bite", Tier: 1,
-		Cooldown: 2, Weight: 60, Type: "creature",
+		Cooldown: 2, Weight: 60, Type: "creature", Learnable: true,
 		Effects: []game.MoveEffectAsset{
 			{Type: "damage", Target: "enemy", DmgModifier: intPtr(80), CritBonus: intPtr(5)},
 			moveStatus("poison", "enemy", 60),
@@ -44,7 +44,7 @@ func TestNewMoveFromAsset(t *testing.T) {
 		len(m.Effects) != 2 || m.Effects[0].DmgModifier != 80 || m.Effects[0].CritBonus != 5 || m.Cooldown != 2 || m.Weight != 60 {
 		t.Errorf("move mapping wrong: %+v", m)
 	}
-	if m.Type != MoveTypeCreature {
+	if m.Type != MoveTypeCreature || !m.Learnable {
 		t.Errorf("Type = %q, want %q", m.Type, MoveTypeCreature)
 	}
 	if !m.HasStatus() {
@@ -217,11 +217,11 @@ func TestPunch(t *testing.T) {
 		punch.Cooldown != 0 || punch.Weight != 50 {
 		t.Errorf("canonical punch drifted: %+v", punch)
 	}
-	if punch.Type != MoveTypeCreature {
-		t.Errorf("punch type = %q, want %q (a fist is no weapon grant)", punch.Type, MoveTypeCreature)
+	if punch.Type != MoveTypeBoth {
+		t.Errorf("punch type = %q, want %q (virtual unarmed action is weapon-compatible)", punch.Type, MoveTypeBoth)
 	}
-	if punch.UsableByWeapons() {
-		t.Error("the punch is weapon-grantable, want creature-only")
+	if !punch.UsableByWeapons() {
+		t.Error("the punch is not weapon-compatible")
 	}
 	if !punch.UsableByCreatures() {
 		t.Error("the punch is not usable by creatures, want true (shrine-correct)")
