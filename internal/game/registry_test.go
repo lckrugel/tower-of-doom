@@ -693,7 +693,7 @@ func validMoves() []MoveAsset {
 		s := MoveEffectAsset{Type: "status", Target: target, Status: &MoveStatusEffectAsset{ID: id, Chance: chance}}
 		return []MoveEffectAsset{e, s}
 	}
-	return []MoveAsset{
+	moves := []MoveAsset{
 		{ID: "basic_attack", Name: "Basic Attack", Tier: 1, Effects: damage(100, nil), Weight: 100, Type: "both"},
 		{ID: "quick_stab", Name: "Quick Stab", Tier: 1, Effects: damage(60, ptr(20)), Weight: 100, Type: "both"},
 		{ID: "guard_strike", Name: "Guard Strike", Tier: 1, Effects: status(75, "guard", "self", 100), Cooldown: 2, Weight: 50, Type: "both"},
@@ -707,6 +707,11 @@ func validMoves() []MoveAsset {
 			{Type: "status", Target: "self", Status: &MoveStatusEffectAsset{ID: "open_guard", Chance: 100}},
 		}, Cooldown: 3, Weight: 25, Type: "creature"},
 	}
+	learnable := map[string]bool{"guard_strike": true, "heavy_slash": true, "crushing_blow": true, "frost_touch": true, "brand_of_the_breach": true}
+	for i := range moves {
+		moves[i].Learnable = learnable[moves[i].ID]
+	}
+	return moves
 }
 
 // validStatuses is the four starter statuses.
@@ -764,12 +769,12 @@ func TestMovesForTiers(t *testing.T) {
 		want  []string
 	}{
 		{"nil tiers is unrestricted (minus weapon-only moves)", nil,
-			[]string{"basic_attack", "brand_of_the_breach", "crushing_blow", "frost_touch", "guard_strike", "heavy_slash", "quick_stab", "venom_bite"}},
+			[]string{"brand_of_the_breach", "crushing_blow", "frost_touch", "guard_strike", "heavy_slash"}},
 		{"empty tiers is unrestricted", []int{},
-			[]string{"basic_attack", "brand_of_the_breach", "crushing_blow", "frost_touch", "guard_strike", "heavy_slash", "quick_stab", "venom_bite"}},
-		{"single tier", []int{1}, []string{"basic_attack", "guard_strike", "quick_stab", "venom_bite"}},
+			[]string{"brand_of_the_breach", "crushing_blow", "frost_touch", "guard_strike", "heavy_slash"}},
+		{"single tier", []int{1}, []string{"guard_strike"}},
 		{"union of tiers, sorted", []int{3, 1},
-			[]string{"basic_attack", "brand_of_the_breach", "frost_touch", "guard_strike", "quick_stab", "venom_bite"}},
+			[]string{"brand_of_the_breach", "frost_touch", "guard_strike"}},
 		{"tier 3 creature moves are shrine-available", []int{3}, []string{"brand_of_the_breach", "frost_touch"}},
 		{"unmatched tier is an empty pool", []int{9}, []string{}},
 	}
@@ -1358,7 +1363,7 @@ func TestValidateCombat2Content(t *testing.T) {
 				r.Items["sword"] = ItemAsset{ID: "sword", Name: "Sword", Slot: "weapon", Tier: 1,
 					Moves: []string{"basic_attack", "quick_stab", "heavy_slash"}}
 			},
-			"at most 2",
+			"exactly one",
 		},
 		{
 			"non-weapon slot carrying moves",
@@ -1377,7 +1382,7 @@ func TestValidateCombat2Content(t *testing.T) {
 				r.Items["sword"] = ItemAsset{ID: "sword", Name: "Sword", Slot: "weapon", Tier: 1,
 					Moves: []string{"heavy_slash"}}
 			},
-			"spammable",
+			"cooldown 0",
 		},
 		{
 			"weapon whose every move is on cooldown",
@@ -1385,7 +1390,7 @@ func TestValidateCombat2Content(t *testing.T) {
 				r.Items["sword"] = ItemAsset{ID: "sword", Name: "Sword", Slot: "weapon", Tier: 1,
 					Moves: []string{"heavy_slash", "crushing_blow"}}
 			},
-			"spammable",
+			"exactly one",
 		},
 		{
 			"weapon with a lone spammable",
@@ -1403,7 +1408,7 @@ func TestValidateCombat2Content(t *testing.T) {
 			func(r *Registry) {
 				r.Items["sword"] = ItemAsset{ID: "sword", Name: "Sword", Slot: "weapon", Tier: 1}
 			},
-			"grants no moves",
+			"exactly one",
 		},
 		{
 			"weapon with an empty moves list",
@@ -1411,7 +1416,7 @@ func TestValidateCombat2Content(t *testing.T) {
 				r.Items["sword"] = ItemAsset{ID: "sword", Name: "Sword", Slot: "weapon", Tier: 1,
 					Moves: []string{}}
 			},
-			"grants no moves",
+			"exactly one",
 		},
 		// Section move_tiers.
 		{
@@ -1422,7 +1427,7 @@ func TestValidateCombat2Content(t *testing.T) {
 		{
 			"move_tiers referencing an empty tier (typo)",
 			func(r *Registry) { r.Sections[0].MoveTiers = []int{1, 9} },
-			"no moves of that tier",
+			"no learnable moves of that tier",
 		},
 		// Legal content.
 		{
@@ -1438,7 +1443,7 @@ func TestValidateCombat2Content(t *testing.T) {
 			"weapon with valid granted moves",
 			func(r *Registry) {
 				r.Items["sword"] = ItemAsset{ID: "sword", Name: "Sword", Slot: "weapon", Tier: 1,
-					Moves: []string{"heavy_slash", "quick_stab"}}
+					Moves: []string{"quick_stab"}}
 			},
 			"",
 		},
@@ -1466,6 +1471,46 @@ func TestValidateCombat2Content(t *testing.T) {
 			}
 			if !strings.Contains(err.Error(), tt.wantErr) {
 				t.Errorf("error = %v, want it to contain %q", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestMaxWeaponMoves(t *testing.T) {
+	if MaxWeaponMoves != 1 {
+		t.Fatalf("MaxWeaponMoves = %d, want 1", MaxWeaponMoves)
+	}
+}
+
+func TestValidateAuthoredPunch(t *testing.T) {
+	base := func() *Registry {
+		r := combat2Reg()
+		punch := r.Moves["quick_stab"]
+		punch.ID, punch.Name, punch.Type = "punch", "Punch", "both"
+		punch.Cooldown, punch.Learnable = 0, false
+		r.Moves["punch"] = punch
+		return r
+	}
+	if err := base().Validate(10); err != nil {
+		t.Fatalf("valid authored punch: %v", err)
+	}
+	for _, tt := range []struct {
+		name string
+		edit func(*MoveAsset)
+		want string
+	}{
+		{"learnable", func(m *MoveAsset) { m.Learnable = true }, "must not be learnable"},
+		{"creature-only", func(m *MoveAsset) { m.Type = "creature" }, "must be weapon-compatible"},
+		{"cooldown", func(m *MoveAsset) { m.Cooldown = 1 }, "must have cooldown 0"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			r := base()
+			punch := r.Moves["punch"]
+			tt.edit(&punch)
+			r.Moves["punch"] = punch
+			err := r.Validate(10)
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("Validate = %v, want error containing %q", err, tt.want)
 			}
 		})
 	}

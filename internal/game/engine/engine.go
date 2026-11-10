@@ -404,18 +404,24 @@ func (e *Engine) handleLearn(cmd Command) []Event {
 			// offer. Refuse safely, never panic.
 			return []Event{NewMessage("Unhandled command")}
 		}
-		forgotten := e.Player.LearnedMoves()[cmd.Index]
-		e.Player.ForgetMove(forgotten.ID)
-		// Unreachable failure: the offer was filtered to unlearned and a
-		// slot just freed. The safe fallback never strands the state.
-		if _, learned := e.Player.LearnMove(*chosen); !learned {
+		if !chosen.Learnable {
+			// Refuse a corrupt or stale offer before removing an existing
+			// move. Valid shrine pools never reach this branch.
+			e.clearShrine()
+			e.State = StateExploring
+			return []Event{NewMessage(shrineNothingNewMessage)}
+		}
+		forgotten, replaced := e.Player.ReplaceLearnedMoveAt(cmd.Index, *chosen)
+		// Validate and replace atomically so neither a stale index nor an
+		// invalid offer can shift or lose the hero's learned loadout.
+		if !replaced {
 			e.clearShrine()
 			e.State = StateExploring
 			return []Event{NewMessage(shrineNothingNewMessage)}
 		}
 		e.clearShrine()
 		e.State = StateExploring
-		return []Event{NewMoveLearned(*chosen, &forgotten)}
+		return []Event{NewMoveLearned(*chosen, forgotten)}
 	case CmdDecline:
 		e.clearShrine()
 		e.State = StateExploring

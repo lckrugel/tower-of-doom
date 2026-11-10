@@ -7,73 +7,30 @@ import (
 	"github.com/lckrugel/tower-of-doom/internal/game"
 )
 
-// newBareHero returns a fresh hero with the pre-learned punch forgotten
-// — the "empty learned set" fixture the move-set mechanics tests below
-// assume (the punch start itself has its own test).
+// newBareHero returns a fresh hero with an empty learned set.
 func newBareHero() *Hero {
-	h := NewPlayer()
-	h.ForgetMove(Punch().ID)
-	return h
+	return NewPlayer()
+}
+
+func learnableMove(id string) Move {
+	return Move{ID: id, Learnable: true, Type: MoveTypeCreature, Cooldown: 1}
 }
 
 // learnBoth fills a hero's learned set to the cap (MaxLearnedMoves).
 func learnBoth(h *Hero) {
-	if _, ok := h.LearnMove(Move{ID: "a", Name: "A"}); !ok {
+	if _, ok := h.LearnMove(Move{ID: "a", Name: "A", Learnable: true, Type: MoveTypeCreature, Cooldown: 1}); !ok {
 		panic("test setup: learning 'a' failed")
 	}
-	if _, ok := h.LearnMove(Move{ID: "b", Name: "B"}); !ok {
+	if _, ok := h.LearnMove(Move{ID: "b", Name: "B", Learnable: true, Type: MoveTypeCreature, Cooldown: 1}); !ok {
 		panic("test setup: learning 'b' failed")
 	}
 }
 
-// NewPlayer starts with the Punch PRE-LEARNED: learned slot 1 of
-// MaxLearnedMoves — the opening set is Punch (◆) plus the starter
-// weapon's grants, and late shrines may replace the punch through the
-// forget flow like any other learned move.
-func TestNewPlayerStartsWithThePunch(t *testing.T) {
-	t.Run("a fresh hero's learned set is exactly [Punch]", func(t *testing.T) {
-		got := NewPlayer().LearnedMoves()
-
-		if len(got) != 1 || got[0].ID != Punch().ID || got[0].Name != "Punch" {
-			t.Errorf("fresh learned set = %+v, want [Punch]", got)
-		}
-	})
-
-	t.Run("the punch eats one of the two learned slots", func(t *testing.T) {
-		h := NewPlayer()
-
-		if _, learned := h.LearnMove(Move{ID: "guard_strike"}); !learned {
-			t.Fatal("learning one more move under the cap failed")
-		}
-		if _, learned := h.LearnMove(Move{ID: "power_slash"}); learned {
-			t.Error("learned a third move — the punch already ate one slot")
-		}
-		got := h.LearnedMoves()
-		if len(got) != 2 || got[0].ID != Punch().ID || got[1].ID != "guard_strike" {
-			t.Errorf("learned set = %+v, want [Punch guard_strike]", got)
-		}
-	})
-
-	t.Run("the punch rides the learned set first, weapon grants after", func(t *testing.T) {
-		h := NewPlayer()
-
-		got := h.EffectiveMoves(newTestWeapon(Move{ID: "basic_attack", Name: "Basic Strike"}))
-
-		if len(got) != 2 || got[0].ID != Punch().ID || got[1].ID != "basic_attack" {
-			t.Errorf("effective set = %+v, want [Punch basic_attack]", got)
-		}
-	})
-
-	t.Run("the punch is forgettable — late shrines can replace it", func(t *testing.T) {
-		h := NewPlayer()
-
-		if !h.ForgetMove(Punch().ID) {
-			t.Fatal("ForgetMove(punch) = false, want true")
-		}
-		if got := h.LearnedMoves(); len(got) != 0 {
-			t.Errorf("learned set after forgetting the punch = %+v, want empty", got)
-		}
-	})
+// NewPlayer starts with no learned moves; basic actions are composed by the engine.
+func TestNewPlayerStartsWithNoLearnedMoves(t *testing.T) {
+	if got := NewPlayer().LearnedMoves(); len(got) != 0 {
+		t.Fatalf("fresh learned moves = %+v, want empty", got)
+	}
 }
 
 // LearnMove appends under the cap, in learning order.
@@ -81,11 +38,11 @@ func TestHeroLearnMove(t *testing.T) {
 	t.Run("learns under the cap, in learning order", func(t *testing.T) {
 		h := newBareHero()
 
-		forgotten, learned := h.LearnMove(Move{ID: "a", Name: "A"})
+		forgotten, learned := h.LearnMove(Move{ID: "a", Name: "A", Learnable: true, Type: MoveTypeCreature, Cooldown: 1})
 		if !learned || forgotten != nil {
 			t.Errorf("LearnMove(a) = (%v, %v), want (nil, true)", forgotten, learned)
 		}
-		if _, learned := h.LearnMove(Move{ID: "b", Name: "B"}); !learned {
+		if _, learned := h.LearnMove(Move{ID: "b", Name: "B", Learnable: true, Type: MoveTypeCreature, Cooldown: 1}); !learned {
 			t.Error("LearnMove(b) refused under the cap")
 		}
 
@@ -98,22 +55,35 @@ func TestHeroLearnMove(t *testing.T) {
 	t.Run("refuses at the cap — forgetting is the caller's decision", func(t *testing.T) {
 		h := newBareHero()
 		learnBoth(h)
+		h.LearnMove(Move{ID: "c", Learnable: true, Type: MoveTypeCreature, Cooldown: 1})
 
-		forgotten, learned := h.LearnMove(Move{ID: "c"})
+		forgotten, learned := h.LearnMove(Move{ID: "d", Learnable: true, Type: MoveTypeCreature, Cooldown: 1})
 		if learned || forgotten != nil {
 			t.Errorf("LearnMove at cap = (%v, %v), want (nil, false)", forgotten, learned)
 		}
 		got := h.LearnedMoves()
-		if len(got) != 2 || got[0].ID != "a" || got[1].ID != "b" {
+		if len(got) != 3 || got[0].ID != "a" || got[1].ID != "b" || got[2].ID != "c" {
 			t.Errorf("learned set changed at cap: %+v", got)
+		}
+	})
+
+	t.Run("rejects ineligible moves without changing learned state", func(t *testing.T) {
+		h := newBareHero()
+		h.LearnMove(learnableMove("a"))
+		before := h.LearnedMoves()
+		if _, learned := h.LearnMove(Move{ID: "forbidden"}); learned {
+			t.Fatal("learned a non-learnable move")
+		}
+		if !reflect.DeepEqual(h.LearnedMoves(), before) {
+			t.Fatalf("ineligible move changed set: %+v", h.LearnedMoves())
 		}
 	})
 
 	t.Run("refuses an already-known move id", func(t *testing.T) {
 		h := newBareHero()
-		h.LearnMove(Move{ID: "a", Name: "A"})
+		h.LearnMove(Move{ID: "a", Name: "A", Learnable: true, Type: MoveTypeCreature, Cooldown: 1})
 
-		if _, learned := h.LearnMove(Move{ID: "a", Name: "A Again"}); learned {
+		if _, learned := h.LearnMove(Move{ID: "a", Name: "A Again", Learnable: true, Type: MoveTypeCreature, Cooldown: 1}); learned {
 			t.Error("LearnMove re-learned a known id")
 		}
 		got := h.LearnedMoves()
@@ -129,7 +99,7 @@ func TestHeroLearnMove(t *testing.T) {
 		if !h.ForgetMove("a") {
 			t.Fatal("ForgetMove(a) = false, want true")
 		}
-		if _, learned := h.LearnMove(Move{ID: "c"}); !learned {
+		if _, learned := h.LearnMove(Move{ID: "c", Learnable: true, Type: MoveTypeCreature, Cooldown: 1}); !learned {
 			t.Error("LearnMove(c) refused with room freed by ForgetMove")
 		}
 		got := h.LearnedMoves()
@@ -144,8 +114,8 @@ func TestHeroLearnMove(t *testing.T) {
 func TestHeroForgetMove(t *testing.T) {
 	t.Run("removes the named move, keeping order", func(t *testing.T) {
 		h := newBareHero()
-		h.LearnMove(Move{ID: "a"})
-		h.LearnMove(Move{ID: "b"})
+		h.LearnMove(Move{ID: "a", Learnable: true, Type: MoveTypeCreature, Cooldown: 1})
+		h.LearnMove(Move{ID: "b", Learnable: true, Type: MoveTypeCreature, Cooldown: 1})
 
 		if !h.ForgetMove("a") {
 			t.Error("ForgetMove(a) = false, want true")
@@ -158,7 +128,7 @@ func TestHeroForgetMove(t *testing.T) {
 
 	t.Run("unknown id is a no-op", func(t *testing.T) {
 		h := newBareHero()
-		h.LearnMove(Move{ID: "a"})
+		h.LearnMove(Move{ID: "a", Learnable: true, Type: MoveTypeCreature, Cooldown: 1})
 
 		if h.ForgetMove("nope") {
 			t.Error("ForgetMove(unknown) = true, want false")
@@ -169,24 +139,66 @@ func TestHeroForgetMove(t *testing.T) {
 	})
 }
 
+func TestHeroReplaceLearnedMoveAtPreservesSlots(t *testing.T) {
+	h := newBareHero()
+	for _, id := range []string{"a", "b", "c"} {
+		h.LearnMove(Move{ID: id, Learnable: true, Type: MoveTypeCreature, Cooldown: 1})
+	}
+
+	forgotten, ok := h.ReplaceLearnedMoveAt(1, Move{ID: "replacement", Learnable: true, Type: MoveTypeCreature, Cooldown: 1})
+	if !ok || forgotten == nil || forgotten.ID != "b" {
+		t.Fatalf("ReplaceLearnedMoveAt = (%+v, %v), want forgotten b and success", forgotten, ok)
+	}
+	got := h.LearnedMoves()
+	if len(got) != 3 || got[0].ID != "a" || got[1].ID != "replacement" || got[2].ID != "c" {
+		t.Errorf("learned slots = %+v, want [a replacement c]", got)
+	}
+}
+
+func TestHeroReplaceLearnedMoveAtInvalidReplacementIsAtomic(t *testing.T) {
+	h := newBareHero()
+	h.LearnMove(Move{ID: "a", Learnable: true, Type: MoveTypeCreature, Cooldown: 1})
+	h.LearnMove(Move{ID: "b", Learnable: true, Type: MoveTypeCreature, Cooldown: 1})
+	before := h.LearnedMoves()
+
+	for _, tc := range []struct {
+		name  string
+		index int
+		move  Move
+	}{
+		{"bad index", 2, Move{ID: "c", Learnable: true, Type: MoveTypeCreature, Cooldown: 1}},
+		{"non-learnable", 0, Move{ID: "c", Type: MoveTypeCreature, Cooldown: 1}},
+		{"duplicate", 0, Move{ID: "b", Learnable: true, Type: MoveTypeCreature, Cooldown: 1}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, ok := h.ReplaceLearnedMoveAt(tc.index, tc.move); ok {
+				t.Fatal("invalid replacement succeeded")
+			}
+			if !reflect.DeepEqual(h.LearnedMoves(), before) {
+				t.Fatalf("invalid replacement mutated slots: %+v", h.LearnedMoves())
+			}
+		})
+	}
+}
+
 // EffectiveMoves composes the combat move set: learned first (learning
 // order), then weapon-granted; deduplicated by id (the learned copy
 // wins) and capped at MaxMoves, dropping weapon moves beyond the cap.
 func TestHeroEffectiveMoves(t *testing.T) {
-	a := Move{ID: "a", Name: "A"}
-	b := Move{ID: "b", Name: "B"}
+	a := Move{ID: "a", Name: "A", Learnable: true, Type: MoveTypeCreature, Cooldown: 1}
+	b := Move{ID: "b", Name: "B", Learnable: true, Type: MoveTypeCreature, Cooldown: 1}
 	w1 := Move{ID: "w1", Name: "W1"}
 	w2 := Move{ID: "w2", Name: "W2"}
 
-	t.Run("learned first, then weapon moves", func(t *testing.T) {
+	t.Run("weapon moves first, then learned", func(t *testing.T) {
 		h := newBareHero()
 		h.LearnMove(a)
 		h.LearnMove(b)
 
 		got := h.EffectiveMoves(newTestWeapon(w1, w2))
 
-		if len(got) != 4 || got[0].ID != "a" || got[1].ID != "b" || got[2].ID != "w1" || got[3].ID != "w2" {
-			t.Errorf("EffectiveMoves = %+v, want [a b w1 w2]", got)
+		if len(got) != 4 || got[0].ID != "w1" || got[1].ID != "w2" || got[2].ID != "a" || got[3].ID != "b" {
+			t.Errorf("EffectiveMoves = %+v, want [w1 w2 a b]", got)
 		}
 	})
 
@@ -211,14 +223,14 @@ func TestHeroEffectiveMoves(t *testing.T) {
 		}
 	})
 
-	t.Run("deduplicates by id, learned copy wins", func(t *testing.T) {
+	t.Run("deduplicates by id, weapon copy wins", func(t *testing.T) {
 		h := newBareHero()
 		h.LearnMove(a)
 
 		got := h.EffectiveMoves(newTestWeapon(Move{ID: "a", Name: "Weapon A"}, w1))
 
-		if len(got) != 2 || got[0].ID != "a" || got[0].Name != "A" || got[1].ID != "w1" {
-			t.Errorf("EffectiveMoves = %+v, want [a(A) w1] — learned copy wins the dedup", got)
+		if len(got) != 2 || got[0].ID != "a" || got[0].Name != "Weapon A" || got[1].ID != "w1" {
+			t.Errorf("EffectiveMoves = %+v, want [a(Weapon A) w1] — weapon copy wins the dedup", got)
 		}
 	})
 
@@ -231,7 +243,7 @@ func TestHeroEffectiveMoves(t *testing.T) {
 		if len(got) != MaxMoves {
 			t.Fatalf("EffectiveMoves length = %d, want %d", len(got), MaxMoves)
 		}
-		for i, want := range []string{"a", "b", "w1", "w2"} {
+		for i, want := range []string{"w1", "w2", "w3", "a"} {
 			if got[i].ID != want {
 				t.Errorf("EffectiveMoves[%d] = %q, want %q (w3 dropped beyond the cap)", i, got[i].ID, want)
 			}
@@ -243,7 +255,7 @@ func TestHeroEffectiveMoves(t *testing.T) {
 		// slice deliberately to exercise EffectiveMoves' independent total cap.
 		h := newBareHero()
 		learnBoth(h)
-		h.learnedMoves = append(h.learnedMoves, Move{ID: "c"}, Move{ID: "d"})
+		h.learnedMoves = append(h.learnedMoves, Move{ID: "c", Learnable: true, Type: MoveTypeCreature, Cooldown: 1}, Move{ID: "d"})
 
 		got := h.EffectiveMoves(nil)
 
@@ -308,12 +320,12 @@ func TestItemGrantedMoves(t *testing.T) {
 // from — the learned set first, then the weapon's grants, the SAME order
 // and dedup as EffectiveMoves.
 func TestHeroEffectiveMovesWithSource(t *testing.T) {
-	a := Move{ID: "a", Name: "A"}
-	b := Move{ID: "b", Name: "B"}
+	a := Move{ID: "a", Name: "A", Learnable: true, Type: MoveTypeCreature, Cooldown: 1}
+	b := Move{ID: "b", Name: "B", Learnable: true, Type: MoveTypeCreature, Cooldown: 1}
 	w1 := Move{ID: "w1", Name: "W1"}
 	w2 := Move{ID: "w2", Name: "W2"}
 
-	t.Run("learned moves first, weapon moves after", func(t *testing.T) {
+	t.Run("weapon moves first, learned moves after", func(t *testing.T) {
 		h := newBareHero()
 		h.LearnMove(a)
 		h.LearnMove(b)
@@ -323,8 +335,8 @@ func TestHeroEffectiveMovesWithSource(t *testing.T) {
 		if len(got) != 4 {
 			t.Fatalf("EffectiveMovesWithSource = %+v, want 4 entries", got)
 		}
-		wantSources := []MoveSource{SourceLearned, SourceLearned, SourceWeapon, SourceWeapon}
-		for i, want := range []string{"a", "b", "w1", "w2"} {
+		wantSources := []MoveSource{SourceWeapon, SourceWeapon, SourceLearned, SourceLearned}
+		for i, want := range []string{"w1", "w2", "a", "b"} {
 			if got[i].Move.ID != want || got[i].Source != wantSources[i] {
 				t.Errorf("entry %d = {%q %v}, want {%q %v}", i,
 					got[i].Move.ID, got[i].Source, want, wantSources[i])
@@ -341,11 +353,11 @@ func TestHeroEffectiveMovesWithSource(t *testing.T) {
 		if len(got) != 2 {
 			t.Fatalf("EffectiveMovesWithSource = %+v, want 2 entries (dedup by id)", got)
 		}
-		if got[0].Move.ID != "a" || got[0].Source != SourceLearned {
-			t.Errorf("entry 0 = {%q %v}, want {a LEARNED} — the learned copy wins the dedup",
+		if got[0].Move.ID != "a" || got[0].Source != SourceWeapon {
+			t.Errorf("entry 0 = {%q %v}, want {a WEAPON} — weapon copy wins the dedup",
 				got[0].Move.ID, got[0].Source)
 		}
-		if got[0].Move.Name != "A" {
+		if got[0].Move.Name != "Weapon A" {
 			t.Errorf("dedup kept the weapon copy's name %q, want the learned %q", got[0].Move.Name, "A")
 		}
 	})
@@ -373,7 +385,7 @@ func TestHeroEffectiveMovesWithSource(t *testing.T) {
 		for i, want := range []struct {
 			id  string
 			src MoveSource
-		}{{"a", SourceLearned}, {"b", SourceLearned}, {"w1", SourceWeapon}, {"w2", SourceWeapon}} {
+		}{{"w1", SourceWeapon}, {"w2", SourceWeapon}, {"w3", SourceWeapon}, {"a", SourceLearned}} {
 			if got[i].Move.ID != want.id || got[i].Source != want.src {
 				t.Errorf("entry %d = {%q %v}, want {%q %v} (w3 dropped beyond the cap)",
 					i, got[i].Move.ID, got[i].Source, want.id, want.src)

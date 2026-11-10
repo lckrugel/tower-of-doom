@@ -745,18 +745,19 @@ func TestViewBossCombatShowsTheBossBadge(t *testing.T) {
 // and a status carrier (the dossier's tag variety).
 func shrineOffers() []entities.Move {
 	return []entities.Move{
-		{ID: "power_slash", Name: "Power Slash", Tier: 2, Effects: []entities.MoveEffect{{Type: "damage", Target: entities.TargetEnemy, DmgModifier: 175}}, Weight: 10},
-		{ID: "venom_shot", Name: "Venom Shot", Tier: 1, Effects: []entities.MoveEffect{{Type: "damage", Target: entities.TargetEnemy, DmgModifier: 75}, {Type: "status", Target: entities.TargetEnemy, Status: entities.MoveStatus{ID: "poison", Chance: 60}}}, Weight: 10},
+		{ID: "power_slash", Name: "Power Slash", Type: entities.MoveTypeCreature, Learnable: true, Tier: 2, Cooldown: 2, Effects: []entities.MoveEffect{{Type: "damage", Target: entities.TargetEnemy, DmgModifier: 175}}, Weight: 10},
+		{ID: "venom_shot", Name: "Venom Shot", Type: entities.MoveTypeCreature, Learnable: true, Tier: 1, Cooldown: 1, Effects: []entities.MoveEffect{{Type: "damage", Target: entities.TargetEnemy, DmgModifier: 75}, {Type: "status", Target: entities.TargetEnemy, Status: entities.MoveStatus{ID: "poison", Chance: 60}}}, Weight: 10},
 	}
 }
 
 // shrineModel is a model in StateLearn's CHOOSING step: two offers pend
-// in PendingMoves over the hero's two learned moves — at the cap, so
+// in PendingMoves over the hero's three learned moves — at the cap, so
 // choosing opens the forgetting step.
 func shrineModel() Model {
 	e := testEngine()
 	learnTestMove(e, "guard_strike", "Guard Strike", 2)
 	learnTestMove(e, "heavy_slash", "Heavy Slash", 2)
+	learnTestMove(e, "quick_stab", "Quick Stab", 1)
 	e.PendingMoves = shrineOffers()
 	e.State = engine.StateLearn
 	return New(e)
@@ -821,8 +822,8 @@ func TestShrineLearnAtTheCapOpensTheForgetStep(t *testing.T) {
 	if m.engine.ChosenMove == nil || m.engine.ChosenMove.ID != "venom_shot" {
 		t.Errorf("ChosenMove = %+v, want the selected Venom Shot", m.engine.ChosenMove)
 	}
-	if got := m.engine.Player.LearnedMoves(); len(got) != 2 {
-		t.Errorf("learned set = %+v, want untouched (2 moves)", got)
+	if got := m.engine.Player.LearnedMoves(); len(got) != 3 {
+		t.Errorf("learned set = %+v, want untouched (3 moves)", got)
 	}
 	last := stripANSI(m.log[len(m.log)-1])
 	if last != "The shrine waits — forget one of your moves to make room for it." {
@@ -847,8 +848,8 @@ func TestShrineForgetForgetsTheSelectedMove(t *testing.T) {
 		t.Error("the pending shrine state survived the forget")
 	}
 	learned := m.engine.Player.LearnedMoves()
-	if len(learned) != 2 || learned[0].ID != "guard_strike" || learned[1].ID != "power_slash" {
-		t.Errorf("learned set = %+v, want [guard_strike power_slash]", learned)
+	if len(learned) != 3 || learned[0].ID != "guard_strike" || learned[1].ID != "power_slash" || learned[2].ID != "quick_stab" {
+		t.Errorf("learned slots = %+v, want [guard_strike power_slash quick_stab]", learned)
 	}
 	last := stripANSI(m.log[len(m.log)-1])
 	if last != "You forget Heavy Slash and learn Power Slash!" {
@@ -869,7 +870,7 @@ func TestShrineDeclineKeepsBothMoves(t *testing.T) {
 		if m.engine.PendingMoves != nil {
 			t.Error("the pending offers survived the decline")
 		}
-		if got := m.engine.Player.LearnedMoves(); len(got) != 2 {
+		if got := m.engine.Player.LearnedMoves(); len(got) != 3 {
 			t.Errorf("learned set = %+v, want both moves kept", got)
 		}
 		last := stripANSI(m.log[len(m.log)-1])
@@ -888,7 +889,7 @@ func TestShrineDeclineKeepsBothMoves(t *testing.T) {
 		if m.engine.ChosenMove != nil {
 			t.Error("the recorded choice survived the decline")
 		}
-		if got := m.engine.Player.LearnedMoves(); len(got) != 2 {
+		if got := m.engine.Player.LearnedMoves(); len(got) != 3 {
 			t.Errorf("learned set = %+v, want both moves kept", got)
 		}
 	})
@@ -958,12 +959,12 @@ func TestShrineRowsWalkWithTheArrows(t *testing.T) {
 		m := shrineChosenModel()
 
 		m, _ = press(m, "right")
-		if m.bagCursor != 0 {
-			t.Fatalf("right from the last learned row = %d, want wraparound to 0", m.bagCursor)
+		if m.bagCursor != 2 {
+			t.Fatalf("right from row 1 = %d, want row 2", m.bagCursor)
 		}
 		m, _ = press(m, "left")
 		if m.bagCursor != 1 {
-			t.Fatalf("left from 0 = %d, want wraparound to 1", m.bagCursor)
+			t.Fatalf("left from row 2 = %d, want row 1", m.bagCursor)
 		}
 	})
 }
@@ -990,8 +991,8 @@ func TestShrineEnterDispatchesTheStepAction(t *testing.T) {
 		m, _ = press(m, "enter")
 
 		learned := m.engine.Player.LearnedMoves()
-		if len(learned) != 2 || learned[0].ID != "guard_strike" || learned[1].ID != "power_slash" {
-			t.Errorf("learned set = %+v, want [guard_strike power_slash] (Heavy Slash forgotten)", learned)
+		if len(learned) != 3 || learned[0].ID != "guard_strike" || learned[1].ID != "power_slash" || learned[2].ID != "quick_stab" {
+			t.Errorf("learned slots = %+v, want [guard_strike power_slash quick_stab] (Heavy Slash replaced in place)", learned)
 		}
 	})
 }

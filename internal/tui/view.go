@@ -281,7 +281,9 @@ func (m Model) lootPanel() string {
 	var b strings.Builder
 	b.WriteString(m.panelHeading("◈ CHEST LOOT") + "\n")
 	if item := m.engine.PendingLoot; item != nil {
-		b.WriteString("  " + stylePanelTitle.Render(item.Name) + itemBonusList(item) + "\n")
+		itemLine := "  " + stylePanelTitle.Render(item.Name) + itemBonusList(item)
+		wrapped := restoreANSIStyleAtLineStarts(ansi.Wrap(itemLine, m.layout().MainWidth, ""))
+		b.WriteString(wrapped + "\n")
 	} else {
 		b.WriteString(styleDim.Render("   (the chest is empty)") + "\n")
 	}
@@ -607,13 +609,17 @@ func (m Model) gridCellWidth(col int) int {
 // cell cursor (gridCursor) only ever rests on real moves, highlighted
 // like every other selection.
 func (m Model) moveGrid() string {
-	moves := m.engine.CombatMoves()
+	sourced := m.engine.CombatMovesWithSource()
+	moves := make([]entities.Move, len(sourced))
+	for i := range sourced {
+		moves[i] = sourced[i].Move
+	}
 	rows := []string{stylePanelTitle.Render("◈ MOVES")}
 	for row := range gridCols {
 		names := make([]string, 0, gridCols)
 		tags := make([]string, 0, gridCols)
 		for col := range gridCols {
-			name, tag := m.gridCell(moves, row*gridCols+col)
+			name, tag := m.gridCell(moves, sourced, row*gridCols+col)
 			names = append(names, name)
 			tags = append(tags, tag)
 		}
@@ -625,8 +631,7 @@ func (m Model) moveGrid() string {
 	return strings.Join(rows, "\n")
 }
 
-// The move source glyphs: where a hero move comes from — the 2+2 split
-// (the 2-learned cap + the weapon's grants) made visible. Both render
+// The move source glyphs: where a hero move comes from. Both render
 // single-width in the frame's glyph family (◈ ✦ ☠ ⬆ share it); ⚔ is
 // already the enemies' mark.
 const (
@@ -639,16 +644,11 @@ const (
 // a Hero method the TUI reads directly): ◆ for the learned set, ⚔ for
 // weapon grants, "" for a move outside the set (the canonical
 // basic-attack fallback is neither).
-func (m Model) moveSourceGlyph(moveID string) string {
-	for _, s := range m.engine.Player.EffectiveMovesWithSource(m.engine.Player.Weapon) {
-		if s.Move.ID == moveID {
-			if s.Source == entities.SourceWeapon {
-				return glyphWeapon
-			}
-			return glyphLearned
-		}
+func moveSourceGlyph(source entities.MoveSource) string {
+	if source == entities.SourceWeapon {
+		return glyphWeapon
 	}
-	return ""
+	return glyphLearned
 }
 
 // gridCell renders one cell's two lines (name, tags), padded to the
@@ -659,7 +659,7 @@ func (m Model) moveSourceGlyph(moveID string) string {
 // engine explains the block). The name truncates at the cell width for
 // modded assets longer than any shipped move ("Assassin's Strike",
 // 17 runes, always fits).
-func (m Model) gridCell(moves []entities.Move, i int) (name, tags string) {
+func (m Model) gridCell(moves []entities.Move, sourced []entities.SourcedMove, i int) (name, tags string) {
 	cellWidth := m.gridCellWidth(i % gridCols)
 	if i >= len(moves) {
 		return styleDim.Render(padRight("—", cellWidth)),
@@ -677,7 +677,7 @@ func (m Model) gridCell(moves []entities.Move, i int) (name, tags string) {
 		style = styleSelected
 	}
 	name = truncateRunes(name, cellWidth)
-	source := m.moveSourceGlyph(move.ID)
+	source := moveSourceGlyph(sourced[i].Source)
 	return style.Render(padRight(name, cellWidth)),
 		style.Render(padRight(truncateRunes(m.gridTags(move, cooling, source), cellWidth), cellWidth))
 }

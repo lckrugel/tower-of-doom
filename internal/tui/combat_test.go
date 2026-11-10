@@ -44,9 +44,6 @@ func combatEngine() *engine.Engine {
 			Spawns: []game.SpawnEntry{{MonsterID: "goblin", Weight: 1}},
 		}},
 	})
-	// The punch start (NewPlayer pre-learns it) would eat the learned
-	// slot every fixture below assumes — the fixture hero is bare.
-	e.Player.ForgetMove(entities.Punch().ID)
 	return e
 }
 
@@ -67,6 +64,11 @@ func jab() entities.Move {
 // learnMove teaches the hero a hand-built runtime move (the registry is
 // only consulted for status resolution at strike time).
 func learnMove(e *engine.Engine, move entities.Move) {
+	move.Learnable = true
+	move.Type = entities.MoveTypeCreature
+	if move.Cooldown <= 0 {
+		move.Cooldown = 1
+	}
 	if _, ok := e.Player.LearnMove(move); !ok {
 		panic("test fixture: could not learn " + move.ID)
 	}
@@ -151,7 +153,6 @@ func TestHealingPotionIsAnActionInCombatAndTurnFreeWhileExploring(t *testing.T) 
 				Spawns: []game.SpawnEntry{{MonsterID: "goblin", Weight: 1}},
 			}},
 		})
-		e.Player.ForgetMove(entities.Punch().ID)
 		return e
 	}
 
@@ -216,7 +217,7 @@ func TestCombatRenderingReadsLiveEngineView(t *testing.T) {
 	e := combatEngine()
 	learnMove(e, envenom(2))
 	m := enterCombat(t, e)
-	m = useMove(t, m, 0)
+	m = useMove(t, m, 1)
 	view := stripANSI(m.View())
 	for _, want := range []string{"Poison(2)", "(2 turns)", "DMG 1 · DEF 0 · SPD 10"} {
 		if !strings.Contains(view, want) {
@@ -244,8 +245,7 @@ func wildSwing() entities.Move {
 }
 
 // equipWeapon puts a weapon granting the given runtime moves on the hero
-// — the second half of a 4-move hero set (MaxLearnedMoves caps learning
-// at 2; weapon moves sit on top).
+// — weapon grants supplement the learned moves.
 func equipWeapon(e *engine.Engine, moves ...entities.Move) {
 	weapon := entities.NewItemFromAsset(game.ItemAsset{
 		ID: "fang_blade", Name: "Fang Blade", Slot: "weapon",
@@ -253,14 +253,15 @@ func equipWeapon(e *engine.Engine, moves ...entities.Move) {
 	e.Player.EquipItem(&weapon)
 }
 
-// fourMoveModel is a real combat model with a full grid: two learned
-// moves plus two weapon-granted ones.
+// fourMoveModel is a real combat model with a full grid: three learned
+// moves plus one weapon-granted move.
 func fourMoveModel(t *testing.T) Model {
 	t.Helper()
 	e := combatEngine()
 	learnMove(e, envenom(0))
 	learnMove(e, jab())
-	equipWeapon(e, stoneEdge(), wildSwing())
+	learnMove(e, heavy())
+	equipWeapon(e, stoneEdge())
 	return enterCombat(t, e)
 }
 
@@ -304,10 +305,10 @@ func TestViewCombatShowsTheMoveGrid(t *testing.T) {
 
 	for _, want := range []string{
 		"◈ MOVES",
-		"Envenom", "Jab", "Stone Edge", "Wild Swing", // effective-set order
+		"Stone Edge", "Envenom", "Jab", "Heavy Slash", // basic then learned order
 		"100%", "☠poison 100%", // envenom's tags
-		"90%", "110%", // the weapon moves' modifiers
-		"▶ Envenom", // the cursor opens on the first cell
+		"90%", "175%", // basic and learned move modifiers
+		"▶ Stone Edge", // cursor starts on the basic action
 	} {
 		if !strings.Contains(view, want) {
 			t.Errorf("combat grid missing %q:\n%s", want, view)
@@ -382,20 +383,20 @@ func TestViewGridShowsPlaceholdersForMissingMoves(t *testing.T) {
 	}
 }
 
-// The 2+2 split made visible: every grid cell trails its move's source
+// The 3+1 split made visible: every grid cell trails its move's source
 // glyph — ◆ for the learned set (shrine teaching), ⚔ for weapon
 // grants — resolved from the hero's effective set
 // (Hero.EffectiveMovesWithSource).
 func TestGridCellsTagTheMoveSource(t *testing.T) {
-	m := fourMoveModel(t) // two learned moves + two weapon-granted
+	m := fourMoveModel(t) // three learned moves + one weapon-granted
 
 	grid := stripControls(stripANSI(m.moveGrid()))
 
 	for _, want := range []string{
 		"☠poison 100% ◆", // Envenom: learned
 		"100% ◆",         // Jab: learned
+		"175% ◆",         // Heavy Slash: learned
 		"90% ⚔",          // Stone Edge: weapon-granted
-		"110% ⚔",         // Wild Swing: weapon-granted
 	} {
 		if !strings.Contains(grid, want) {
 			t.Errorf("move grid missing the source tag %q:\n%s", want, grid)
@@ -403,29 +404,25 @@ func TestGridCellsTagTheMoveSource(t *testing.T) {
 	}
 }
 
-// A hero with NO moves at all fights with the canonical basic attack —
-// the grid shows it as the single real cell. Depth-only today (the
-// punch start means a fresh hero's set is never empty); kept as the
-// combat-integration guarantee for hand-built states.
-func TestViewGridShowsTheBasicAttackFallback(t *testing.T) {
+// A weaponless hero fights with virtual Unarmed Punch as the basic action.
+func TestViewGridShowsVirtualUnarmedPunch(t *testing.T) {
 	m := enterCombat(t, combatEngine())
 
 	view := stripControls(stripANSI(m.View()))
 
-	if !strings.Contains(view, "Basic Strike") || !strings.Contains(view, "100%") {
-		t.Errorf("the basic-attack fallback is missing from the grid:\n%s", view)
+	if !strings.Contains(view, "Punch") || !strings.Contains(view, "60% ⚔") {
+		t.Errorf("virtual Unarmed Punch is missing from the grid:\n%s", view)
 	}
 	// The canonical fallback is neither learned nor weapon-granted: its
 	// cell carries no source tag.
-	if strings.Contains(view, "◆") || strings.Contains(view, "100% ⚔") {
-		t.Errorf("the basic-attack fallback grew a source tag:\n%s", view)
+	if !strings.Contains(view, "60% ⚔") {
+		t.Errorf("virtual Unarmed Punch is missing its basic-action source tag:\n%s", view)
 	}
 }
 
-// A fresh hero's combat grid IS the punch start: the pre-learned Punch
-// as a ◆ cell (learned slot 1) over the starter sword's explicitly
-// granted Basic Strike as a ⚔ cell.
-func TestViewFreshHeroGridShowsThePunchStart(t *testing.T) {
+// A fresh hero's grid starts with the starter sword basic action and no
+// learned Punch.
+func TestViewFreshHeroGridShowsStarterBasicAction(t *testing.T) {
 	dmg := 100
 	e := engine.NewEngine(&game.Registry{
 		Monsters: map[string]game.MonsterAsset{
@@ -450,8 +447,6 @@ func TestViewFreshHeroGridShowsThePunchStart(t *testing.T) {
 	grid := stripControls(stripANSI(m.moveGrid()))
 
 	for _, want := range []string{
-		"Punch", // learned slot 1: the punch start
-		"60% ◆", // the punch's tags: modifier + learned glyph
 		"Basic Strike",
 		"100% ⚔", // the starter's explicit grant, weapon-tagged
 	} {
@@ -468,7 +463,7 @@ func TestViewGridMarksCoolingMoves(t *testing.T) {
 	learnMove(e, heavy())
 	learnMove(e, jab())
 	m := enterCombat(t, e)
-	m = useMove(t, m, 0) // Heavy Slash locks for 2
+	m = useMove(t, m, 1) // Heavy Slash locks for 2
 
 	view := stripControls(stripANSI(m.View()))
 
@@ -550,7 +545,8 @@ func TestEnterDispatchesTheHighlightedMove(t *testing.T) {
 	learnMove(e, jab())
 	m := enterCombat(t, e)
 
-	m, _ = press(m, "right") // highlight Jab (index 1)
+	m, _ = press(m, "right")
+	m, _ = press(m, "right") // basic action occupies index 0; Jab is index 2
 	m, _ = press(m, "enter")
 
 	log := joinedLog(m)
@@ -560,8 +556,8 @@ func TestEnterDispatchesTheHighlightedMove(t *testing.T) {
 	if !strings.Contains(log, "Jab") || !strings.Contains(log, "damage") {
 		t.Errorf("combat log omitted the move's strike result:\n%s", log)
 	}
-	if m.gridCursor != 1 {
-		t.Errorf("grid cursor after dispatch = %d, want 1 (stays put)", m.gridCursor)
+	if m.gridCursor != 2 {
+		t.Errorf("grid cursor after dispatch = %d, want 2 (stays put)", m.gridCursor)
 	}
 }
 
@@ -572,7 +568,8 @@ func TestEnterOnACoolingCellStillDispatches(t *testing.T) {
 	learnMove(e, heavy())
 	learnMove(e, jab())
 	m := enterCombat(t, e)
-	m = useMove(t, m, 0) // Heavy Slash locks for 2; the cursor stays on 0
+	m = useMove(t, m, 1) // Heavy Slash locks for 2
+	m.gridCursor = 1
 
 	m, _ = press(m, "enter")
 
@@ -585,19 +582,17 @@ func TestEnterOnACoolingCellStillDispatches(t *testing.T) {
 	}
 }
 
-// Digits beyond the move set dispatch anyway — the engine explains the
-// rejection as a generic invalid command, and the cursor never rests on
-// a placeholder.
+// Digits beyond the move set are ignored; placeholders are not selectable.
 func TestDigitsBeyondTheMoveSetStillDispatch(t *testing.T) {
 	e := combatEngine()
 	learnMove(e, jab())
 	m := enterCombat(t, e)
 
-	m, _ = press(m, "3") // a placeholder cell
+	logLen := len(m.log)
+	m, _ = press(m, "3") // no third action exists
 
-	last := stripANSI(m.log[len(m.log)-1])
-	if last != "Invalid command" {
-		t.Errorf("digit on a placeholder logged %q, want the engine's rejection", last)
+	if len(m.log) != logLen {
+		t.Errorf("digit on a placeholder dispatched: %q", stripANSI(m.log[len(m.log)-1]))
 	}
 	if m.engine.State != engine.StateCombat {
 		t.Errorf("state after the rejected digit = %v, want StateCombat", m.engine.State)
@@ -634,7 +629,7 @@ func TestEscapeIsANoOpInCombat(t *testing.T) {
 func TestGridCursorResetsWithTheMirror(t *testing.T) {
 	e := combatEngine()
 	learnMove(e, jab())
-	e.Player.BaseDMG = 40 // one-shots the queue
+	e.Player.BaseDMG = 100 // one-shots the queue
 	e.CurrentEncounter = engine.Encounter{
 		Type:     engine.EncounterCombat,
 		Monsters: []entities.Monster{spitterMonster(200), goblinMonster()},
@@ -682,7 +677,7 @@ func TestViewCombatShowsEnemyStatusChips(t *testing.T) {
 	learnMove(e, envenom(0))
 	m := enterCombat(t, e)
 
-	m = useMove(t, m, 0)
+	m = useMove(t, m, 1)
 
 	view := stripControls(stripANSI(m.View()))
 	if !strings.Contains(view, "Poison(2)") {
@@ -698,17 +693,17 @@ func TestStatusChipsCountDownAndVanish(t *testing.T) {
 	learnMove(e, jab())
 	m := enterCombat(t, e)
 
-	m = useMove(t, m, 0) // applied: 3, ticked to 2 at round end
+	m = useMove(t, m, 1) // applied: 3, ticked to 2 at round end
 	if !strings.Contains(stripControls(stripANSI(m.View())), "Poison(2)") {
 		t.Errorf("round 1: the chip should show Poison(2):\n%s", stripControls(stripANSI(m.View())))
 	}
 
-	m = useMove(t, m, 1) // round 2
+	m = useMove(t, m, 0) // basic action advances cooldown and status
 	if !strings.Contains(stripControls(stripANSI(m.View())), "Poison(1)") {
 		t.Errorf("round 2: the chip should show Poison(1):\n%s", stripControls(stripANSI(m.View())))
 	}
 
-	m = useMove(t, m, 1) // round 3: the last tick expires it
+	m = useMove(t, m, 0) // round 3: the last tick expires it
 	if strings.Contains(stripControls(stripANSI(m.View())), "Poison(") {
 		t.Errorf("round 3: the expired chip still renders:\n%s", stripControls(stripANSI(m.View())))
 	}
@@ -742,7 +737,7 @@ func TestViewHeroPanelShowsStatusChips(t *testing.T) {
 func TestHeroChipsVanishOutsideCombat(t *testing.T) {
 	e := combatEngine()
 	learnMove(e, jab())
-	e.Player.BaseDMG = 40
+	e.Player.BaseDMG = 100
 	e.CurrentEncounter = engine.Encounter{
 		Type:     engine.EncounterCombat,
 		Monsters: []entities.Monster{spitterMonster(200), goblinMonster()},

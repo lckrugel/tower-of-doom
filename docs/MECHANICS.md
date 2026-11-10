@@ -30,7 +30,7 @@
     - SHRINE encounters offer ONE or TWO moves and open StateLearn:
       CHOOSE one of the offers — under the learned cap it is learned on
       the spot; at the cap the forgetting step follows: FORGET one of
-      the two learned moves or DECLINE — see "Shrines"
+      one learned move or DECLINE — see "Shrines"
 - PLayer can FIGHT or SNEAK
 - FIGHT leads to combat (StateCombat)
     - Entering combat resolves NO round: rounds advance from the hero's
@@ -52,9 +52,8 @@
     - On success exits combat with no reward
     - On fail current enemy gets a free turn
 - MOVE uses the hero move at the chosen index of the hero's combat move
-    set (the pre-learned Punch first in a fresh run's learned order,
-    then weapon-granted; a hero with no weapon and no learned moves
-    fights with the canonical basic_attack — the depth-only fallback)
+  set (weapon's basic action first, then learned cooldown moves in
+  learning order; a weaponless hero gets virtual Unarmed Punch)
     - A move on cooldown is a blocked action: a message, no state
       change; when EVERY move is locked the turn resolves as an
       automatic RECOVER round (never a soft-lock)
@@ -411,7 +410,7 @@ an extra roll):
     - Draws ONE or TWO random unlearned moves from the section's
       `move_tiers` (ONE `Intn` PER offer over the pool SHRINKING per
       pick — the offers never duplicate) and opens StateLearn's
-      choosing step: CHOOSE one — under the 2-learned cap it is learned
+      choosing step: CHOOSE one — under the 3-learned cap it is learned
       on the spot; at the cap the forgetting step asks which learned
       move to forget
     - Does NOT unlock ASCEND
@@ -525,15 +524,14 @@ below documents the shipped behavior.
   hold weapon/both moves only; a monster's move set must hold
   creature/both moves only. (`entities.Move` carries the type and the
   `UsableByWeapons()` / `UsableByCreatures()` pair.)
-- Hero moves: up to 2 LEARNED (shrine teaching — see "Shrines") plus up
-  to 2 granted by the equipped weapon (a `moves` field on weapon assets,
-  resolved by the engine when the item is built). A fresh hero starts
-  with the **Punch pre-learned** (learned slot 1 of 2 — see "The punch
-  start" below), so the opening set is Punch (◆) + the starter's
-  grants.
+- Hero moves: exactly one explicit weapon-compatible, cooldown-0 basic
+  action supplied by the equipped weapon, followed by up to 3 learned
+  cooldown moves (shrine teaching, in learning order). A fresh hero has
+  no learned moves and still starts with the wooden sword equipped.
 - **The spammable rule** (content validation, startup-fatal): a weapon
   that grants moves REPLACES the `basic_attack` fallback, so its grant
-  list must carry at least one `cooldown == 0` move — a weapon whose
+  list must contain exactly one explicit basic action with
+  `cooldown == 0` — a weapon whose
   every move is locked could otherwise never act. **Every weapon
   declares its moves explicitly: an absent or EMPTY `moves` list on a
   weapon is a validation error** (BREAKING for mods — move-less weapons
@@ -544,27 +542,22 @@ below documents the shipped behavior.
   every reachable hero turn has a ready move, so the automatic RECOVER
   round below is content-unreachable — kept as defense in depth (a mod
   could still ship it; validation would catch it at startup).
-- **The `basic_attack` fallback, exactly two cases**: it resolves from the
-  active registry's `basic_attack` asset (the hardcoded entity value is
-  only a safety fallback for minimal registries). A MONSTER whose
-  asset lists no moves (the older-assets/mods rule above), and a HERO
-  with NO equipped weapon and an empty learned set (the depth
-  guarantee). With the punch pre-learned the fresh hero's set is never
-  empty, so the hero-side fallback is content-unreachable — it stays as
-  depth.
+- **Weaponless action**: a hero without a weapon gets virtual Unarmed
+  Punch, resolved from the registry first and the canonical fallback
+  second. It is not a learned move, item, or reward. Monsters without
+  moves continue to use `basic_attack`.
 - `CmdMove(index)` replaces ATTACK: every combat turn is a move choice,
   indexing the hero's combat move set (CombatMoves: the effective set,
   or the canonical `basic_attack` when that set is empty — a move-less
   hero must still be able to act).
-- **The punch start**: `NewPlayer` pre-learns the canonical `punch`
-  (name **Punch** — 60% damage, no crit bonus, cooldown 0, creature
-  type) into learned slot 1 of `MaxLearnedMoves` = 2. The punch is
-  learned like any other move: a late shrine can replace it through the
-  forget flow. It is creature-typed, so it is type-correct for the
-  shrine pool (creature) and never weapon-grantable; being learned, the
-  existing known-move filter already keeps it out of the offers. Full
-  build at the caps: Punch + 1 more learned move + 2 weapon moves =
-  `MAX_MOVES` (4).
+- A move is learnable only when its asset explicitly opts in; omitted or
+  false means it cannot be learned. Learnable moves must be
+  creature-compatible and have positive cooldown. Older mods missing
+  the field cannot teach that move.
+- The weapon supplies exactly one explicit weapon-compatible basic
+  action with cooldown 0. It is at combat index 0, followed by up to
+  three learned cooldown moves in learning order. Weapon swaps never
+  change the learned set; placeholder entries are not selectable.
 - A move on cooldown is locked for exactly its cooldown's FULL rounds
   after the round of use (the lock is set after the round-end tick, so
   the round of use doesn't eat one turn of it). Cooldowns tick at round
@@ -572,7 +565,7 @@ below documents the shipped behavior.
   another is ready is a blocked action (a message, no state change); a
   FULLY-cooled hero turn resolves as an automatic RECOVER round (a
   message, the enemy acts, the ticks run) — never a soft-lock. With the
-  spammable rule validated and the punch pre-learned, every shipped
+  spammable rule validated, every shipped
   weapon set is content-able to always have a ready move, so the
   RECOVER path is now content-unreachable — it stays as depth for
   hand-built states.
@@ -618,7 +611,7 @@ below documents the shipped behavior.
       the TUI reads `PendingMoves` for the dossiers).
     - **CHOOSE `<offer-index>`** (`CmdChooseOffer`; `Index` into
       `PendingMoves`):
-        - **Under the 2-learned cap** — the chosen move is learned on
+        - **Under the 3-learned cap** — the chosen move is learned on
           the spot (`event-move-learned{move}`) and exploring
           continues: everything cleared.
         - **At the cap** — the choice is recorded in
@@ -627,8 +620,9 @@ below documents the shipped behavior.
           `event-message` prompts the forget): the learned set is
           untouched until the player decides.
     - **FORGET `<learned-index>`** (the forgetting step only;
-      `CmdForget`; `Index` into `LearnedMoves()`) — forgets the learned
-      move at the index and learns the CHOSEN offer in its place
+      `CmdForget`; `Index` into `LearnedMoves()`) — replaces that learned
+      move in place with the CHOSEN offer. Other learned slots do not
+      shift, so the combat action at each index remains stable
       (`event-move-learned{move, forgotten?}` — the additive optional
       `forgotten` key carries the displaced move, present only when a
       forget happened). Exploring continues, everything cleared.
@@ -657,11 +651,11 @@ below documents the shipped behavior.
   creature/both — a weapon-only move is never offerable) filtered
   through `entities.FilterUnknownMoves(pool, known)` — the moves the
   hero does NOT already know, where `known` is the hero's effective set
-  (learned AND weapon-granted alike, dedup by id; the pre-learned punch
+  (learned AND weapon action alike, dedup by id; virtual unarmed punch
   filters out through the same rule), and minus the canonical
   `basic_attack`, which is NEVER offerable: it is the move-less
   fallback every combatant already fights with, and teaching it would
-  waste one of the two learned slots. The filter is pure and
+  waste one of the three learned slots. The filter is pure and
   order-preserving.
 - `Engine.StatusLore()` exposes every registry status (sorted by id, a
   fresh copy of value assets — mutating the return never reaches the
@@ -681,9 +675,9 @@ below documents the shipped behavior.
   the iron/steel/draconic swords grant tier-appropriate moves — see the
   "Moves & statuses — data model" tables below.
 
-Learning is capped at 2 learned moves (`MaxLearnedMoves`); weapon
-grants sit on top of the learned set (the union capped at 4) and are
-gated by the item's own tier gating.
+Learning is capped at 3 learned moves (`MaxLearnedMoves`); the weapon's
+single basic action occupies index 0 and learned moves follow it.
+Weapon swaps do not alter learned moves.
 
 ### Moves & statuses — data model
 
@@ -772,35 +766,26 @@ are listed; an empty pool is never an error. Plus `MoveByID`,
 sorted by id, as a fresh slice — the read-only surface for lore/UI
 consumers the engine exposes without sharing the unexported map).
 
-**Hero move set** — `Hero.EffectiveMoves(weapon)`: the LEARNED moves
-first (learning order, capped at 2 — `MaxLearnedMoves`; **a fresh hero
-starts with the Punch pre-learned in slot 1**), then the equipped
-weapon's granted moves, deduplicated by id (the learned copy wins),
-capped at 4 (`MaxMoves`) — weapon moves beyond the cap are dropped, so
-the set never exceeds 4. The canonical `basic_attack` is NOT implicitly
-added to the hero SET — the integration decided what an empty set means
-instead: `Engine.CombatMoves` resolves an empty effective set to the
-canonical `basic_attack` — the **Basic Strike**. That fallback is
-depth-only for shipped content: with the punch pre-learned a fresh
-hero's set is never empty, and every weapon declares its own moves —
-the fallback covers a hero with NO weapon and NO learned moves (the
-weaponless-depth guarantee) and hand-built states. Learning:
+**Hero move set** — the weapon's single explicit basic action is index 0,
+followed by LEARNED cooldown moves in learning order (capped at 3 —
+`MaxLearnedMoves`). A fresh hero starts with no learned moves and the
+wooden sword equipped. Weapon changes do not change learned moves.
+Weaponless combat uses virtual Unarmed Punch, resolved registry-first
+with canonical fallback; it is not learned, an item, or a reward.
+Learning:
 `LearnMove` refuses at the cap (learning never displaces a move on its
 own — the caller drives `ForgetMove(moveID)` and retries); learning an
 already-known id is a refused no-op. For UI source tagging,
 `Hero.EffectiveMovesWithSource(weapon)` returns the same set as
 `[]entities.SourcedMove` (`Move` + `Source`: `SourceLearned` /
-`SourceWeapon`) — the learned-vs-weapon "2+2" split the move grid
-renders; a move known via both channels reports as learned (the
-learned copy wins the dedup). The shrine offer pool is the same set
+`SourceWeapon`) — the move grid renders the weapon action followed by
+learned moves; the shrine offer pool is the same set
 viewed from the other side:
 `entities.FilterUnknownMoves(pool, hero.EffectiveMoves(weapon))` —
 see "Shrines".
 
-**The hero's opening move set** (as shipped): Punch (◆, pre-learned,
-60%) + Basic Strike (⚔, the starter wooden sword's explicit grant) —
-two cells of the 2×2 grid on floor 1. The full build at the caps is
-Punch + 1 more learned move (shrines) + 2 weapon moves = 4.
+**The hero's opening move set** (as shipped): Basic Strike (the starter
+wooden sword's explicit cooldown-0 action); there are no learned moves.
 
 **Monster move set** — built by the engine from the asset's refs at
 spawn time (`NewMonsterFromAsset(asset, moves...)`; no moves passed =
@@ -823,8 +808,8 @@ every existing kit and grant coherent with no content edit. Steel
 Flurry is the one weapon-only move (no monster fights with it);
 Venomous Blade is `both` so the shrines can still offer it.
 
-**Embedded weapons** (every weapon declares its moves explicitly —
-each list carries its spammable first):
+**Embedded weapons** (each weapon declares exactly one explicit
+cooldown-0 basic action):
 
 | Weapon (tier) | Grants | Spammable |
 | --- | --- | --- |
@@ -833,9 +818,8 @@ each list carries its spammable first):
 | Espada de Aço (3) | Steel Flurry, Heavy Slash | Steel Flurry (110%) |
 | Espada Dracônica (4) | Assassin's Strike, Dragon's Might | Assassin's Strike (110%, +35 crit) |
 
-The starter's explicit `basic_attack` grant is the game owner's locked
-design (a previously reverted experiment): the fresh hero's second cell
-is a WEAPON-tagged Basic Strike, not the implicit fallback. The drake
+The starter's explicit `basic_attack` grant is the weapon's basic action,
+not an implicit fallback. The drake
 blade's spammable is the retuned Assassin's Strike (tier 3→4, cooldown
 3→0); the two monster kits referencing it keep a weighted second move,
 so the spam stays a weighted choice on both sides.

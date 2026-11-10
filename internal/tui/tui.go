@@ -242,6 +242,9 @@ func gridCursorMove(cursor, moves int, dir string) int {
 // Index}. A cooling cell dispatches too — the engine answers "Move on
 // cooldown." in the log, state intact.
 func (m Model) dispatchMove() (tea.Model, tea.Cmd) {
+	if len(m.engine.CombatMoves()) == 0 {
+		return m, nil
+	}
 	index := min(max(m.gridCursor, 0), len(m.engine.CombatMoves())-1)
 	return m.dispatch(action{
 		key: strconv.Itoa(index + 1), label: "move",
@@ -253,9 +256,10 @@ func (m Model) dispatchMove() (tea.Model, tea.Cmd) {
 // jumps along (only onto real moves — a digit beyond the move set
 // dispatches anyway and the engine explains the rejection in the log).
 func (m Model) jumpDispatchMove(digit int) (tea.Model, tea.Cmd) {
-	if digit < len(m.engine.CombatMoves()) {
-		m.gridCursor = digit
+	if digit < 0 || digit >= len(m.engine.CombatMoves()) {
+		return m, nil
 	}
+	m.gridCursor = digit
 	return m.dispatch(action{
 		key: strconv.Itoa(digit + 1), label: "move",
 		cmd: engine.CmdMove, enabled: true, usesIndex: true, index: digit,
