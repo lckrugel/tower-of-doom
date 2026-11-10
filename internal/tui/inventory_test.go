@@ -23,7 +23,7 @@ func chestEngine() *engine.Engine {
 			"goblin": {ID: "goblin", Name: "Goblin", Difficulty: 3, HP: 30, Damage: 2, Speed: 10, Crit: 5},
 		},
 		Items: map[string]game.ItemAsset{
-			"wooden_sword": {ID: "wooden_sword", Name: "Espada de Madeira", Slot: "weapon", BonusDMG: 5, Durability: 50, Moves: []string{"basic_attack"}},
+			"wooden_sword": {ID: "wooden_sword", Name: "Wood Sword", Slot: "weapon", BonusDMG: 5, Durability: 50, Moves: []string{"basic_attack"}},
 			"iron_ring":    {ID: "iron_ring", Name: "Iron Ring", Slot: "ring", BonusDEF: 2, Durability: 40},
 		},
 		Moves: map[string]game.MoveAsset{
