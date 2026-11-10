@@ -33,36 +33,41 @@
       one learned move or DECLINE — see "Shrines"
 - PLayer can FIGHT or SNEAK
 - FIGHT leads to combat (StateCombat)
-    - Entering combat resolves NO round: rounds advance from the hero's
+    - Entering combat resolves NO turn: turns advance from the hero's
       move choices, so engaging consumes no rng
 - SKEAK leads to a roll to determined success
     - 50/50 for now, no stats involved
-    - On success combat is avoided
-    - On fail combat starts and enemy gets a free turn
+    - On success combat is avoided immediately, with no combat ticks
+    - On fail a fresh encounter starts and consumes one enemy-only action turn
 - Combat is 1x1
     - An encounter with multiple enemies is tranformed into a queue
-- Each round, whoever has the highest EFFECTIVE SPD acts first
-    - base + gear + active stat-mod statuses (the hero wins ties)
-    - both sides act unless someone dies mid-round; a round that
-      completes ends with the round-end tick (statuses and cooldowns —
-      see "Combat calculations → RNG")
+- An **action** is one combatant using a move, drinking a potion, or
+  forfeiting its action opportunity. A **turn** contains both action
+  opportunities and end-of-turn processing.
+- At turn start, capture the original hero/current-monster pair and their
+  initiative using EFFECTIVE SPD (base + gear + active stat modifiers;
+  hero wins ties). This order governs actions AND DoT recipients for the
+  whole turn; same-turn speed changes cannot reorder either.
+    - A combatant killed by an action cannot act. A queued replacement
+      enters only after finalization and cannot act or tick until next turn.
+    - Killing the monster never skips a surviving hero's turn-end processing.
 - During StateCombat, player can MOVE (a move choice) or FLEE
 - FLEE leads to a roll weighted by the difference in SPD between the player and the current enemy
     - FLEE chance is never higher than 95% and never lower than 5%
-    - On success exits combat with no reward
-    - On fail current enemy gets a free turn
+    - On success exits combat immediately with no reward or combat ticks
+    - On fail consumes one turn with only the current enemy's action
 - MOVE uses the hero move at the chosen index of the hero's combat move
   set (weapon's basic action first, then learned cooldown moves in
   learning order; a weaponless hero gets virtual Unarmed Punch)
     - A move on cooldown is a blocked action: a message, no state
       change; when EVERY move is locked the turn resolves as an
-      automatic RECOVER round (never a soft-lock)
-- Statuses are COMBAT-SCOPED: applied by moves on landed hits (with an
-    application chance), ticked at round end (DoTs can kill), never
-    stacked (a re-application refreshes to the longest duration) and
-    cleared when combat ends — see "Status effects"
-- When an enemy die mid combat the player gets the XP reward instantly
-    - mid combat level ups are possible
+      automatic RECOVER turn (never a soft-lock)
+- Statuses are ENCOUNTER-SCOPED: applied by moves (with an application
+    chance), never stacked, and cleared when the encounter ends or is
+    exited. Hero statuses persist across its monster queue — see "Status effects".
+- Enemy kills grant XP and gold only after DoTs and turn bookkeeping,
+  provided the hero survives; only then can the queue advance or victory occur
+    - mid-combat level ups are possible, but cannot rescue lethal turn-end DoTs
     - each level-up also heals 25% of the base max HP (no rng — see
       "Kill XP")
     - every defeat also pays `5 × enemy difficulty` gold (no rng)
@@ -116,22 +121,22 @@ helpers are for non-engine use only (e.g. item durability).
   the recipient is dead; dead recipients are not afflicted. The per-strike
   order is [monster move pick] → [spread] → [crit] → [status chances in
   authored order].
-- **Round-end tick (completed rounds only):** the hero's statuses tick
-  first, then the enemy's — each in application order: DoT damage (a
-  plain clamp, no mitigation, CAN kill: a dead monster goes through the
-  normal defeat path, a dead hero ends the game), then every status
-  counts a round down, expiring at 0 with an event. Then cooldowns tick
-  and the round's used moves lock. A round aborted by a death skips the
-  remaining ticks (the used move still locks).
+- **End-of-turn processing:** every consumed turn, including killing
+  turns, follows the timing contract below. DoTs use captured initiative
+  recipient order, not a fixed hero-first order. Stat expiration and
+  cooldown bookkeeping run once even if lethal damage stops DoTs early.
 - **Effective stats:** every stat read in combat (strike damage,
   mitigation, initiative, the flee formula) starts from base+gear. Active
   status percentages are summed and applied once (floored) to that baseline;
   summed flat modifiers are then added. Stat percentages do not compound.
   Results clamp — DMG at 1, DEF/SPD at 0. Pure math — no rng.
 - **Move cooldowns:** using a move locks it for exactly its `cooldown`
-  full rounds after the round of use (0 = spammable). Locks tick at
-  round end and never survive the encounter. A fully-cooled hero turn
-  resolves as an automatic RECOVER round (a message, the enemy acts,
+  subsequent full turns after the turn of use (0 = spammable). Existing
+  locks advance once at every consumed turn end, including killing turns;
+  moves actually used then receive their full lock (never skipped actions).
+  A cooldown-2 move used in turn 1 is locked in turns 2–3 and ready in
+  turn 4. Locks never survive the encounter. A fully-cooled hero turn
+  resolves as an automatic RECOVER turn (a message, the enemy acts,
   ticks run) — never a soft-lock; picking one locked move while another
   is ready is only a blocking message with no state change.
 - **Read-only combat view:** `Engine.CombatView()` is a value-copy snapshot
@@ -144,6 +149,45 @@ helpers are for non-engine use only (e.g. item durability).
   them as read-only notifications, not immutable history or replay records.
 - **SNEAK:** 50/50 (`Intn(2)`), no stats involved.
 - **FLEE:** chance = `50% + 5% × (hero SPD − enemy SPD)`, clamped to [5, 95].
+
+### Turn timing and outcomes
+
+1. Capture the original combatants and effective-SPD initiative once.
+2. Resolve eligible actions in that order. Finish a selected move's effects
+   in authored order before deciding whether the other combatant can act:
+   a killing move's self-heal still happens here, before DoTs. A monster
+   unable to act consumes neither move-pick nor attack RNG.
+3. Process living recipients' DoTs in captured initiative order, each
+   recipient's statuses in application order. Skip recipients already
+   killed by actions. The **first lethal tick settles defeat and stops all
+   further DoT damage**; pending ticks cannot reverse the outcome.
+4. Perform non-damage status expiration and cooldown bookkeeping exactly
+   once, even on killing turns or after an early lethal-tick stop.
+5. If the hero survives, settle each enemy defeat once: grant XP, kill
+   gold and level-up healing, then any final boss rewards/progression in
+   their existing order. Only then advance the queue or declare victory.
+
+DoT order is **recipient order**, not caster action order. If both actors
+survive the actions but both face lethal ticks, hero-first initiative
+means the hero dies and the monster's tick is skipped; monster-first means
+the monster dies and the hero's tick is skipped. **At equal SPD, the hero
+recipient is processed first and loses this lethal-DoT tie.** If the first
+recipient survives, process the second normally. Skipped DoTs on a
+surviving hero retain their unconsumed ticks across the queued enemies.
+
+Direct hero death is irreversible: no later action or DoT damage runs,
+and no pending monster DoT or XP can rescue the hero. If an action kills
+the monster but a subsequent hero DoT is lethal, the outcome is game over:
+no kill rewards, victory, boss loot, or progression unlock. This also
+applies to the final monster and boss.
+
+Move use, combat potion use, automatic recover, failed flee, and failed
+sneak all consume one turn through this same finalization path. Failed
+sneak first starts a fresh encounter. Fight/challenge entry, rejected
+commands (including blocked moves or potions), inspection, UI navigation,
+and out-of-combat commands do not advance combat time. Successful sneak
+or flee is the deliberate exception: immediate encounter exit, without
+actions or end-of-turn ticks; escape chances and costs are unchanged.
 
 ### Defense
 
@@ -164,20 +208,47 @@ helpers are for non-engine use only (e.g. item durability).
 - Status effects support flat `amount`, percentage `percent`, or both.
   Stat percentages use the equipment-inclusive baseline before statuses;
   multiple percentages add, then flat modifiers apply afterward.
-- DoT is evaluated at each round-end tick from the target's current
+- DoT is evaluated at each end-of-turn tick from the target's current
   equipment-inclusive MaxHP: `amount + floor(MaxHP × percent / 100)`.
   Percentage DoTs are uncapped and keep scaling with target MaxHP; flat
   damage remains additive. A positive DoT deals at least 1 damage before
   the remaining-HP clamp. DoT bypasses defense and can kill.
-- A status's application round counts toward its duration. Stat effects are
-  active immediately; DoT ticks at that round's end. Reapplying the same
-  status ID refreshes it to the longest duration without stacking, while
-  different statuses combine or tick independently.
+- Stat buffs AND debuffs apply immediately and last through `duration`
+  **subsequent full turns**. The partial application turn does not consume
+  one. Immediate modifiers can affect the remaining action, but not the
+  initiative already captured for actions and DoTs.
+- DoT `duration` instead counts **damage ticks**, starting at application
+  turn end if the recipient is reached. Only an actual tick consumes a
+  tick; stopping at an earlier lethal recipient does not consume skipped
+  ticks. DoTs gain no extra tick from stat-effect lifetime rules.
+- Same-ID effects never stack: stat reapplication keeps the later expiration
+  deadline (a shorter refresh cannot postpone an already-later deadline);
+  DoT reapplication keeps the larger of remaining and fresh tick counts.
+  Different IDs combine independently. Hero statuses persist between
+  queued monsters, but all statuses clear at encounter end or exit.
+- Live status displays distinguish future full turns from DoT ticks;
+  rendering and inspection never advance either lifetime.
+
+Duration-2 timeline (assuming the recipient survives and its DoTs are processed):
+
+| Turn | Stat buff/debuff, duration 2 | DoT, duration 2 |
+| --- | --- | --- |
+| 1: application | Active immediately; two future full turns remain | First tick; one remains |
+| 2 | Active; one future full turn remains | Second tick; expires |
+| 3 | Active; expires at turn end | Absent |
+| 4 | Absent | Absent |
+
+Balance impact (no asset retuning): Guard's duration 2 now includes two
+future full turns; Breachfire's duration 3 supports three future attacking
+turns if combat continues. Other stat buffs/debuffs follow the same rule;
+DoTs retain their authored tick counts. Any compensation is a separate
+balance change.
 
 ### Kill XP
 
-Defeating a monster grants `round(4 · difficulty^1.5)` XP instantly
-(mid-combat kills can trigger level-ups on the spot). The exponent
+Defeating a monster grants `round(4 · difficulty^1.5)` XP after turn-end
+DoTs and bookkeeping, only if the hero survives (mid-combat level-ups
+are still possible before the next queued monster). The exponent
 mirrors the hero level-cost curve (`100 · max(Lvl−1, 1)^1.5`), which
 keeps the time to level flat per floor tier instead of ballooning as
 content difficulty rises: a goblin (difficulty 3) pays 21 XP, an orc
@@ -190,6 +261,12 @@ unchanged %HP rescale that preserves the current HP as a fraction of
 the pre-change max. The heal consumes no rng and rides the level-up
 event as the ADDITIVE `healed` key (`event-level-up{level, healed}`):
 consumers predating the key keep working.
+
+For example, a hero at 3 HP kills a monster whose XP would level them up,
+but has a pending 3-damage poison tick. Poison kills the hero before XP
+is granted: no level-up heal or reward occurs. A non-lethal tick instead
+resolves before XP and healing. Percentage DoTs use the current MaxHP
+before any deferred level-up changes it.
 
 ## Items
 
@@ -242,7 +319,7 @@ current HP as a fraction of the previous max (`rescaleHP`).
     - `USE CONSUMABLE` selects the next carried unit. In StateExploring or
       StateInventory it is turn-free; in combat it consumes the Hero's
       action and resolves at normal initiative. The enemy still acts, and
-      round-end statuses/cooldowns tick as usual. If the enemy kills the
+      end-of-turn DoTs and bookkeeping run as usual. If the enemy kills the
       Hero before their initiative, the potion is not consumed.
     - The TUI shows the pouch count and potion effect; its action is
       available in combat and exploration/inventory only when relevant.
@@ -287,7 +364,8 @@ older mods keep working.
 ## Gold & prices
 
 - **Kill gold** — every defeat (mid-combat kills included) pays
-  `5 × enemy difficulty` gold alongside the instant XP. The grant
+  `5 × enemy difficulty` gold alongside XP after turn-end processing,
+  provided the hero survives. The grant
   consumes no rng; reported as `event-gold-gained{amount, source:
   "kill"}`.
 - **Chest gold** — a gold chest pays `5 × floor difficulty` (floor
@@ -462,7 +540,8 @@ below documents the shipped behavior.
   another normal-combat victory on that floor re-unlocks it — and never
   unlocks ASCEND. Fleeing a NORMAL combat never touches the unlock;
   ascending resets it with the floor change.
-- Boss victory (the last boss monster dies): the NORMAL per-kill flow
+- Boss victory (the last boss monster dies AND the hero survives turn-end
+  DoTs and bookkeeping): the NORMAL per-kill flow
   first (kill XP; bosses pay `5 × difficulty` gold like anything else;
   mid-combat level ups included), then the boss's own rewards, in this
   rng/event order:
@@ -540,7 +619,7 @@ below documents the shipped behavior.
   **Basic Strike** (its id stays `basic_attack`); mods may replace the
   definition under that canonical ID. With the rule in place
   every reachable hero turn has a ready move, so the automatic RECOVER
-  round below is content-unreachable — kept as defense in depth (a mod
+  turn below is content-unreachable — kept as defense in depth (a mod
   could still ship it; validation would catch it at startup).
 - **Weaponless action**: a hero without a weapon gets virtual Unarmed
   Punch, resolved from the registry first and the canonical fallback
@@ -558,40 +637,45 @@ below documents the shipped behavior.
   action with cooldown 0. It is at combat index 0, followed by up to
   three learned cooldown moves in learning order. Weapon swaps never
   change the learned set; placeholder entries are not selectable.
-- A move on cooldown is locked for exactly its cooldown's FULL rounds
-  after the round of use (the lock is set after the round-end tick, so
-  the round of use doesn't eat one turn of it). Cooldowns tick at round
-  end and never survive the encounter. Picking one locked move while
+- A move on cooldown is locked for exactly its cooldown's subsequent FULL
+  turns after the turn of use. Existing locks advance at every consumed
+  turn end, including killing turns, then actually used moves get their
+  full cooldown; skipped actions never lock a move. Cooldowns never
+  survive the encounter. Picking one locked move while
   another is ready is a blocked action (a message, no state change); a
-  FULLY-cooled hero turn resolves as an automatic RECOVER round (a
+  FULLY-cooled hero turn resolves as an automatic RECOVER turn (a
   message, the enemy acts, the ticks run) — never a soft-lock. With the
   spammable rule validated, every shipped
   weapon set is content-able to always have a ready move, so the
   RECOVER path is now content-unreachable — it stays as depth for
   hand-built states.
 - Damage effects use `dmg_modifier` (percent; 100 = neutral) and optional
-  `crit_bonus` (percentage points), then the usual spread and crit math.
-  Existing round, cooldown, and turn contracts are unchanged. Monster AI
+  `crit_bonus` (percentage points), then the usual spread and crit math. Monster AI
   still selects one available move by weighted random choice and may
   choose healing moves even at full HP.
 
 ### Status effects
 
-- A Status is a new asset (`statuses.json`): `id`, `name`,
-  `kind` (buff/debuff), `effect` (DoT damage per round, or a stat
-  modifier for DMG/DEF/SPD), `duration` (rounds). Moves apply them
+- A Status is an asset (`statuses.json`): `id`, `name`,
+  `kind` (buff/debuff), `effect` (DoT damage per tick, or a stat
+  modifier for DMG/DEF/SPD), `duration` (future full turns for stat
+  effects; damage ticks for DoTs). Moves apply them
   (target: enemy or self, with an application chance).
-- Active effects are COMBAT-SCOPED: tracked per combatant with rounds
-  left, ticked at round end, refreshed to the longest duration (never
-  stacked), and cleared when combat ends.
+- Active effects are ENCOUNTER-SCOPED, never stacked, and cleared on
+  encounter end or exit. Hero effects persist across queued monsters.
+  Stat expiration deadlines and remaining DoT ticks follow "Combat
+  calculations → Status effects", including the duration-2 timeline.
 - Effective stats = base + gear + active status modifiers, clamped
   at 0 (DMG at 1). DoT damage CAN kill — through the normal defeat path
   (kill XP/gold for monsters, game over for the hero).
-- The round-end tick order is deterministic: the HERO's statuses first,
-  then the enemy's, each in application order; a status deals its DoT
-  then counts its round down, expiring at 0 with an event.
+- End-of-turn DoTs follow captured initiative recipient order (hero
+  recipient first on speed ties), then status application order within
+  each recipient. The first lethal tick stops further damage, not
+  non-damage bookkeeping. Rewards require the hero to survive that phase.
 - Events: `event-move-used{user, move, side}`, `event-status-applied{target,
-  status, turns, kind, side}`, `event-status-expired{target, status, kind, side}`,
+  status, turns, lifetime_unit, category, kind, side}` (the legacy `turns` count
+  is measured in `ticks` or `turns`, as specified by `lifetime_unit`),
+  `event-status-expired{target, status, kind, side}`,
   `event-status-damage{target, status, amount, target_hp_exact,
   target_max_hp, kind}`; the damage-dealt/taken payloads also carry the
   additive `move` key.
@@ -695,7 +779,7 @@ field is required as authored and validated at startup:
   Required — there is NO absent-field default; a missing or unknown
   word fails validation (startup-fatal; BREAKING for untyped mod moves).
 - `tier` — progression ladder (1 = earliest); absent/0 → 1.
-- `cooldown` — rounds the move stays locked after use (0 = spammable);
+- `cooldown` — subsequent full turns the move stays locked after use (0 = spammable);
   validated ≥ 0.
 - `effects` — an ordered list; effect order is behaviorally significant.
   Damage effects have `type: damage`, `target: enemy`, required
@@ -722,11 +806,12 @@ omitted components mean zero:
   are summed, applied to the equipment-inclusive baseline with flooring,
   then flat amounts are summed and added; effective DMG/DEF/SPD retain
   their existing minimums.
-- `duration` — rounds the status lasts; ≥ 1. The application round
-  counts toward the duration: stat effects apply immediately, and DoT
-  ticks at that round's end. Same-ID reapplications refresh to the
-  longest remaining duration without stacking; different statuses
-  combine their stat effects or tick their DoTs independently.
+- `duration` — ≥ 1; subsequent full turns for stat effects, damage ticks
+  for DoTs. Stat effects apply immediately without consuming a full turn;
+  DoTs begin ticking at application turn end if reached. Same-ID refreshes
+  retain the later stat expiration deadline or larger DoT tick count,
+  without stacking; different IDs combine independently. See the timing
+  and lifetime contracts above.
 
 **Where moves attach:**
 
