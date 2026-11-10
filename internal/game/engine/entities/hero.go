@@ -416,6 +416,23 @@ func (h *Hero) ForgetMove(moveID string) bool {
 	return false
 }
 
+// ReplaceLearnedMoveAt replaces one learned move without shifting the
+// other learned slots. Invalid indexes, ineligible moves, and duplicate
+// IDs leave the learned set unchanged.
+func (h *Hero) ReplaceLearnedMoveAt(index int, m Move) (forgotten *Move, replaced bool) {
+	if index < 0 || index >= len(h.learnedMoves) || !m.Learnable || !m.UsableByCreatures() || m.Cooldown <= 0 {
+		return nil, false
+	}
+	for i, known := range h.learnedMoves {
+		if i != index && known.ID == m.ID {
+			return nil, false
+		}
+	}
+	old := h.learnedMoves[index]
+	h.learnedMoves[index] = m
+	return &old, true
+}
+
 func (h *Hero) knowsMove(moveID string) bool {
 	for _, m := range h.learnedMoves {
 		if m.ID == moveID {

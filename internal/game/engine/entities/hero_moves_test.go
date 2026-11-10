@@ -139,6 +139,48 @@ func TestHeroForgetMove(t *testing.T) {
 	})
 }
 
+func TestHeroReplaceLearnedMoveAtPreservesSlots(t *testing.T) {
+	h := newBareHero()
+	for _, id := range []string{"a", "b", "c"} {
+		h.LearnMove(Move{ID: id, Learnable: true, Type: MoveTypeCreature, Cooldown: 1})
+	}
+
+	forgotten, ok := h.ReplaceLearnedMoveAt(1, Move{ID: "replacement", Learnable: true, Type: MoveTypeCreature, Cooldown: 1})
+	if !ok || forgotten == nil || forgotten.ID != "b" {
+		t.Fatalf("ReplaceLearnedMoveAt = (%+v, %v), want forgotten b and success", forgotten, ok)
+	}
+	got := h.LearnedMoves()
+	if len(got) != 3 || got[0].ID != "a" || got[1].ID != "replacement" || got[2].ID != "c" {
+		t.Errorf("learned slots = %+v, want [a replacement c]", got)
+	}
+}
+
+func TestHeroReplaceLearnedMoveAtInvalidReplacementIsAtomic(t *testing.T) {
+	h := newBareHero()
+	h.LearnMove(Move{ID: "a", Learnable: true, Type: MoveTypeCreature, Cooldown: 1})
+	h.LearnMove(Move{ID: "b", Learnable: true, Type: MoveTypeCreature, Cooldown: 1})
+	before := h.LearnedMoves()
+
+	for _, tc := range []struct {
+		name  string
+		index int
+		move  Move
+	}{
+		{"bad index", 2, Move{ID: "c", Learnable: true, Type: MoveTypeCreature, Cooldown: 1}},
+		{"non-learnable", 0, Move{ID: "c", Type: MoveTypeCreature, Cooldown: 1}},
+		{"duplicate", 0, Move{ID: "b", Learnable: true, Type: MoveTypeCreature, Cooldown: 1}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, ok := h.ReplaceLearnedMoveAt(tc.index, tc.move); ok {
+				t.Fatal("invalid replacement succeeded")
+			}
+			if !reflect.DeepEqual(h.LearnedMoves(), before) {
+				t.Fatalf("invalid replacement mutated slots: %+v", h.LearnedMoves())
+			}
+		})
+	}
+}
+
 // EffectiveMoves composes the combat move set: learned first (learning
 // order), then weapon-granted; deduplicated by id (the learned copy
 // wins) and capped at MaxMoves, dropping weapon moves beyond the cap.

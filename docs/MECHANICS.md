@@ -620,8 +620,9 @@ below documents the shipped behavior.
           `event-message` prompts the forget): the learned set is
           untouched until the player decides.
     - **FORGET `<learned-index>`** (the forgetting step only;
-      `CmdForget`; `Index` into `LearnedMoves()`) — forgets the learned
-      move at the index and learns the CHOSEN offer in its place
+      `CmdForget`; `Index` into `LearnedMoves()`) — replaces that learned
+      move in place with the CHOSEN offer. Other learned slots do not
+      shift, so the combat action at each index remains stable
       (`event-move-learned{move, forgotten?}` — the additive optional
       `forgotten` key carries the displaced move, present only when a
       forget happened). Exploring continues, everything cleared.

@@ -924,9 +924,9 @@ func TestShrineForgetLearnsTheChosenOffer(t *testing.T) {
 		wantForgotten string
 		wantLearned   []string
 	}{
-		{"the chosen second offer replaces the first learned", 1, 0, "quick_stab", []string{"heavy_slash", "guard_strike", "power_surge"}},
-		{"the chosen second offer replaces the second learned", 1, 1, "heavy_slash", []string{"quick_stab", "guard_strike", "power_surge"}},
-		{"the chosen first offer replaces the second learned", 0, 1, "heavy_slash", []string{"quick_stab", "guard_strike", "oath"}},
+		{"the chosen second offer replaces the first learned", 1, 0, "quick_stab", []string{"power_surge", "heavy_slash", "guard_strike"}},
+		{"the chosen second offer replaces the second learned", 1, 1, "heavy_slash", []string{"quick_stab", "power_surge", "guard_strike"}},
+		{"the chosen first offer replaces the second learned", 0, 1, "heavy_slash", []string{"quick_stab", "oath", "guard_strike"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -938,8 +938,8 @@ func TestShrineForgetLearnsTheChosenOffer(t *testing.T) {
 			if got := eventTypes(events); !typesEqual(got, EventMoveLearned) {
 				t.Fatalf("events = %v, want [move-learned]", got)
 			}
-			if move, _ := events[0].Data["move"].(entities.Move); move.ID != tt.wantLearned[2] {
-				t.Errorf("learned move = %+v, want replacement %q", move, tt.wantLearned[2])
+			if move, _ := events[0].Data["move"].(entities.Move); move.ID != []string{"oath", "power_surge"}[tt.choose] {
+				t.Errorf("learned move = %+v, want selected offer", move)
 			}
 			if forgotten, _ := events[0].Data["forgotten"].(entities.Move); forgotten.ID != tt.wantForgotten {
 				t.Errorf("forgotten = %+v, want %v", forgotten, tt.wantForgotten)
