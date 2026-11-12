@@ -2,6 +2,7 @@ package engine
 
 import (
 	"fmt"
+	"reflect"
 	"testing"
 
 	"github.com/lckrugel/tower-of-doom/internal/game"
@@ -34,6 +35,91 @@ func potionEngine() *Engine {
 	}
 	e.Player.AddConsumable("healing_potion")
 	return e
+}
+
+func TestConsumableSelectionUsesRawUnitIndex(t *testing.T) {
+	for _, state := range []GameState{StateExploring, StateInventory, StateCombat} {
+		for _, index := range []int{0, 1, 2} {
+			t.Run(fmt.Sprintf("state=%v index=%d", state, index), func(t *testing.T) {
+				e := newTestEngine()
+				e.reg.Consumables = map[string]game.ConsumableAsset{
+					"small": {ID: "small", Name: "Small", HealPercent: 10},
+					"large": {ID: "large", Name: "Large", HealPercent: 40},
+				}
+				units := []string{"small", "large", "small"}
+				for _, id := range units {
+					e.Player.AddConsumable(id)
+				}
+				e.Player.CurrentHP = 20
+				stub := &stubRng{values: []int{0, 2, 99}}
+				e.rng = stub
+				if state == StateCombat {
+					startEncounter(e, entities.NewMonsterFromAsset(game.MonsterAsset{ID: "enemy", HP: 100, Damage: 2, Speed: 12, Difficulty: 1}))
+				}
+				e.State = state
+				asset, ok := e.ConsumableAt(index)
+				if !ok || asset.ID != units[index] {
+					t.Fatalf("query = %+v, %v", asset, ok)
+				}
+				e.Process(Command{Type: CmdUseConsumable, Index: index})
+				wantHP := 20 + asset.HealPercent
+				if state == StateCombat {
+					wantHP -= 3
+				}
+				wantUnits := append(append([]string{}, units[:index]...), units[index+1:]...)
+				if e.Player.CurrentHP != wantHP || !reflect.DeepEqual(e.Player.Consumables(), wantUnits) {
+					t.Fatalf("HP=%d units=%v, want %d %v", e.Player.CurrentHP, e.Player.Consumables(), wantHP, wantUnits)
+				}
+				if state != StateCombat && (stub.calls != 0 || e.State != state) {
+					t.Fatal("outside-combat use changed time/state")
+				}
+			})
+		}
+	}
+}
+
+func TestInvalidConsumableSelectionDoesNotSpendAnything(t *testing.T) {
+	for _, state := range []GameState{StateExploring, StateInventory, StateCombat} {
+		for _, tc := range []struct {
+			name    string
+			index   int
+			id      string
+			percent int
+			full    bool
+		}{
+			{"negative", -1, "custom", 10, false},
+			{"past end", 1, "custom", 10, false},
+			{"missing definition", 0, "missing", 10, false},
+			{"invalid effect", 0, "custom", 0, false},
+			{"full health", 0, "custom", 10, true},
+		} {
+			t.Run(fmt.Sprintf("%v/%s", state, tc.name), func(t *testing.T) {
+				e := newTestEngine()
+				e.reg.Consumables = map[string]game.ConsumableAsset{"custom": {ID: "custom", HealPercent: tc.percent}}
+				e.Player.AddConsumable(tc.id)
+				if !tc.full {
+					e.Player.CurrentHP = 20
+				}
+				before := e.Player.CurrentHP
+				startEncounter(e, monsterFromFixture("goblin"))
+				e.Process(Command{Type: CmdFight})
+				e.State = state
+				e.heroCombat.applyStatus(entities.Status{ID: "dot", DotAmount: 1, Duration: 2})
+				e.heroCombat.cooldowns["old"] = 2
+				stub := &stubRng{values: []int{0}}
+				e.rng = stub
+				events := e.Process(Command{Type: CmdUseConsumable, Index: tc.index})
+				if !typesEqual(eventTypes(events), EventMessage) || e.Player.CurrentHP != before || len(e.Player.Consumables()) != 1 || e.State != state || e.combatTurn != 0 || stub.calls != 0 || e.heroCombat.cooldowns["old"] != 2 || e.heroCombat.statuses[0].remaining(0) != 2 {
+					t.Fatal("rejected selection mutated state, time, RNG, or inventory")
+				}
+				if !tc.full {
+					if _, ok := e.ConsumableAt(tc.index); ok {
+						t.Fatal("query accepted invalid selection")
+					}
+				}
+			})
+		}
+	}
 }
 
 func TestUseHealingPotionOutsideCombat(t *testing.T) {
@@ -175,6 +261,8 @@ func TestHealingPotionConsumesCombatActionInInitiativeOrder(t *testing.T) {
 
 func TestEnemyCanKillHeroBeforePotionAction(t *testing.T) {
 	e := potionEngine()
+	e.reg.Consumables["custom"] = game.ConsumableAsset{ID: "custom", Name: "Custom", HealPercent: 50}
+	e.Player.AddConsumable("custom")
 	e.Player.CurrentHP = 1
 	e.rng = &stubRng{values: []int{0, 2, 99}}
 	monster := entities.NewMonsterFromAsset(game.MonsterAsset{
@@ -183,13 +271,16 @@ func TestEnemyCanKillHeroBeforePotionAction(t *testing.T) {
 	startEncounter(e, monster)
 	e.State = StateCombat
 
-	events := e.Process(Command{Type: CmdUseConsumable})
+	events := e.Process(Command{Type: CmdUseConsumable, Index: 1})
 
 	if got := eventTypes(events); !typesEqual(got, EventMoveUsed, EventCombatDamageTaken, EventHeroDefeated) {
 		t.Fatalf("events = %v, want enemy turn and defeat before potion use", got)
 	}
 	if got := e.Player.ConsumableCount("healing_potion"); got != 1 {
 		t.Errorf("potion count after death before use = %d, want retained 1", got)
+	}
+	if e.Player.ConsumableCount("custom") != 1 {
+		t.Fatal("selected unit consumed before hero action")
 	}
 }
 
