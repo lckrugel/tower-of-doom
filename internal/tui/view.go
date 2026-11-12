@@ -322,8 +322,10 @@ func (m Model) consumablesPanel() string {
 	rows := []string{m.panelHeading(fmt.Sprintf("◈ Consumables (%d/%d units)", len(m.engine.Player.Consumables()), entities.ConsumableCapacity))}
 	if m.engine.State == engine.StateCombat {
 		rows = append(rows, styleDim.Render("  Combat picker · [C/Esc] Back (free)"))
+		rows = append(rows, styleDim.Render("  Enter use costs one turn."))
 	} else {
 		rows = append(rows, styleDim.Render("  Consumables · [Tab] Equipment · [C/Esc] Back"))
+		rows = append(rows, styleDim.Render("  Enter use is turn-free."))
 	}
 	stacks := m.consumableStacks()
 	if len(stacks) == 0 {

@@ -491,7 +491,7 @@ func TestConsumableTabsAndRawStackSelection(t *testing.T) {
 	m := New(e)
 	before := len(m.log)
 	m, _ = press(m, "h")
-	for _, want := range []string{"Consumables", "Moon Tea", "×2", "Sun Elixir", "+30%", "3/3"} {
+	for _, want := range []string{"Consumables", "Moon Tea", "×2", "Sun Elixir", "+30%", "3/3", "Enter use is turn-free"} {
 		if !strings.Contains(stripANSI(m.View()), want) {
 			t.Fatalf("missing %q in picker:\n%s", want, stripANSI(m.View()))
 		}
@@ -536,6 +536,9 @@ func TestCombatConsumablePickerIsFreeAndRestricted(t *testing.T) {
 		m.gridCursor = 1
 		before, hp := len(m.log), e.Player.CurrentHP
 		m, _ = press(m, "h")
+		if !strings.Contains(stripANSI(m.View()), "Enter use costs one turn") {
+			t.Fatal("combat picker omitted use turn cost")
+		}
 		for _, k := range []string{"tab", "i", "w", "x", "h", "1"} {
 			m, _ = press(m, k)
 		}
