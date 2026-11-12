@@ -26,9 +26,13 @@ type Model struct {
 	// list (stock rows come first, so BUY takes it as the stock index
 	// and SELL subtracts the stock size to reach the bag row). ←/→ walk
 	// it with wraparound and the indexed commands (WEAR/DROP/BUY/SELL)
-	// dispatch with it; every dispatch resets it, so re-entering a list
-	// selects the first row again.
-	bagCursor int
+	// dispatch with it. Merchant transactions retain their section-local
+	// selection; entering a list selects its first row.
+	bagCursor      int
+	merchantRearm  bool
+	consumablesTab bool
+	// consumablePicker overlays exploring/combat without changing engine state.
+	consumablePicker bool
 	// width/height track the terminal size from WindowSizeMsg; when both
 	// are too small for the fixed canvas, View() falls back to a bare
 	// "terminal too small" screen.
@@ -86,7 +90,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // handleKey resolves a key press: ctrl+c always quits — immediately,
 // even out of the quit confirmation. While the confirmation is armed
-// every key but y cancels back to the normal bar. Otherwise esc quits —
+// every key but y cancels back to the normal bar. Otherwise esc confirms quitting —
 // except where it means something closer: it goes back from the bag,
 // merchant or shrine. A chest loot decision and combat remain
 // explicit-only, and in combat the arrows are the move grid's navigation —
@@ -103,6 +107,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+c":
 		return m.dispatch(quitAction())
 	}
+	if m.tooSmall() {
+		return m, nil
+	}
 	if m.confirmQuit {
 		// The prompt is modal: only y confirms, anything else — n, esc,
 		// arrows, unknown letters — cancels with no dispatch, no log.
@@ -118,6 +125,70 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.overlay = false
 		return m, nil
 	}
+	if m.bagVisible() {
+		key := strings.ToLower(msg.String())
+		if key == "esc" || key == "c" {
+			if m.consumablePicker {
+				m.consumablePicker = false
+				m.consumablesTab = false
+				m.bagCursor = 0
+				return m, nil
+			}
+			return m.dispatch(backAction(m.engine.State))
+		}
+		if key == "tab" && m.engine.State != engine.StateCombat {
+			if m.consumablePicker {
+				// Equipment uses the existing engine inventory workflow.
+				m.consumablePicker = false
+				next, cmd := m.dispatch(action{cmd: engine.CmdInventory})
+				m = next.(Model)
+				m.consumablesTab = false
+				return m, cmd
+			}
+			m.consumablesTab = !m.consumablesTab
+			m.bagCursor, m.cursor = 0, 0
+			return m, nil
+		}
+		if key == "i" && m.engine.State != engine.StateCombat {
+			m.consumablesTab = false
+			m.bagCursor, m.cursor = 0, 0
+			if m.consumablePicker {
+				m.consumablePicker = false
+				return m.dispatch(action{cmd: engine.CmdInventory})
+			}
+			return m, nil
+		}
+		if key == "h" {
+			m.consumablesTab = true
+			m.bagCursor, m.cursor = 0, 0
+			return m, nil
+		}
+		if m.consumablesTab {
+			switch key {
+			case "left", "right":
+				if n := len(m.consumableStacks()); n > 0 {
+					step := 1
+					if key == "left" {
+						step = -1
+					}
+					m.bagCursor = (m.bagCursor + step + n) % n
+				}
+				return m, nil
+			case "enter":
+				if len(m.consumableStacks()) == 0 {
+					return m, nil
+				}
+				return m.dispatch(action{cmd: engine.CmdUseConsumable, usesIndex: true})
+			case "?":
+				m.overlay = true
+				return m, nil
+			case "q":
+				return m.confirmOrDispatch(quitAction())
+			default:
+				return m, nil
+			}
+		}
+	}
 	switch msg.String() {
 	case "esc":
 		switch m.engine.State {
@@ -126,7 +197,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case engine.StateLoot, engine.StateCombat:
 			return m, nil
 		}
-		return m.dispatch(quitAction())
+		return m.confirmOrDispatch(quitAction())
 	case "left", "right", "up", "down":
 		if m.engine.State == engine.StateCombat {
 			// The move grid owns all four arrows in combat.
@@ -140,6 +211,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if msg.String() == "left" {
 			step = -1
 		}
+		if m.engine.State == engine.StateMerchant {
+			m.merchantRearm = false
+		}
 		if n := m.selectableRows(); n > 0 {
 			m.bagCursor = (m.bagCursor + step + n) % n
 			return m, nil
@@ -148,6 +222,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.cursor = (m.cursor + step + len(actions)) % len(actions)
 		return m, nil
 	case "enter":
+		if m.engine.State == engine.StateMerchant && m.merchantRearm {
+			return m, nil
+		}
 		if m.engine.State == engine.StateCombat {
 			return m.dispatchMove()
 		}
@@ -270,6 +347,15 @@ func (m Model) jumpDispatchMove(digit int) (tea.Model, tea.Cmd) {
 // confirmation — everywhere but game over, where there is nothing left
 // to lose — and dispatches every other action directly.
 func (m Model) confirmOrDispatch(a action) (tea.Model, tea.Cmd) {
+	if a.cmd == engine.CmdUseConsumable {
+		m.consumablesTab = true
+		m.consumablePicker = m.engine.State != engine.StateInventory
+		m.bagCursor, m.cursor = 0, 0
+		return m, nil
+	}
+	if a.cmd == engine.CmdInventory {
+		m.consumablesTab, m.consumablePicker = false, false
+	}
 	if a.cmd == engine.CmdQuit && m.engine.State != engine.StateGameOver {
 		m.confirmQuit = true
 		return m, nil
@@ -293,6 +379,9 @@ func (m Model) selectedAction() action {
 // list while shopping. 0 where there is nothing to select — the arrows
 // then move the action-bar cursor instead.
 func (m Model) selectableRows() int {
+	if m.bagVisible() && m.consumablesTab {
+		return len(m.consumableStacks())
+	}
 	switch m.engine.State {
 	case engine.StateInventory:
 		return len(m.engine.Player.Bag())
@@ -321,6 +410,13 @@ func (m Model) selectableRows() int {
 // wrong section sends an out-of-range index, which the engine rejects
 // as a generic message — never a panic, no state change.
 func (m Model) indexFor(cmd engine.CommandType) int {
+	if cmd == engine.CmdUseConsumable {
+		rows := m.consumableStacks()
+		if len(rows) == 0 {
+			return -1
+		}
+		return rows[min(max(m.bagCursor, 0), len(rows)-1)].index
+	}
 	if cmd == engine.CmdSell {
 		return m.bagCursor - len(m.engine.MerchantStock)
 	}
@@ -344,6 +440,8 @@ func (m Model) dispatch(a action) (tea.Model, tea.Cmd) {
 		}
 	}
 	prevState := m.engine.State
+	prevRow, prevStock := m.bagCursor, len(m.engine.MerchantStock)
+	wasConsumables := m.bagVisible() && m.consumablesTab
 	m.feedback = ""
 	events := m.engine.Process(cmd)
 	enteredCombat := prevState != engine.StateCombat && m.engine.State == engine.StateCombat
@@ -361,14 +459,47 @@ func (m Model) dispatch(a action) (tea.Model, tea.Cmd) {
 		if ev.Type == engine.EventQuit {
 			quit = true
 		}
+		if ev.Type == engine.EventConsumableUsed && prevState == engine.StateCombat {
+			m.consumablePicker, m.consumablesTab = false, false
+		}
 	}
 	if exitedCombat {
 		m.gridCursor = 0
+		m.consumablePicker, m.consumablesTab = false, false
 	}
 	m.log = trimLog(m.log)
-	m.cursor = 0    // the action bar is rebuilt for the (possibly new) state
-	m.bagCursor = 0 // re-entering the bag (or the shop) selects the first row again
+	m.cursor = 0 // the action bar is rebuilt for the (possibly new) state
+	m.bagCursor = 0
+	if prevState == engine.StateMerchant && m.engine.State == engine.StateMerchant {
+		m.bagCursor = prevRow
+		for _, ev := range events {
+			switch ev.Type {
+			case engine.EventItemBought:
+				if n := len(m.engine.MerchantStock); n > 0 {
+					m.bagCursor = min(prevRow, n-1)
+				} else {
+					m.bagCursor = 0
+					m.merchantRearm = true
+				}
+			case engine.EventItemSold:
+				if n := len(m.engine.Player.Bag()); n > 0 {
+					m.bagCursor = len(m.engine.MerchantStock) + min(prevRow-prevStock, n-1)
+				} else {
+					m.bagCursor = 0
+					m.merchantRearm = true
+				}
+			}
+		}
+	} else {
+		m.merchantRearm = false
+	}
 	m.confirmQuit = false
+	if wasConsumables && m.bagVisible() && m.consumablesTab {
+		m.bagCursor = min(prevRow, max(len(m.consumableStacks())-1, 0))
+	}
+	if prevState == engine.StateInventory && m.engine.State != prevState {
+		m.consumablesTab = false
+	}
 	if quit {
 		return m, tea.Quit
 	}

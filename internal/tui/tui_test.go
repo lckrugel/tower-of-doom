@@ -64,11 +64,11 @@ func TestExploreShortcutStartsEncounter(t *testing.T) {
 
 // The quit-confirmation tests live in quit_test.go.
 
-// esc quits outside menus. The bag, merchant and shrine use it for their
+// esc quits immediately only at game over. The bag, merchant and shrine use it for their
 // shared Back action; loot and combat remain explicit-only decisions.
 func TestEscapeAlsoQuits(t *testing.T) {
 	for _, state := range []engine.GameState{
-		engine.StateExploring, engine.StateEncounter, engine.StateGameOver,
+		engine.StateGameOver,
 	} {
 		m := New(testEngine())
 		m.engine.State = state
@@ -155,9 +155,9 @@ func TestUnknownKeyIsANoOp(t *testing.T) {
 }
 
 func TestArrowKeysMoveTheCursorWithWraparound(t *testing.T) {
-	m := New(testEngine()) // exploring: 5 actions
-	if got := len(actionsFor(m.engine)); got != 5 {
-		t.Fatalf("setup: exploring actions = %d, want 5", got)
+	m := New(testEngine()) // exploring: 6 actions
+	if got := len(actionsFor(m.engine)); got != 6 {
+		t.Fatalf("setup: exploring actions = %d, want 6", got)
 	}
 
 	m, _ = press(m, "right")
@@ -171,8 +171,8 @@ func TestArrowKeysMoveTheCursorWithWraparound(t *testing.T) {
 	}
 
 	m, _ = press(m, "left")
-	if m.cursor != 4 {
-		t.Fatalf("left from cursor 0 = %d, want wraparound to 4", m.cursor)
+	if m.cursor != 5 {
+		t.Fatalf("left from cursor 0 = %d, want wraparound to 5", m.cursor)
 	}
 }
 

@@ -77,6 +77,66 @@ func TestMerchantCursorWalksStockThenBag(t *testing.T) {
 	}
 }
 
+func TestMerchantRetainsSectionSelectionAndRequiresRearm(t *testing.T) {
+	for _, tc := range []struct {
+		name, key                  string
+		stock, bag, selected, want int
+	}{
+		{"rejected", "p", 3, 1, 2, 2},
+		{"wrong section", "v", 3, 1, 2, 2},
+		{"buy neighbor", "p", 3, 0, 1, 1},
+		{"sell neighbor", "v", 2, 3, 4, 3},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			gold := 1000
+			if tc.name == "rejected" {
+				gold = 0
+			}
+			m := New(merchantEngine(tc.stock, tc.bag, gold))
+			m.bagCursor = tc.selected
+			m, _ = press(m, tc.key)
+			if m.bagCursor != tc.want {
+				t.Fatalf("cursor=%d want %d", m.bagCursor, tc.want)
+			}
+		})
+	}
+	for _, selling := range []bool{false, true} {
+		m := New(merchantEngine(1, 1, 1000))
+		if selling {
+			m.bagCursor = 1
+		}
+		m, _ = press(m, "enter")
+		gold, bag := m.engine.Player.Gold, len(m.engine.Player.Bag())
+		for _, key := range []string{"enter", "?", "?", "q", "n", "enter"} {
+			m, _ = press(m, key)
+		}
+		if m.engine.Player.Gold != gold || len(m.engine.Player.Bag()) != bag {
+			t.Fatal("Enter crossed merchant sections")
+		}
+		if !strings.Contains(stripANSI(m.View()), "rearm") {
+			t.Fatal("missing rearm hint")
+		}
+		m, _ = press(m, "right")
+		m, _ = press(m, "enter")
+		if m.engine.Player.Gold == gold {
+			t.Fatal("navigation did not rearm Enter")
+		}
+	}
+	t.Run("empty list rearms through action bar navigation", func(t *testing.T) {
+		m := New(merchantEngine(0, 1, 0))
+		m, _ = press(m, "enter")
+		before := len(m.log)
+		m, _ = press(m, "enter")
+		if !m.merchantRearm || len(m.log) != before {
+			t.Fatal("empty merchant did not guard Enter")
+		}
+		m, _ = press(m, "left")
+		if m.merchantRearm {
+			t.Fatal("action bar navigation did not rearm Enter")
+		}
+	})
+}
+
 // BUY is enabled only while the cursor sits on a stock row, SELL only on
 // a bag row — the bar tells the player which rows each key acts on.
 func TestMerchantBuyAndSellFollowTheCursor(t *testing.T) {

@@ -4,34 +4,34 @@ import (
 	"github.com/lckrugel/tower-of-doom/internal/game"
 )
 
-// nextConsumableAsset resolves the next carried consumable to the registry.
-// The first implementation supports the healing-potion definition only.
-func (e *Engine) nextConsumableAsset() (game.ConsumableAsset, bool) {
+// ConsumableAt resolves a raw carried-unit index, not a grouped stack index.
+// Unknown definitions and definitions without healing are not usable.
+func (e *Engine) ConsumableAt(index int) (game.ConsumableAsset, bool) {
 	carried := e.Player.Consumables()
-	if len(carried) == 0 {
+	if index < 0 || index >= len(carried) {
 		return game.ConsumableAsset{}, false
 	}
-	asset, ok := e.reg.ConsumableByID(carried[0])
+	asset, ok := e.ConsumableByID(carried[index])
 	return asset, ok && asset.HealPercent > 0
 }
 
 // useConsumable handles the turn-free exploring/inventory use path.
-func (e *Engine) useConsumable() []Event {
-	asset, ok := e.nextConsumableAsset()
+func (e *Engine) useConsumable(index int) []Event {
+	asset, ok := e.ConsumableAt(index)
 	if !ok {
 		return []Event{NewMessage("You have no usable consumables.")}
 	}
 	if e.Player.CurrentHP >= e.Player.MaxHP() {
 		return []Event{NewMessage("You are already at full health.")}
 	}
-	return e.drinkConsumable(asset)
+	return e.drinkConsumable(asset, index)
 }
 
 // drinkConsumable applies the healing potion when its action actually runs.
 // Combat calls it at the Hero's initiative point, so an enemy that kills the
 // Hero first leaves the potion untouched.
-func (e *Engine) drinkConsumable(asset game.ConsumableAsset) []Event {
-	if !e.Player.RemoveConsumable(asset.ID) {
+func (e *Engine) drinkConsumable(asset game.ConsumableAsset, index int) []Event {
+	if !e.Player.RemoveConsumableAt(index) {
 		return []Event{NewMessage("You no longer have that consumable.")}
 	}
 	amount := e.Player.BaseMaxHP * asset.HealPercent / 100

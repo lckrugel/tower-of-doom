@@ -176,7 +176,7 @@ func (e *Engine) handleExploring(cmd Command) []Event {
 		e.State = StateEncounter
 		return []Event{NewEncounterFound(encounter.Monsters)}
 	case CmdUseConsumable:
-		return e.useConsumable()
+		return e.useConsumable(cmd.Index)
 	case CmdChallengeBoss:
 		return e.challengeBoss()
 	case CmdInventory:
@@ -279,14 +279,14 @@ func (e *Engine) handleCombat(cmd Command) []Event {
 	case CmdFlee:
 		return e.resolveFlee()
 	case CmdUseConsumable:
-		potion, ok := e.nextConsumableAsset()
+		potion, ok := e.ConsumableAt(cmd.Index)
 		if !ok {
 			return []Event{NewMessage("You have no usable consumables.")}
 		}
 		if e.Player.CurrentHP >= e.Player.MaxHP() {
 			return []Event{NewMessage("You are already at full health.")}
 		}
-		return e.resolveConsumableTurn(potion)
+		return e.resolveConsumableTurn(potion, cmd.Index)
 	default:
 		return []Event{NewMessage("Unhandled command")}
 	}
@@ -361,7 +361,7 @@ func (e *Engine) handleInventory(cmd Command) []Event {
 		e.State = StateExploring
 		return []Event{NewMessage("You close your bag.")}
 	case CmdUseConsumable:
-		return e.useConsumable()
+		return e.useConsumable(cmd.Index)
 	default:
 		return []Event{NewMessage("Unhandled command")}
 	}
@@ -714,8 +714,10 @@ func (e *Engine) isValidCommand(cmd Command) bool {
 			return false
 		}
 	}
-	if cmd.Type == CmdUseConsumable && e.Player.ConsumableCount("healing_potion") == 0 {
-		return false
+	if cmd.Type == CmdUseConsumable {
+		if _, ok := e.ConsumableAt(cmd.Index); !ok {
+			return false
+		}
 	}
 	if cmd.Type == CmdBuyConsumable && e.MerchantConsumable == nil {
 		return false

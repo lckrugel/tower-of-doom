@@ -272,7 +272,11 @@ before any deferred level-up changes it.
 
 Gear lives in six equipment slots (head, body, feet, weapon, ring,
 amulet). Equipping/unequipping an item with an HP bonus preserves the
-current HP as a fraction of the previous max (`rescaleHP`).
+current HP as a fraction of the previous max (`rescaleHP`), floored and
+clamped to the new maximum. Equipment changes, including replacements,
+keep a previously living hero at least at 1 HP (when the new max is positive),
+so rounding cannot kill them. Dead heroes are not resurrected. This minimum
+is equipment-specific; level-up rescaling and its subsequent heal are unchanged.
 
 - **Hero bag** — bounded by `InventoryCapacity` = 10. `Hero.StashItem`
   appends at the end (insertion order preserved) and refuses when the bag
@@ -316,7 +320,15 @@ current HP as a fraction of the previous max (`rescaleHP`).
     - The shared pouch holds at most 3 units across all consumable types.
     - The Healing Potion restores `25%` of the Hero's base max HP (equipment
       excluded), floored and clamped. It cannot be used at full HP.
-    - `USE CONSUMABLE` selects the next carried unit. In StateExploring or
+    - `USE CONSUMABLE <index>` selects a raw carried-unit index into
+      `Hero.Consumables()` (default 0 for existing callers).
+      `Engine.ConsumableAt(index)` queries that unit's usable registry
+      definition. The TUI groups equal IDs into stacks in first-carried order
+      and sends the first raw matching index, not the stack row index.
+      The selected definition determines healing; no particular ID is required.
+      Removing a unit preserves the order of all other carried units.
+      Invalid indexes/definitions and full-health attempts spend no item,
+      turn, or RNG. In StateExploring or
       StateInventory it is turn-free; in combat it consumes the Hero's
       action and resolves at normal initiative. The enemy still acts, and
       end-of-turn DoTs and bookkeeping run as usual. If the enemy kills the

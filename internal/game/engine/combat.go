@@ -106,15 +106,20 @@ func (e *Engine) resolveTurn(move *entities.Move) []Event {
 
 // resolveConsumableTurn spends the Hero's action on a consumable. The
 // consumable is applied only when the Hero reaches their initiative point.
-func (e *Engine) resolveConsumableTurn(consumable game.ConsumableAsset) []Event {
-	return e.resolveCombatTurn(nil, &consumable, nil)
+type selectedConsumable struct {
+	asset game.ConsumableAsset
+	index int
+}
+
+func (e *Engine) resolveConsumableTurn(consumable game.ConsumableAsset, index int) []Event {
+	return e.resolveCombatTurn(nil, &selectedConsumable{asset: consumable, index: index}, nil)
 }
 
 // resolveCombatTurn is shared by moves, potions, RECOVER, and enemy-only
 // failure turns (failed sneak/flee). `move`
 // is the hero's chosen move (nil = no hero move action) and
 // `events` any event prefix already collected.
-func (e *Engine) resolveCombatTurn(move *entities.Move, consumable *game.ConsumableAsset, events []Event) []Event {
+func (e *Engine) resolveCombatTurn(move *entities.Move, consumable *selectedConsumable, events []Event) []Event {
 	// Capture the original pair's order once. Same-turn speed changes do
 	// not reorder either action opportunities or end-of-turn DoT recipients.
 	heroFirst := e.heroStat(entities.StatSPD) >= e.enemyStat(entities.StatSPD)
@@ -128,7 +133,7 @@ func (e *Engine) resolveCombatTurn(move *entities.Move, consumable *game.Consuma
 			return e.heroStrike(move)
 		}
 		if consumable != nil {
-			return e.drinkConsumable(*consumable)
+			return e.drinkConsumable(consumable.asset, consumable.index)
 		}
 		return nil
 	}

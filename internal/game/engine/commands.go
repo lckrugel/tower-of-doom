@@ -89,7 +89,7 @@ const (
 	// everything as it was — both learned moves and no choice — and
 	// exploring continues with nothing pending.
 	CmdDecline
-	// Uses the next carried consumable. In combat this spends the Hero's
+	// Uses the raw carried consumable unit at Index (default 0). In combat this spends the Hero's
 	// action; while exploring or viewing the bag it has no turn cost.
 	CmdUseConsumable
 	// Buys the merchant's single consumable offer (StateMerchant).
@@ -106,7 +106,8 @@ type Command struct {
 	// bag index); the stock index into Engine.MerchantStock for CmdBuy;
 	// the pending-offer index into Engine.PendingMoves for the shrine's
 	// CmdChooseOffer (StateLearn's choosing step); the learned-move
-	// index for the shrine's CmdForget (StateLearn's forgetting step).
+	// index for the shrine's CmdForget (StateLearn's forgetting step);
+	// the raw unit index into Hero.Consumables() for CmdUseConsumable.
 	// Every other command ignores it. An out-of-range/negative index is
 	// rejected as a generic invalid command (EventMessage) with no state
 	// change — never a panic.

@@ -55,6 +55,37 @@ func TestNewPlayerStartsWithNoGold(t *testing.T) {
 	}
 }
 
+func TestEquipmentRescaleKeepsLivingHeroAlive(t *testing.T) {
+	for _, action := range []string{"equip", "replace", "unequip"} {
+		for _, hp := range []int{0, 1, 151, 400} {
+			t.Run(fmt.Sprintf("%s HP=%d", action, hp), func(t *testing.T) {
+				h := NewPlayer()
+				if action != "equip" {
+					h.EquipItem(newTestItem(game.ItemAsset{Slot: amulet, BonusHP: 200}))
+				}
+				h.CurrentHP = hp
+				oldMax := h.MaxHP()
+				if action == "unequip" {
+					h.UnequipItem(amulet)
+				} else {
+					bonus := 0
+					if action == "equip" {
+						bonus = -50
+					}
+					h.EquipItem(newTestItem(game.ItemAsset{Slot: amulet, BonusHP: bonus}))
+				}
+				want := min(hp*h.MaxHP()/oldMax, h.MaxHP())
+				if hp > 0 {
+					want = max(1, want)
+				}
+				if h.CurrentHP != want {
+					t.Fatalf("HP = %d, want %d", h.CurrentHP, want)
+				}
+			})
+		}
+	}
+}
+
 func TestHeroConsumablesUseSeparateBoundedStorage(t *testing.T) {
 	h := NewPlayer()
 	if len(h.Bag()) != 0 || len(h.Consumables()) != 0 {

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -85,5 +86,100 @@ func TestRunPropagatesTUIFailure(t *testing.T) {
 	code := run(nil, &out, &stderr, getenv, func(*engine.Engine) error { return wantErr })
 	if code != 1 || !strings.Contains(stderr.String(), wantErr.Error()) {
 		t.Fatalf("run code=%d stderr=%q, want 1 and TUI diagnostic", code, stderr.String())
+	}
+}
+
+func TestRunConsumablesOnlyMods(t *testing.T) {
+	for _, source := range []string{"flag", "env", "default"} {
+		t.Run(source, func(t *testing.T) {
+			root := t.TempDir()
+			env := map[string]string{"HOME": root}
+			dir := filepath.Join(root, "mod")
+			var args []string
+			switch source {
+			case "flag":
+				args = []string{"--mods", dir}
+			case "env":
+				env["TOD_MODS"] = dir
+			case "default":
+				switch runtime.GOOS {
+				case "windows":
+					env["APPDATA"] = filepath.Join(root, "appdata")
+					dir = filepath.Join(env["APPDATA"], "tower-of-doom", "mods")
+				case "darwin":
+					dir = filepath.Join(root, "Library", "Application Support", "tower-of-doom", "mods")
+				default:
+					env["XDG_DATA_HOME"] = filepath.Join(root, "data")
+					dir = filepath.Join(env["XDG_DATA_HOME"], "tower-of-doom", "mods")
+				}
+			}
+			getenv := func(key string) string { return env[key] }
+			if err := os.MkdirAll(dir, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			file := filepath.Join(dir, "consumables.json")
+			write := func(data string) {
+				t.Helper()
+				if err := os.WriteFile(file, []byte(data), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			// A literal, single-file fixture must not inherit the CLI detection list.
+			write(`[{"id":"mod_tonic","name":"Mod Tonic","heal_percent":37,"price":13}]`)
+			var out, stderr bytes.Buffer
+			if code := run(append([]string{"--paths"}, args...), &out, &stderr, getenv, func(*engine.Engine) error {
+				t.Fatal("--paths must not start TUI")
+				return nil
+			}); code != 0 {
+				t.Fatalf("--paths code=%d stderr=%s", code, stderr.String())
+			}
+			if !strings.Contains(out.String(), "consumables: external ("+dir+")") {
+				t.Errorf("missing external consumables provenance: %s", out.String())
+			}
+			for _, name := range []string{"monsters", "items", "moves", "statuses", "sections"} {
+				if !strings.Contains(out.String(), name+": embedded") {
+					t.Errorf("missing embedded %s provenance: %s", name, out.String())
+				}
+			}
+			out.Reset()
+			stderr.Reset()
+			started := false
+			if code := run(args, &out, &stderr, getenv, func(e *engine.Engine) error {
+				started = true
+				asset, ok := e.ConsumableByID("mod_tonic")
+				if !ok || asset.Name != "Mod Tonic" || asset.HealPercent != 37 || asset.Price != 13 {
+					t.Errorf("startup consumable = %+v, found=%v", asset, ok)
+				}
+				return nil
+			}); code != 0 || !started {
+				t.Errorf("startup code=%d started=%v stderr=%s", code, started, stderr.String())
+			}
+			write(`[{"id":"mod_tonic","name":"Mod Tonic","heal_percent":0,"price":13}]`)
+			for _, mode := range [][]string{args, append([]string{"--paths"}, args...)} {
+				stderr.Reset()
+				if code := run(mode, &out, &stderr, getenv, func(*engine.Engine) error {
+					t.Fatal("invalid content must not start TUI")
+					return nil
+				}); code != 1 || !strings.Contains(stderr.String(), "invalid game content:") {
+					t.Errorf("invalid consumable: code=%d stderr=%s", code, stderr.String())
+				}
+			}
+			if err := os.Remove(file); err != nil {
+				t.Fatal(err)
+			}
+			out.Reset()
+			stderr.Reset()
+			code := run(append([]string{"--paths"}, args...), &out, &stderr, getenv, func(*engine.Engine) error {
+				t.Fatal("--paths must not start TUI")
+				return nil
+			})
+			if source == "flag" {
+				if code != 2 || !strings.Contains(stderr.String(), "holds no asset files") {
+					t.Errorf("empty explicit mod: code=%d stderr=%s", code, stderr.String())
+				}
+			} else if code != 0 || !strings.Contains(out.String(), "assets: embedded") {
+				t.Errorf("empty discovered mod: code=%d out=%s stderr=%s", code, out.String(), stderr.String())
+			}
+		})
 	}
 }

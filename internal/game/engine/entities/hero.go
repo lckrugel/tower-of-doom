@@ -236,11 +236,19 @@ func (h *Hero) AddConsumable(id string) bool {
 func (h *Hero) RemoveConsumable(id string) bool {
 	for i, carried := range h.consumables {
 		if carried == id {
-			h.consumables = slices.Delete(h.consumables, i, i+1)
-			return true
+			return h.RemoveConsumableAt(i)
 		}
 	}
 	return false
+}
+
+// RemoveConsumableAt consumes the raw carried unit at index, preserving order.
+func (h *Hero) RemoveConsumableAt(index int) bool {
+	if index < 0 || index >= len(h.consumables) {
+		return false
+	}
+	h.consumables = slices.Delete(h.consumables, index, index+1)
+	return true
 }
 
 // TakeDmg applies damage as a plain clamp: negative damage is ignored
@@ -254,13 +262,12 @@ func (h *Hero) TakeDmg(dmg int) int {
 	return dmgReceived
 }
 
-// rescaleHP reaplica o % de vida atual após uma mudança no HP máximo.
+// rescaleHP preserves the current HP fraction after a maximum HP change.
 //
-// oldMax deve ser o HP máximo ANTES da mudança; a vida atual é preservada
-// como fração do máximo (floor), limitada ao novo máximo.
+// oldMax is the maximum before the change; the result is floored and clamped.
 func (h *Hero) rescaleHP(oldMax, newMax int) {
 	if oldMax <= 0 || newMax <= 0 {
-		// Sem máximo válido para escalar — mantém CurrentHP como está.
+		// Without valid maxima, leave CurrentHP unchanged.
 		return
 	}
 	scaled := h.CurrentHP * newMax / oldMax
@@ -268,6 +275,17 @@ func (h *Hero) rescaleHP(oldMax, newMax int) {
 		scaled = 0
 	}
 	h.CurrentHP = min(scaled, newMax)
+}
+
+// rescaleEquipmentHP cannot kill a previously living hero through rounding.
+// Keep this equipment-only: level-up rescaling and healing are unchanged.
+func (h *Hero) rescaleEquipmentHP(oldMax int) {
+	alive := h.IsAlive()
+	newMax := h.MaxHP()
+	h.rescaleHP(oldMax, newMax)
+	if alive && newMax > 0 {
+		h.CurrentHP = min(newMax, max(1, h.CurrentHP))
+	}
 }
 
 func (h *Hero) EquipItem(i *Item) *Item {
@@ -278,7 +296,7 @@ func (h *Hero) EquipItem(i *Item) *Item {
 	oldItem := h.replaceEquippedItem(i.Slot, i)
 	// A replacement is one equipment change. Rescale from the original
 	// maximum directly to the final maximum, without intermediate rounding.
-	h.rescaleHP(oldMax, h.MaxHP())
+	h.rescaleEquipmentHP(oldMax)
 	return oldItem
 }
 
@@ -304,14 +322,14 @@ func (h *Hero) replaceEquippedItem(slot ItemSlot, replacement *Item) *Item {
 }
 
 func (h *Hero) UnequipItem(slot ItemSlot) *Item {
-	// Máximo antes do item sair do slot.
+	// Capture the maximum before removing the item.
 	oldMax := h.MaxHP()
 
 	item := h.replaceEquippedItem(slot, nil)
 
-	// Preserva o % de vida quando o item que saiu muda o HP máximo.
+	// Preserve the HP fraction when removing an HP-changing item.
 	if item != nil && item.BonusHP != 0 {
-		h.rescaleHP(oldMax, h.MaxHP())
+		h.rescaleEquipmentHP(oldMax)
 	}
 	return item
 }

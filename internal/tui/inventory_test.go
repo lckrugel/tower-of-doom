@@ -479,3 +479,75 @@ func TestRejectedLootActionIsVisibleInPanel(t *testing.T) {
 		t.Fatalf("loot panel omitted rejection feedback %q:\n%s", m.feedback, stripANSI(m.lootPanel()))
 	}
 }
+
+func TestConsumableTabsAndRawStackSelection(t *testing.T) {
+	e := engine.NewEngine(&game.Registry{Consumables: map[string]game.ConsumableAsset{
+		"tea": {ID: "tea", Name: "Moon Tea", HealPercent: 10}, "elixir": {ID: "elixir", Name: "Sun Elixir", HealPercent: 30},
+	}})
+	for _, id := range []string{"tea", "elixir", "tea"} {
+		e.Player.AddConsumable(id)
+	}
+	e.Player.CurrentHP = 40
+	m := New(e)
+	before := len(m.log)
+	m, _ = press(m, "h")
+	for _, want := range []string{"Consumables", "Moon Tea", "×2", "Sun Elixir", "+30%", "3/3", "Enter use is turn-free"} {
+		if !strings.Contains(stripANSI(m.View()), want) {
+			t.Fatalf("missing %q in picker:\n%s", want, stripANSI(m.View()))
+		}
+	}
+	m, _ = press(m, "h")
+	if e.Player.CurrentHP != 40 || len(m.log) != before {
+		t.Fatal("H while open dispatched")
+	}
+	m, _ = press(m, "right")
+	m, _ = press(m, "enter")
+	if e.Player.CurrentHP != 70 || e.Player.ConsumableCount("elixir") != 0 || e.Player.ConsumableCount("tea") != 2 || !m.consumablesTab {
+		t.Fatal("stack did not use raw nonzero unit or stay open")
+	}
+	m, _ = press(m, "tab")
+	if m.consumablesTab {
+		t.Fatal("Tab did not select Equipment")
+	}
+	m, _ = press(m, "tab")
+	if !m.consumablesTab {
+		t.Fatal("Tab did not select Consumables")
+	}
+	m, _ = press(m, "esc")
+	if e.State != engine.StateExploring || m.consumablePicker {
+		t.Fatal("Back did not return to exploring")
+	}
+	m, _ = press(m, "i")
+	if m.consumablesTab {
+		t.Fatal("I did not open Equipment")
+	}
+	m, _ = press(m, "h")
+	e.Player.CurrentHP = e.Player.MaxHP()
+	m, _ = press(m, "enter")
+	if len(e.Player.Consumables()) != 2 || !m.consumablesTab {
+		t.Fatal("full HP changed units or closed tab")
+	}
+}
+
+func TestCombatConsumablePickerIsFreeAndRestricted(t *testing.T) {
+	for _, key := range []string{"esc", "c"} {
+		e := combatEngine()
+		m := enterCombat(t, e)
+		m.gridCursor = 1
+		before, hp := len(m.log), e.Player.CurrentHP
+		m, _ = press(m, "h")
+		if !strings.Contains(stripANSI(m.View()), "Enter use costs one turn") {
+			t.Fatal("combat picker omitted use turn cost")
+		}
+		for _, k := range []string{"tab", "i", "w", "x", "h", "1"} {
+			m, _ = press(m, k)
+		}
+		if !m.consumablePicker || e.State != engine.StateCombat || len(m.log) != before || e.Player.CurrentHP != hp {
+			t.Fatal("picker navigation advanced combat")
+		}
+		m, _ = press(m, key)
+		if m.consumablePicker || m.gridCursor != 1 || len(m.log) != before {
+			t.Fatal("cancel did not restore grid freely")
+		}
+	}
+}
