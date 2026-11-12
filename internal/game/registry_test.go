@@ -115,6 +115,46 @@ func TestEmbeddedProgression(t *testing.T) {
 	}
 }
 
+func TestEmbeddedEarlyBossIsolation(t *testing.T) {
+	r, err := Load("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"gateworks_lockmaster", "emberforged_marshal"} {
+		boss, ok := r.Monsters[id]
+		if !ok {
+			t.Errorf("missing dedicated boss %s", id)
+			continue
+		}
+		if len(boss.Moves) != 4 || boss.AI == nil {
+			t.Errorf("%s must have a four-move conditional kit", id)
+		}
+		for _, ref := range boss.Moves {
+			move, ok := r.Moves[ref.ID]
+			if !ok || move.Type != "creature" || move.Learnable {
+				t.Errorf("%s move %s must be creature-only and unlearnable", id, ref.ID)
+			}
+			for _, offered := range r.MovesForTiers(nil) {
+				if offered.ID == ref.ID {
+					t.Errorf("boss move %s leaked into shrine pool", ref.ID)
+				}
+			}
+		}
+		for _, section := range r.Sections {
+			for _, spawn := range section.Spawns {
+				if spawn.MonsterID == id {
+					t.Errorf("boss %s leaked into regular spawns in %s", id, section.ID)
+				}
+			}
+		}
+	}
+	for _, id := range []string{"goblin_chief", "orc_warlord"} {
+		if _, ok := r.Monsters[id]; !ok {
+			t.Errorf("legacy monster %s must remain available to mods", id)
+		}
+	}
+}
+
 func TestMoveEffectsDecodeAndValidate(t *testing.T) {
 	var mv MoveAsset
 	err := json.Unmarshal([]byte(`{"id":"m","name":"M","type":"both","tier":1,"cooldown":0,"weight":1,"effects":[{"type":"damage","target":"enemy","dmg_modifier":120},{"type":"heal","target":"self","flat":5,"percent":10},{"type":"status","target":"enemy","status":{"id":"poison","chance":50}}]}`), &mv)

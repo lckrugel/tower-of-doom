@@ -20,10 +20,9 @@
     ],
     "boss": {
       "monsters": [
-        "goblin_chief",
-        "hobgoblin"
+        "gateworks_lockmaster"
       ],
-      "gold": 250
+      "gold": 265
     },
     "spawns": [
       {
@@ -92,11 +91,9 @@
     ],
     "boss": {
       "monsters": [
-        "orc_warlord",
-        "orc_berserker",
-        "orc"
+        "emberforged_marshal"
       ],
-      "gold": 1000
+      "gold": 1035
     }
   },
   {
