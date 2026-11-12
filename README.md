@@ -62,7 +62,7 @@ A mod is a flat directory holding any of six JSON files:
 
 The overlay is per file: a file present in the directory replaces the embedded
 one as a whole, and any file you leave out falls back to the embedded version.
-A directory holding at least one of the five counts as a mod.
+A directory holding at least one of the six counts as a mod.
 Unknown JSON fields are rejected, so misspelled asset fields fail validation
 instead of silently taking their zero value.
 

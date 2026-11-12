@@ -32,13 +32,13 @@ const validateHorizon = 100_000
 // assetFiles are the flat overlay files a mod directory may provide. A
 // directory holding none of them is not a mod — notably an empty
 // conventional mods directory, which must not flip provenance.
-var assetFiles = []string{"monsters.json", "items.json", "moves.json", "statuses.json", "sections.json"}
+var assetFiles = []string{"monsters.json", "items.json", "moves.json", "statuses.json", "consumables.json", "sections.json"}
 
 const usage = `usage: tower-of-doom [flags]
 
   --mods <dir>   flat directory of mod asset JSONs to overlay on the
                  embedded assets (monsters, items, moves, statuses,
-                 sections). Files missing from the directory fall back
+                 consumables, sections). Missing files fall back
                  to the embedded ones.
   --paths        print the resolved mods directory and where each asset
                  file came from, then exit without starting the game.
@@ -171,7 +171,7 @@ func modsLoadDir(dir string) string {
 	return ""
 }
 
-// hasAssetFiles reports whether dir holds at least one of the five flat
+// hasAssetFiles reports whether dir holds at least one of the six flat
 // overlay asset files.
 func hasAssetFiles(dir string) bool {
 	for _, name := range assetFiles {
