@@ -122,6 +122,19 @@ func TestMerchantRetainsSectionSelectionAndRequiresRearm(t *testing.T) {
 			t.Fatal("navigation did not rearm Enter")
 		}
 	}
+	t.Run("empty list rearms through action bar navigation", func(t *testing.T) {
+		m := New(merchantEngine(0, 1, 0))
+		m, _ = press(m, "enter")
+		before := len(m.log)
+		m, _ = press(m, "enter")
+		if !m.merchantRearm || len(m.log) != before {
+			t.Fatal("empty merchant did not guard Enter")
+		}
+		m, _ = press(m, "left")
+		if m.merchantRearm {
+			t.Fatal("action bar navigation did not rearm Enter")
+		}
+	})
 }
 
 // BUY is enabled only while the cursor sits on a stock row, SELL only on

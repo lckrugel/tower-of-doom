@@ -145,6 +145,9 @@ func (m Model) rightAnchor() lipgloss.Position {
 // the equipped panel: the trade states where the hero faces gear
 // choices (chest decision, bag, shop).
 func (m Model) showsEquipment() bool {
+	if m.consumablePicker {
+		return false
+	}
 	switch m.engine.State {
 	case engine.StateLoot, engine.StateInventory, engine.StateMerchant:
 		return true
@@ -248,12 +251,12 @@ func badgeText(state engine.GameState) string {
 // part of it: they live in their own slot anchored above the shortcut
 // bar, so they never move between states.
 func (m Model) body() string {
+	if m.bagVisible() && m.consumablesTab {
+		return m.consumablesPanel()
+	}
 	switch m.engine.State {
 	case engine.StateExploring:
-		lines := []string{"The tower awaits — EXPLORE to investigate."}
-		if potion, ok := m.engine.ConsumableByID("healing_potion"); ok {
-			lines = append(lines, styleDim.Render(fmt.Sprintf("%s restores %d%% of base max HP.", potion.Name, potion.HealPercent)))
-		}
+		lines := []string{"The tower awaits — EXPLORE to investigate.", "[I] Equipment · [H] Consumables"}
 		return strings.Join(lines, "\n")
 	case engine.StateLoot: // the pending item, ahead of the three-way choice
 		return m.lootPanel()
@@ -299,11 +302,7 @@ func (m Model) inventoryPanel() string {
 	var b strings.Builder
 	bag := m.engine.Player.Bag()
 	b.WriteString(m.panelHeading(fmt.Sprintf("◈ BAG (%d/%d)", len(bag), entities.InventoryCapacity)) + "\n")
-	b.WriteString(styleDim.Render(fmt.Sprintf("  POTIONS %d/%d", len(m.engine.Player.Consumables()), entities.ConsumableCapacity)))
-	if potion, ok := m.engine.ConsumableByID("healing_potion"); ok {
-		b.WriteString(styleDim.Render(fmt.Sprintf(" · %d%% base max HP each", potion.HealPercent)))
-	}
-	b.WriteString("\n")
+	b.WriteString(styleDim.Render("  Equipment · [Tab] Consumables") + "\n")
 	if len(bag) == 0 {
 		return b.String() + styleDim.Render("   (the bag is empty)")
 	}
@@ -317,6 +316,29 @@ func (m Model) inventoryPanel() string {
 		}
 	}
 	return b.String()
+}
+
+func (m Model) consumablesPanel() string {
+	rows := []string{m.panelHeading(fmt.Sprintf("◈ Consumables (%d/%d units)", len(m.engine.Player.Consumables()), entities.ConsumableCapacity))}
+	if m.engine.State == engine.StateCombat {
+		rows = append(rows, styleDim.Render("  Combat picker · [C/Esc] Back (free)"))
+	} else {
+		rows = append(rows, styleDim.Render("  Consumables · [Tab] Equipment · [C/Esc] Back"))
+	}
+	stacks := m.consumableStacks()
+	if len(stacks) == 0 {
+		rows = append(rows, styleDim.Render("   (no consumables)"))
+	}
+	for i, stack := range stacks {
+		line := fmt.Sprintf("%s ×%d · +%d%% base max HP", stack.asset.Name, stack.count, stack.asset.HealPercent)
+		line = truncateRunes(line, m.layout().MainWidth-2)
+		if i == min(max(m.bagCursor, 0), len(stacks)-1) {
+			rows = append(rows, styleSelected.Render("▶ "+line))
+		} else {
+			rows = append(rows, "  "+line)
+		}
+	}
+	return strings.Join(rows, "\n")
 }
 
 // merchantPanel is the shop screen: the merchant's offers on top, the
@@ -909,7 +931,7 @@ func (m Model) heroPanel() string {
 	// The purse shares the stats line, dim like the panel's XP segment:
 	// the panel labels stay quiet, the log carries the gold-colored news.
 	b.WriteString(styleDim.Render(fmt.Sprintf("GOLD %d", p.Gold)))
-	b.WriteString(styleDim.Render(fmt.Sprintf(" · POT %d/%d", len(p.Consumables()), entities.ConsumableCapacity)))
+	b.WriteString(styleDim.Render(fmt.Sprintf(" · CON %d/%d", len(p.Consumables()), entities.ConsumableCapacity)))
 	return b.String()
 }
 
@@ -1058,7 +1080,7 @@ func (m Model) actionBar() string {
 	// decision to make.
 	switch m.engine.State {
 	case engine.StateInventory:
-		hint = "   ← → item · ⏎ confirm"
+		hint = "   ← → item · Tab category · ⏎ confirm"
 	case engine.StateMerchant:
 		hint = "   ← → row · ⏎ act"
 		if m.merchantRearm {
@@ -1072,6 +1094,9 @@ func (m Model) actionBar() string {
 		} else {
 			hint = "   ← → pick a teaching"
 		}
+	}
+	if m.bagVisible() && m.consumablesTab {
+		hint = "   ← → stack · ⏎ use"
 	}
 	if hint == "" {
 		return lipgloss.JoinHorizontal(lipgloss.Center, strings.Join(spots, sep))

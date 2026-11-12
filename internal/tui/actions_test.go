@@ -71,11 +71,11 @@ func TestActionsPerState(t *testing.T) {
 		withStock bool // the shop's offers (BUY needs one to be enabled)
 		wantKeys  []string
 	}{
-		{"exploring", engine.StateExploring, false, false, []string{"e", "u", "g", "i", "q"}},
+		{"exploring", engine.StateExploring, false, false, []string{"e", "u", "g", "i", "h", "q"}},
 		{"encounter", engine.StateEncounter, false, false, []string{"f", "s", "q"}},
-		{"combat", engine.StateCombat, false, false, []string{"r", "q"}}, // moves live in the grid
+		{"combat", engine.StateCombat, false, false, []string{"r", "h", "q"}}, // moves live in the grid
 		{"loot", engine.StateLoot, false, false, []string{"w", "b", "d", "q"}},
-		{"inventory", engine.StateInventory, true, false, []string{"w", "x", "c", "q"}},
+		{"inventory", engine.StateInventory, true, false, []string{"w", "x", "h", "c", "q"}},
 		{"merchant", engine.StateMerchant, true, true, []string{"p", "v", "c", "q"}},
 		{"learn choosing", engine.StateLearn, false, false, []string{"l", "c", "q"}},
 		{"game over", engine.StateGameOver, false, false, []string{"q"}},

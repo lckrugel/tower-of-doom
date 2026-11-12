@@ -1,9 +1,9 @@
 package tui
 
 import (
-	"fmt"
 	"slices"
 
+	"github.com/lckrugel/tower-of-doom/internal/game"
 	"github.com/lckrugel/tower-of-doom/internal/game/engine"
 )
 
@@ -48,7 +48,6 @@ var orderedOptions = []struct {
 	// ASCEND precedent), lit once a final-floor victory unlocked it.
 	{"g", "Boss", engine.CmdChallengeBoss},
 	{"i", "Inventory", engine.CmdInventory},
-	{"h", "Potion", engine.CmdUseConsumable},
 	{"f", "Fight", engine.CmdFight},
 	{"s", "Sneak", engine.CmdSneak},
 	// CmdMove is deliberately absent: in combat the moves live in the
@@ -58,9 +57,10 @@ var orderedOptions = []struct {
 	{"b", "Bag", engine.CmdStashLoot}, // stash the chest loot in the bag
 	{"d", "Discard", engine.CmdDiscardLoot},
 	{"x", "Drop", engine.CmdDrop}, // destroy the selected bag item
+	{"h", "Consumables", engine.CmdUseConsumable},
 	{"c", "Back", engine.CmdClose},
 	{"p", "Buy", engine.CmdBuy}, // buy the offer under the shop cursor
-	{"o", "Buy Potion", engine.CmdBuyConsumable},
+	{"o", "Buy Consumable", engine.CmdBuyConsumable},
 	{"v", "Sell", engine.CmdSell}, // sell the selected bag item
 	{"c", "Back", engine.CmdLeave},
 	// The shrine's two steps: [L] Learn picks one of the pending offers
@@ -83,9 +83,6 @@ func actionsFor(e *engine.Engine) []action {
 	actions := make([]action, 0, len(allowed))
 	for _, opt := range orderedOptions {
 		if !slices.Contains(allowed, opt.cmd) {
-			continue
-		}
-		if opt.cmd == engine.CmdUseConsumable && e.Player.ConsumableCount("healing_potion") == 0 {
 			continue
 		}
 		if opt.cmd == engine.CmdBuyConsumable && e.MerchantConsumable == nil {
@@ -114,10 +111,7 @@ func actionsFor(e *engine.Engine) []action {
 		case engine.CmdSell:
 			enabled = len(e.Player.Bag()) > 0
 		case engine.CmdUseConsumable:
-			enabled = e.Player.ConsumableCount("healing_potion") > 0 && e.Player.CurrentHP < e.Player.MaxHP()
-			if potion, ok := e.ConsumableByID("healing_potion"); ok {
-				label = fmt.Sprintf("Potion (+%d%%)", potion.HealPercent)
-			}
+			enabled = true // opens an inspectable picker, even when empty
 		case engine.CmdBuyConsumable:
 			enabled = e.MerchantConsumable != nil && e.Player.HasConsumableRoom()
 		}
@@ -142,16 +136,7 @@ func combatActions(e *engine.Engine) []action {
 	actions := []action{
 		{key: "r", label: "Flee", cmd: engine.CmdFlee, enabled: true},
 	}
-	if e.Player.ConsumableCount("healing_potion") > 0 {
-		label := "Potion"
-		if potion, ok := e.ConsumableByID("healing_potion"); ok {
-			label = fmt.Sprintf("Potion (+%d%%)", potion.HealPercent)
-		}
-		actions = append(actions, action{
-			key: "h", label: label, cmd: engine.CmdUseConsumable,
-			enabled: e.Player.CurrentHP < e.Player.MaxHP(),
-		})
-	}
+	actions = append(actions, action{key: "h", label: "Consumables", cmd: engine.CmdUseConsumable, enabled: true})
 	return append(actions, action{key: "q", label: "Quit", cmd: engine.CmdQuit, enabled: true})
 }
 
@@ -159,6 +144,12 @@ func combatActions(e *engine.Engine) []action {
 // shaping applied: at the merchant BUY and SELL follow the row cursor.
 // State-specific workflow command sets come from the engine.
 func (m Model) barActions() []action {
+	if m.bagVisible() && m.consumablesTab {
+		return []action{
+			{key: "h", label: "Consumables", cmd: engine.CmdUseConsumable, enabled: true},
+			backAction(m.engine.State), quitAction(),
+		}
+	}
 	actions := actionsFor(m.engine)
 	switch m.engine.State {
 	case engine.StateMerchant:
@@ -175,6 +166,39 @@ func (m Model) barActions() []action {
 		}
 	}
 	return actions
+}
+
+// Stack rows preserve first-seen order and carry the first raw unit index.
+type consumableStack struct {
+	asset        game.ConsumableAsset
+	index, count int
+}
+
+func (m Model) consumableStacks() []consumableStack {
+	var rows []consumableStack
+	for index, id := range m.engine.Player.Consumables() {
+		found := false
+		for i := range rows {
+			if rows[i].asset.ID == id {
+				rows[i].count++
+				found = true
+				break
+			}
+		}
+		if found {
+			continue
+		}
+		asset, ok := m.engine.ConsumableAt(index)
+		if !ok {
+			asset = game.ConsumableAsset{ID: id, Name: id}
+		}
+		rows = append(rows, consumableStack{asset: asset, index: index, count: 1})
+	}
+	return rows
+}
+
+func (m Model) bagVisible() bool {
+	return m.consumablePicker || m.engine.State == engine.StateInventory
 }
 
 func quitAction() action {

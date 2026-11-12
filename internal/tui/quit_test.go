@@ -89,7 +89,7 @@ func TestQuitKeyAsksForConfirmation(t *testing.T) {
 // Quit action: it must confirm too, not silently end the run.
 func TestEnterOnTheQuitActionAsksForConfirmation(t *testing.T) {
 	m := New(testEngine()) // exploring: [E] [U] [G] [I] [Q]
-	for range 4 {
+	for range len(m.barActions()) - 1 {
 		m, _ = press(m, "right")
 	} // cursor on Quit
 

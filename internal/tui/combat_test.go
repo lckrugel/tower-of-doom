@@ -147,6 +147,7 @@ func TestHealingPotionIsAnActionInCombatAndTurnFreeWhileExploring(t *testing.T) 
 			Items: map[string]game.ItemAsset{},
 			Consumables: map[string]game.ConsumableAsset{
 				"healing_potion": {ID: "healing_potion", Name: "Healing Potion", HealPercent: 25},
+				"tea":            {ID: "tea", Name: "Moon Tea", HealPercent: 10},
 			},
 			Sections: []game.SectionAsset{{
 				ID: "fixture", Name: "Fixture", BaseDifficulty: 1, MinFloor: 1, MaxFloor: -1,
@@ -161,14 +162,14 @@ func TestHealingPotionIsAnActionInCombatAndTurnFreeWhileExploring(t *testing.T) 
 		e.Player.CurrentHP = 50
 		e.Player.AddConsumable("healing_potion")
 		m := New(e)
-		if got := stripANSI(m.View()); !strings.Contains(got, "POT 1/3") {
+		if got := stripANSI(m.View()); !strings.Contains(got, "CON 1/3") {
 			t.Fatalf("hero panel does not show potion count:\n%s", got)
 		}
-		if got := stripANSI(m.View()); !strings.Contains(got, "restores 25% of base max HP") {
-			t.Fatalf("exploration view does not explain potion healing:\n%s", got)
-		}
-
 		m, _ = press(m, "h")
+		if e.Player.CurrentHP != 50 {
+			t.Fatal("opening picker consumed a unit")
+		}
+		m, _ = press(m, "enter")
 
 		if e.Player.CurrentHP != 75 || e.Player.ConsumableCount("healing_potion") != 0 {
 			t.Errorf("after out-of-combat use: HP=%d potions=%d, want 75/0", e.Player.CurrentHP, e.Player.ConsumableCount("healing_potion"))
@@ -191,9 +192,13 @@ func TestHealingPotionIsAnActionInCombatAndTurnFreeWhileExploring(t *testing.T) 
 		}
 
 		m, _ = press(m, "h")
+		m, _ = press(m, "enter")
 
 		if e.Player.ConsumableCount("healing_potion") != 0 {
 			t.Error("combat potion action did not consume the potion")
+		}
+		if m.consumablePicker {
+			t.Fatal("successful combat use left picker open")
 		}
 		if !strings.Contains(joinedLog(m), "drink the Healing Potion") {
 			t.Errorf("combat log missing potion use:\n%s", joinedLog(m))
@@ -202,6 +207,49 @@ func TestHealingPotionIsAnActionInCombatAndTurnFreeWhileExploring(t *testing.T) 
 			t.Errorf("combat log missing enemy's turn after potion use:\n%s", joinedLog(m))
 		}
 	})
+	t.Run("combat uses the selected custom stack", func(t *testing.T) {
+		e := newEngine()
+		e.Player.AddConsumable("healing_potion")
+		e.Player.AddConsumable("tea")
+		m := enterCombat(t, e)
+		e.Player.CurrentHP = 40
+		e.Player.BaseSPD = 1000
+		m, _ = press(m, "h")
+		m, _ = press(m, "right")
+		m, _ = press(m, "enter")
+		if e.Player.ConsumableCount("tea") != 0 || e.Player.ConsumableCount("healing_potion") != 1 || m.consumablePicker {
+			t.Fatal("combat did not consume selected raw unit")
+		}
+		if !strings.Contains(joinedLog(m), "drink the Moon Tea") {
+			t.Fatal("custom use feedback missing")
+		}
+	})
+	for _, death := range []bool{false, true} {
+		t.Run(map[bool]string{false: "full HP rejects freely", true: "death before use closes picker"}[death], func(t *testing.T) {
+			e := newEngine()
+			e.Player.AddConsumable("healing_potion")
+			m := enterCombat(t, e)
+			e.Player.CurrentHP = e.Player.MaxHP()
+			if death {
+				e.Player.CurrentHP = 1
+				e.Player.BaseSPD = -1000
+				e.Player.BaseDEF = -1000
+			}
+			m, _ = press(m, "h")
+			before := len(m.log)
+			m, _ = press(m, "enter")
+			if len(e.Player.Consumables()) != 1 {
+				t.Fatal("rejected/preempted use consumed unit")
+			}
+			if death {
+				if e.State != engine.StateGameOver || m.consumablePicker {
+					t.Fatal("death did not close picker")
+				}
+			} else if !m.consumablePicker || e.State != engine.StateCombat || len(m.log) != before+1 {
+				t.Fatal("full HP use advanced turn or closed picker")
+			}
+		})
+	}
 }
 
 func TestTextSizingUsesTerminalCells(t *testing.T) {
@@ -360,8 +408,8 @@ func TestCombatBarIsFleeAndQuit(t *testing.T) {
 
 	actions := actionsFor(m.engine)
 
-	if !keysEqual(keysOf(actions), "r", "q") {
-		t.Fatalf("combat bar = %v, want [r q] (moves moved into the grid)", keysOf(actions))
+	if !keysEqual(keysOf(actions), "r", "h", "q") {
+		t.Fatalf("combat bar = %v, want [r h q] (moves moved into the grid)", keysOf(actions))
 	}
 }
 
