@@ -64,11 +64,11 @@ func TestExploreShortcutStartsEncounter(t *testing.T) {
 
 // The quit-confirmation tests live in quit_test.go.
 
-// esc quits outside menus. The bag, merchant and shrine use it for their
+// esc quits immediately only at game over. The bag, merchant and shrine use it for their
 // shared Back action; loot and combat remain explicit-only decisions.
 func TestEscapeAlsoQuits(t *testing.T) {
 	for _, state := range []engine.GameState{
-		engine.StateExploring, engine.StateEncounter, engine.StateGameOver,
+		engine.StateGameOver,
 	} {
 		m := New(testEngine())
 		m.engine.State = state

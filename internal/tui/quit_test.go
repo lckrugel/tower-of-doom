@@ -1,11 +1,42 @@
 package tui
 
 import (
+	tea "github.com/charmbracelet/bubbletea"
 	"strings"
 	"testing"
 
 	"github.com/lckrugel/tower-of-doom/internal/game/engine"
 )
+
+func TestEscapeConfirmsAndSmallTerminalFreezesInput(t *testing.T) {
+	for _, state := range []engine.GameState{engine.StateExploring, engine.StateEncounter} {
+		m := New(testEngine())
+		m.engine.State = state
+		m, cmd := press(m, "esc")
+		if cmd != nil || !m.confirmQuit {
+			t.Fatalf("Escape in %v must confirm", state)
+		}
+	}
+	for _, key := range []string{"y", "esc", "?", "right", "enter", "h", "i", "q"} {
+		m := New(testEngine())
+		m.width, m.height, m.confirmQuit, m.overlay = 1, 1, true, true
+		m.bagCursor, m.gridCursor = 2, 1
+		next, cmd := press(m, key)
+		if cmd != nil || !next.confirmQuit || !next.overlay || next.bagCursor != 2 || next.gridCursor != 1 || len(next.log) != len(m.log) {
+			t.Fatalf("small terminal accepted %q", key)
+		}
+		u, _ := next.Update(tea.WindowSizeMsg{Width: 200, Height: 100})
+		next, _ = press(u.(Model), "n")
+		if next.confirmQuit {
+			t.Fatal("resize did not resume input")
+		}
+	}
+	m := New(testEngine())
+	m.width, m.height = 1, 1
+	if _, cmd := press(m, "ctrl+c"); cmd == nil {
+		t.Fatal("small terminal blocked emergency quit")
+	}
+}
 
 // confirmableStates lists every state where quitting asks for
 // confirmation — all but game over, where nothing is left to lose. The

@@ -103,6 +103,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+c":
 		return m.dispatch(quitAction())
 	}
+	if m.tooSmall() {
+		return m, nil
+	}
 	if m.confirmQuit {
 		// The prompt is modal: only y confirms, anything else — n, esc,
 		// arrows, unknown letters — cancels with no dispatch, no log.
@@ -126,7 +129,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case engine.StateLoot, engine.StateCombat:
 			return m, nil
 		}
-		return m.dispatch(quitAction())
+		return m.confirmOrDispatch(quitAction())
 	case "left", "right", "up", "down":
 		if m.engine.State == engine.StateCombat {
 			// The move grid owns all four arrows in combat.
