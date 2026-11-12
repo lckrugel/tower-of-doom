@@ -28,7 +28,8 @@ type Model struct {
 	// it with wraparound and the indexed commands (WEAR/DROP/BUY/SELL)
 	// dispatch with it; every dispatch resets it, so re-entering a list
 	// selects the first row again.
-	bagCursor int
+	bagCursor     int
+	merchantRearm bool
 	// width/height track the terminal size from WindowSizeMsg; when both
 	// are too small for the fixed canvas, View() falls back to a bare
 	// "terminal too small" screen.
@@ -143,6 +144,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if msg.String() == "left" {
 			step = -1
 		}
+		if m.engine.State == engine.StateMerchant {
+			m.merchantRearm = false
+		}
 		if n := m.selectableRows(); n > 0 {
 			m.bagCursor = (m.bagCursor + step + n) % n
 			return m, nil
@@ -151,6 +155,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.cursor = (m.cursor + step + len(actions)) % len(actions)
 		return m, nil
 	case "enter":
+		if m.engine.State == engine.StateMerchant && m.merchantRearm {
+			return m, nil
+		}
 		if m.engine.State == engine.StateCombat {
 			return m.dispatchMove()
 		}
@@ -347,6 +354,7 @@ func (m Model) dispatch(a action) (tea.Model, tea.Cmd) {
 		}
 	}
 	prevState := m.engine.State
+	prevRow, prevStock := m.bagCursor, len(m.engine.MerchantStock)
 	m.feedback = ""
 	events := m.engine.Process(cmd)
 	enteredCombat := prevState != engine.StateCombat && m.engine.State == engine.StateCombat
@@ -369,8 +377,31 @@ func (m Model) dispatch(a action) (tea.Model, tea.Cmd) {
 		m.gridCursor = 0
 	}
 	m.log = trimLog(m.log)
-	m.cursor = 0    // the action bar is rebuilt for the (possibly new) state
-	m.bagCursor = 0 // re-entering the bag (or the shop) selects the first row again
+	m.cursor = 0 // the action bar is rebuilt for the (possibly new) state
+	m.bagCursor = 0
+	if prevState == engine.StateMerchant && m.engine.State == engine.StateMerchant {
+		m.bagCursor = prevRow
+		for _, ev := range events {
+			switch ev.Type {
+			case engine.EventItemBought:
+				if n := len(m.engine.MerchantStock); n > 0 {
+					m.bagCursor = min(prevRow, n-1)
+				} else {
+					m.bagCursor = 0
+					m.merchantRearm = true
+				}
+			case engine.EventItemSold:
+				if n := len(m.engine.Player.Bag()); n > 0 {
+					m.bagCursor = len(m.engine.MerchantStock) + min(prevRow-prevStock, n-1)
+				} else {
+					m.bagCursor = 0
+					m.merchantRearm = true
+				}
+			}
+		}
+	} else {
+		m.merchantRearm = false
+	}
 	m.confirmQuit = false
 	if quit {
 		return m, tea.Quit

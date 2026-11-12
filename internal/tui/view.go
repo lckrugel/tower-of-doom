@@ -1061,6 +1061,9 @@ func (m Model) actionBar() string {
 		hint = "   ← → item · ⏎ confirm"
 	case engine.StateMerchant:
 		hint = "   ← → row · ⏎ act"
+		if m.merchantRearm {
+			hint = "   ← → rearm Enter"
+		}
 	case engine.StateLoot:
 		hint = "   decide the loot's fate"
 	case engine.StateLearn:
