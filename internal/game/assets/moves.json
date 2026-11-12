@@ -121,7 +121,7 @@
     "id": "crushing_blow",
     "name": "Crushing Blow",
     "type": "creature",
-    "tier": 2,
+    "tier": 3,
     "cooldown": 3,
     "weight": 40,
     "effects": [
@@ -205,7 +205,7 @@
     "id": "venomous_blade",
     "name": "Venomous Blade",
     "type": "both",
-    "tier": 2,
+    "tier": 3,
     "cooldown": 2,
     "weight": 50,
     "effects": [
@@ -230,7 +230,7 @@
     "id": "shield_wall",
     "name": "Shield Wall",
     "type": "both",
-    "tier": 2,
+    "tier": 3,
     "cooldown": 3,
     "weight": 30,
     "effects": [
@@ -347,7 +347,7 @@
     "id": "venomous_feint",
     "name": "Venomous Feint",
     "type": "both",
-    "tier": 2,
+    "tier": 3,
     "cooldown": 3,
     "weight": 30,
     "effects": [
@@ -546,6 +546,45 @@
           "id": "deep_wound",
           "chance": 100
         }
+      }
+    ],
+    "learnable": true
+  },
+  {
+    "id": "measured_strike",
+    "name": "Measured Strike",
+    "type": "both",
+    "tier": 1,
+    "cooldown": 2,
+    "weight": 50,
+    "effects": [
+      {
+        "type": "damage",
+        "target": "enemy",
+        "dmg_modifier": 125,
+        "crit_bonus": 10
+      }
+    ],
+    "learnable": true
+  },
+  {
+    "id": "hamstring",
+    "name": "Hamstring",
+    "type": "both",
+    "tier": 1,
+    "cooldown": 3,
+    "weight": 40,
+    "effects": [
+      {
+        "type": "damage",
+        "target": "enemy",
+        "dmg_modifier": 85,
+        "crit_bonus": 0
+      },
+      {
+        "type": "status",
+        "target": "enemy",
+        "status": { "id": "slow", "chance": 80 }
       }
     ],
     "learnable": true

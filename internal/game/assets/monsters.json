@@ -17,7 +17,10 @@
     "dmg": 2,
     "spd": 13,
     "def": 0,
-    "crit": 15
+    "crit": 15,
+    "moves": [
+      { "id": "quick_stab", "weight": 100 }
+    ]
   },
   {
     "id": "goblin_bomber",
@@ -159,7 +162,57 @@
     "dmg": 2,
     "spd": 9,
     "def": 1,
-    "crit": 5
+    "crit": 5,
+    "moves": [
+      { "id": "guard_strike", "weight": 100 },
+      { "id": "basic_attack", "weight": 100 }
+    ],
+    "ai": {
+      "priorities": [
+        {
+          "when": [{ "type": "status_absent", "target": "self", "status_id": "guard" }],
+          "moves": ["guard_strike"]
+        }
+      ],
+      "fallback": ["basic_attack"]
+    }
+  },
+  {
+    "id": "ember_stoker",
+    "name": "Ember Stoker",
+    "difficulty": 7,
+    "hp": 30,
+    "dmg": 5,
+    "spd": 11,
+    "def": 1,
+    "crit": 5,
+    "moves": [
+      { "id": "cinderbite", "weight": 35 },
+      { "id": "basic_attack", "weight": 65 }
+    ]
+  },
+  {
+    "id": "barracks_sentinel",
+    "name": "Barracks Sentinel",
+    "difficulty": 7,
+    "hp": 40,
+    "dmg": 5,
+    "spd": 8,
+    "def": 5,
+    "crit": 5,
+    "moves": [
+      { "id": "guard_strike", "weight": 100 },
+      { "id": "basic_attack", "weight": 100 }
+    ],
+    "ai": {
+      "priorities": [
+        {
+          "when": [{ "type": "status_absent", "target": "self", "status_id": "guard" }],
+          "moves": ["guard_strike"]
+        }
+      ],
+      "fallback": ["basic_attack"]
+    }
   },
   {
     "id": "cave_spider",

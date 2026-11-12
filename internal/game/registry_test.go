@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -51,6 +52,103 @@ func makeReg(monsters []MonsterAsset, sections []SectionAsset) *Registry {
 func TestValidateAcceptsValidContent(t *testing.T) {
 	if err := makeReg(validMonsters(), validSections()).Validate(10_000); err != nil {
 		t.Errorf("Validate(valid content) = %v, want nil", err)
+	}
+}
+
+// The first published slice has disjoint boundaries and retains legacy budgets
+// after floor 15; validation also checks all new references and weapon grants.
+func TestEmbeddedProgression(t *testing.T) {
+	r, err := Load("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Validate(100_000); err != nil {
+		t.Fatal(err)
+	}
+	for _, tt := range []struct {
+		floor, budget int
+		section       string
+		boss          bool
+	}{
+		{1, 9, "goblin_pits", false}, {5, 13, "goblin_pits", true},
+		{6, 18, "goblin_camp_outskirts", false}, {15, 27, "goblin_camp_outskirts", true},
+		{16, 44, "underdark_reaches", false}, {33, 163, "underdark_reaches", true},
+		{34, 40, "wraithfall_bastion", false}, {59, 290, "wraithfall_bastion", true},
+		{60, 60, "dragon_hoard", false}, {100_000, 1_199_340, "dragon_hoard", false},
+	} {
+		s, err := r.SectionForFloor(tt.floor)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if s.ID != tt.section || s.FloorDifficulty(tt.floor) != tt.budget || r.IsSectionEnd(tt.floor) != tt.boss {
+			t.Errorf("floor %d: section=%s budget=%d boss=%v", tt.floor, s.ID, s.FloorDifficulty(tt.floor), r.IsSectionEnd(tt.floor))
+		}
+	}
+	for _, tt := range []struct {
+		floor           int
+		name            string
+		tier            int
+		spawns          []SpawnEntry
+		learned, bosses []string
+		gold            int
+	}{
+		{1, "Goblin Gateworks", 1,
+			[]SpawnEntry{{MonsterID: "goblin", Weight: 100}, {MonsterID: "goblin_scout", Weight: 60}, {MonsterID: "giant_rat", Weight: 25}, {MonsterID: "kobold", Weight: 25}, {MonsterID: "goblin_bomber", Weight: 15}},
+			[]string{"field_dressing", "guard_strike", "hamstring", "measured_strike"}, []string{"goblin_chief", "hobgoblin"}, 250},
+		{6, "Emberforged Barracks", 2,
+			[]SpawnEntry{{MonsterID: "orc", Weight: 40}, {MonsterID: "orc_berserker", Weight: 10}, {MonsterID: "hobgoblin", Weight: 30}, {MonsterID: "ember_stoker", Weight: 20}, {MonsterID: "barracks_sentinel", Weight: 30}},
+			[]string{"cinderbite", "heavy_slash", "windstep"}, []string{"orc_warlord", "orc_berserker", "orc"}, 1000},
+	} {
+		s, _ := r.SectionForFloor(tt.floor)
+		if s.Name != tt.name || !slices.Equal(s.ItemTiers, []int{tt.tier}) || !slices.Equal(s.MoveTiers, []int{tt.tier}) || !reflect.DeepEqual(s.Spawns, tt.spawns) {
+			t.Errorf("floor %d: unexpected section pools: %+v", tt.floor, s)
+		}
+		var learned []string
+		for _, m := range r.MovesForTiers(s.MoveTiers) {
+			learned = append(learned, m.ID)
+		}
+		if !slices.Equal(learned, tt.learned) {
+			t.Errorf("floor %d learned pool = %v, want %v", tt.floor, learned, tt.learned)
+		}
+		if s.Boss == nil || !slices.Equal(s.Boss.Monsters, tt.bosses) || s.Boss.Gold != tt.gold {
+			t.Errorf("floor %d boss = %+v", tt.floor, s.Boss)
+		}
+		// Both early tiers cover all six slots, including their new accessories.
+		slots := map[string]bool{}
+		for _, id := range r.ItemIDsForTiers(s.ItemTiers) {
+			slots[r.Items[id].Slot] = true
+		}
+		for _, slot := range []string{"weapon", "helmet", "body_armor", "boots", "ring", "amulet"} {
+			if !slots[slot] {
+				t.Errorf("tier %d lacks %s", tt.tier, slot)
+			}
+		}
+	}
+}
+
+func TestEmbeddedEarlyMonsterKits(t *testing.T) {
+	r, err := Load("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	guardAI := &MonsterAIAsset{
+		Priorities: []MonsterPriorityAsset{{When: []MonsterConditionAsset{{Type: "status_absent", Target: "self", StatusID: "guard"}}, Moves: []string{"guard_strike"}}},
+		Fallback:   []string{"basic_attack"},
+	}
+	for _, tt := range []struct {
+		id    string
+		moves []MoveRef
+		ai    *MonsterAIAsset
+	}{
+		{"goblin_scout", []MoveRef{{ID: "quick_stab", Weight: 100}}, nil},
+		{"kobold", []MoveRef{{ID: "guard_strike", Weight: 100}, {ID: "basic_attack", Weight: 100}}, guardAI},
+		{"barracks_sentinel", []MoveRef{{ID: "guard_strike", Weight: 100}, {ID: "basic_attack", Weight: 100}}, guardAI},
+		{"ember_stoker", []MoveRef{{ID: "cinderbite", Weight: 35}, {ID: "basic_attack", Weight: 65}}, nil},
+	} {
+		m, ok := r.Monsters[tt.id]
+		if !ok || !slices.Equal(m.Moves, tt.moves) || !reflect.DeepEqual(m.AI, tt.ai) {
+			t.Errorf("%s: moves=%+v AI=%+v", tt.id, m.Moves, m.AI)
+		}
 	}
 }
 

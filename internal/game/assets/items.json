@@ -210,6 +210,85 @@
     "durability": 300
   },
   {
+    "id": "gatekeeper_amulet",
+    "slot": "amulet",
+    "name": "Gatekeeper Amulet",
+    "tier": 1,
+    "bonus_hp": 5,
+    "bonus_dmg": 0,
+    "bonus_def": 0,
+    "bonus_spd": 0,
+    "durability": -1
+  },
+  {
+    "id": "gateworks_shiv",
+    "slot": "weapon",
+    "name": "Gateworks Shiv",
+    "tier": 1,
+    "bonus_hp": 0,
+    "bonus_dmg": 4,
+    "bonus_def": 0,
+    "bonus_spd": 2,
+    "durability": 50,
+    "moves": ["quick_stab"]
+  },
+  {
+    "id": "runner_boots",
+    "slot": "boots",
+    "name": "Runner Boots",
+    "tier": 1,
+    "bonus_hp": 0,
+    "bonus_dmg": 0,
+    "bonus_def": 0,
+    "bonus_spd": 6,
+    "durability": 100
+  },
+  {
+    "id": "emberforged_ring",
+    "slot": "ring",
+    "name": "Emberforged Ring",
+    "tier": 2,
+    "bonus_hp": 0,
+    "bonus_dmg": 1,
+    "bonus_def": 0,
+    "bonus_spd": 0,
+    "durability": -1
+  },
+  {
+    "id": "barracks_amulet",
+    "slot": "amulet",
+    "name": "Barracks Amulet",
+    "tier": 2,
+    "bonus_hp": 8,
+    "bonus_dmg": 0,
+    "bonus_def": 2,
+    "bonus_spd": 0,
+    "durability": -1
+  },
+  {
+    "id": "barracks_axe",
+    "slot": "weapon",
+    "name": "Barracks Axe",
+    "tier": 2,
+    "bonus_hp": 0,
+    "bonus_dmg": 10,
+    "bonus_def": 0,
+    "bonus_spd": -2,
+    "durability": 75,
+    "moves": ["basic_attack"]
+  },
+  {
+    "id": "stoker_vest",
+    "slot": "body_armor",
+    "name": "Stoker Vest",
+    "tier": 2,
+    "bonus_hp": 15,
+    "bonus_dmg": 0,
+    "bonus_def": 6,
+    "bonus_spd": 2,
+    "durability": 150
+  },
+  {
     "id": "draconic_boots",
     "slot": "boots",
     "name": "Botas Dracônicas",

@@ -1,11 +1,11 @@
 [
   {
     "id": "goblin_pits",
-    "name": "Goblin Pits",
+    "name": "Goblin Gateworks",
     "base_difficulty": 9,
-    "difficulty_per_floor": 3,
+    "difficulty_per_floor": 1,
     "min_floor": 1,
-    "max_floor": 3,
+    "max_floor": 5,
     "encounter_types": {
       "combat": 100,
       "sanctuary": 40,
@@ -35,50 +35,46 @@
         "weight": 60
       },
       {
+        "monster_id": "giant_rat",
+        "weight": 25
+      },
+      {
+        "monster_id": "kobold",
+        "weight": 25
+      },
+      {
         "monster_id": "goblin_bomber",
-        "weight": 30
+        "weight": 15
       }
     ]
   },
   {
     "id": "goblin_camp_outskirts",
-    "name": "Goblin Camp Outskirts",
-    "base_difficulty": 25,
-    "difficulty_per_floor": 4,
-    "min_floor": 3,
-    "max_floor": 13,
+    "name": "Emberforged Barracks",
+    "base_difficulty": 18,
+    "difficulty_per_floor": 1,
+    "min_floor": 6,
+    "max_floor": 15,
     "spawns": [
       {
-        "monster_id": "goblin",
-        "weight": 100
-      },
-      {
-        "monster_id": "goblin_scout",
-        "weight": 70
-      },
-      {
-        "monster_id": "goblin_bomber",
-        "weight": 30
-      },
-      {
-        "monster_id": "hobgoblin",
+        "monster_id": "orc",
         "weight": 40
       },
       {
-        "monster_id": "goblin_chief",
-        "weight": 7
-      },
-      {
-        "monster_id": "orc",
-        "weight": 25
-      },
-      {
         "monster_id": "orc_berserker",
-        "weight": 8
+        "weight": 10
       },
       {
-        "monster_id": "orc_warlord",
-        "weight": 5
+        "monster_id": "hobgoblin",
+        "weight": 30
+      },
+      {
+        "monster_id": "ember_stoker",
+        "weight": 20
+      },
+      {
+        "monster_id": "barracks_sentinel",
+        "weight": 30
       }
     ],
     "encounter_types": {
@@ -89,11 +85,9 @@
       "shrine": 20
     },
     "item_tiers": [
-      1,
       2
     ],
     "move_tiers": [
-      1,
       2
     ],
     "boss": {
@@ -108,9 +102,9 @@
   {
     "id": "underdark_reaches",
     "name": "Underdark Reaches",
-    "base_difficulty": 30,
+    "base_difficulty": 44,
     "difficulty_per_floor": 7,
-    "min_floor": 14,
+    "min_floor": 16,
     "max_floor": 33,
     "spawns": [
       {
