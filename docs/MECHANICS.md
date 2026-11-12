@@ -28,8 +28,8 @@ remains in place as a preview/legacy bridge; no T5/T6 pools are activated.
   Goblin/rat/bomber retain basic attacks. The bomber is a damage threat, not
   an AoE unit; any affordable regular can appear in the forced first combat.
 - **Barracks regulars:** orc 40, berserker 10, hobgoblin 30, ember stoker 20,
-  barracks sentinel 30. Existing orc/berserker/hobgoblin definitions are frozen
-  because they also serve in boss queues. Stoker mixes `cinderbite` (35) with
+  barracks sentinel 30. Existing orc/berserker/hobgoblin definitions are unchanged.
+  Stoker mixes `cinderbite` (35) with
   `basic_attack` (65), introducing existing burning/weaken effects earlier.
   Sentinel uses the same conditional guard/basic fallback as kobold.
 - **Encounter-kind weights remain unchanged**, in combat/sanctuary/chest/
@@ -56,9 +56,11 @@ remains in place as a preview/legacy bridge; no T5/T6 pools are activated.
 Balance still needs playtesting: the floor 15→16 budget jumps 27→44; stoker
 brings burning into regular early combat; four T1 shrine choices dilute access
 to any specific move (including healing); the +1 DMG ring costs only 50 gold
-under the unchanged price formula. Boss queues are unchanged placeholders at
-their new endpoints, not newly calibrated fights. No healing, drops, potion
-values, price rules, status definitions, or combat mechanics were nerfed here.
+under the unchanged price formula. The first two bosses are now dedicated
+single-creature fights with conditional setup/burst/guard kits, not measured
+balance results. Concentrated player DoTs, loss of intermediate-kill XP healing,
+and repeat boss farming need playtesting. Healing rules, drops, potion values,
+price rules, status definitions, and combat mechanics are unchanged.
 
 ## Game loop
 
@@ -629,12 +631,49 @@ below documents the shipped behavior.
        (`CanAscend = true`, `BossUnlocked` consumed). With a pending
        item the engine stays in StateLoot; without one, back to
        exploring.
-- Embedded groups (unchanged placeholders; balance at the first slice's new
-  endpoints is not playtested): Gateworks floor 5
-  — goblin chief + hobgoblin, 250 gold; Barracks floor 15 — orc
-  warlord + berserker + orc, 1000; underdark floor 33 — lich +
-  vampire spawn + wraith, 2500; wraithfall floor 59 — beholder + two
-  wraiths, 5000.
+- Embedded early bosses (approved values, awaiting playtesting):
+
+  | Floor | Single boss / ID | HP / DMG / DEF / SPD / Crit | Difficulty | Gold (kill + bonus = total) | Kill XP | Loot |
+  | --- | --- | --- | --- | --- | --- | --- |
+  | 5 | Gateworks Lockmaster / `gateworks_lockmaster` | 95 / 6 / 3 / 10 / 5 | 13 | 65 + 265 = 330 | 187 (previous group: 182) | T2 |
+  | 15 | Emberforged Marshal / `emberforged_marshal` | 165 / 12 / 6 / 8 / 5 | 17 | 85 + 1035 = 1120 | 280 (previous group: 285) | T3 |
+
+  These replace the chief/hobgoblin and warlord/berserker/orc queues, preserving
+  their total gold and tier+1 loot. XP now arrives on the single final kill:
+  there are no intermediate kills to trigger level-up healing during the fight.
+  Existing `goblin_chief`, `orc_warlord`, and all other old monster IDs remain
+  unchanged in the registry for mod compatibility. Neither new boss appears in
+  regular spawn tables. Normal spawn/kind weights and section budgets are unchanged.
+- Each early boss has four creature-only, unlearnable moves (T1 Lockmaster,
+  T2 Marshal; all asset and kit weights 100). They do not enter shrines or
+  change the hero's learned pools or four-move cap:
+
+  | Move ID | Cooldown | Ordered effects |
+  | --- | --- | --- |
+  | `lockmaster_ratchet` | 0 | Enemy damage 100% |
+  | `lockmaster_windup` | 4 | Self `titan_grip`, 100% chance |
+  | `lockmaster_dropbolt` | 3 | Enemy damage 150% |
+  | `lockmaster_lockdown` | 4 | Enemy damage 50%, then self `guard`, 100% chance |
+  | `marshal_hammerstroke` | 0 | Enemy damage 100% |
+  | `marshal_forgebrand` | 5 | Self `breachfire`, then self `open_guard`, both 100% chance |
+  | `marshal_anvilfall` | 3 | Enemy damage 140% |
+  | `marshal_quenchguard` | 4 | Enemy damage 60%, then self `guard`, 100% chance |
+
+  Every damage effect has zero crit bonus (the bosses retain their base crit).
+  Neither kit burns or heals; no statuses or effects were added. AI priority is
+  low HP (strictly below 35%) and no Guard → defensive move; setup buff present
+  → burst; setup buff absent → setup; otherwise only the cooldown-0 basic.
+  Rules with no ready move fall through. This is conditional AI, not a strict
+  phase counter. Existing `titan_grip` (+25% DMG, duration 2), `breachfire`
+  (+40% DMG, duration 3), `open_guard` (−50% DEF, duration 2), and `guard`
+  (+5 DEF and +10%, duration 2) retain their values and normal ticking. Bursts
+  do not consume setup buffs; a buff may outlast a burst, while cooldowns can
+  force basic attacks. Guard is not refreshed while already active.
+  Status application/expiry logs are the cue: there is no advance move
+  announcement, intention preview, or strict next-turn guarantee.
+- Later embedded groups remain unchanged placeholders: underdark floor 33 —
+  lich + vampire spawn + wraith, 2500 bonus gold; wraithfall floor 59 — beholder
+  + two wraiths, 5000 bonus gold.
 - Sections WITHOUT a boss block keep the old behavior on their final
   floor (normal victory → ASCEND): mod compatibility. The infinite
   dragon_hoard tail (`max_floor: -1`) has NO final floor — no boss
