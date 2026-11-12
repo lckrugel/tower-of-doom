@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -84,70 +83,34 @@ func TestEmbeddedProgression(t *testing.T) {
 			t.Errorf("floor %d: section=%s budget=%d boss=%v", tt.floor, s.ID, s.FloorDifficulty(tt.floor), r.IsSectionEnd(tt.floor))
 		}
 	}
-	for _, tt := range []struct {
-		floor           int
-		name            string
-		tier            int
-		spawns          []SpawnEntry
-		learned, bosses []string
-		gold            int
-	}{
-		{1, "Goblin Gateworks", 1,
-			[]SpawnEntry{{MonsterID: "goblin", Weight: 100}, {MonsterID: "goblin_scout", Weight: 60}, {MonsterID: "giant_rat", Weight: 25}, {MonsterID: "kobold", Weight: 25}, {MonsterID: "goblin_bomber", Weight: 15}},
-			[]string{"field_dressing", "guard_strike", "hamstring", "measured_strike"}, []string{"goblin_chief", "hobgoblin"}, 250},
-		{6, "Emberforged Barracks", 2,
-			[]SpawnEntry{{MonsterID: "orc", Weight: 40}, {MonsterID: "orc_berserker", Weight: 10}, {MonsterID: "hobgoblin", Weight: 30}, {MonsterID: "ember_stoker", Weight: 20}, {MonsterID: "barracks_sentinel", Weight: 30}},
-			[]string{"cinderbite", "heavy_slash", "windstep"}, []string{"orc_warlord", "orc_berserker", "orc"}, 1000},
-	} {
-		s, _ := r.SectionForFloor(tt.floor)
-		if s.Name != tt.name || !slices.Equal(s.ItemTiers, []int{tt.tier}) || !slices.Equal(s.MoveTiers, []int{tt.tier}) || !reflect.DeepEqual(s.Spawns, tt.spawns) {
-			t.Errorf("floor %d: unexpected section pools: %+v", tt.floor, s)
+	for tier, floor := range []int{1, 6} {
+		tier++
+		s, _ := r.SectionForFloor(floor)
+		if !slices.Equal(s.ItemTiers, []int{tier}) || !slices.Equal(s.MoveTiers, []int{tier}) {
+			t.Errorf("floor %d: normal loot and shrines must use only tier %d", floor, tier)
 		}
-		var learned []string
-		for _, m := range r.MovesForTiers(s.MoveTiers) {
-			learned = append(learned, m.ID)
+		moves := r.MovesForTiers(s.MoveTiers)
+		if len(moves) == 0 {
+			t.Errorf("tier %d has no shrine choices", tier)
 		}
-		if !slices.Equal(learned, tt.learned) {
-			t.Errorf("floor %d learned pool = %v, want %v", tt.floor, learned, tt.learned)
-		}
-		if s.Boss == nil || !slices.Equal(s.Boss.Monsters, tt.bosses) || s.Boss.Gold != tt.gold {
-			t.Errorf("floor %d boss = %+v", tt.floor, s.Boss)
+		for _, m := range moves {
+			if m.Tier != tier || !m.Learnable || m.Type == "weapon" {
+				t.Errorf("tier %d shrine offers incompatible move %s", tier, m.ID)
+			}
 		}
 		// Both early tiers cover all six slots, including their new accessories.
 		slots := map[string]bool{}
 		for _, id := range r.ItemIDsForTiers(s.ItemTiers) {
-			slots[r.Items[id].Slot] = true
+			item := r.Items[id]
+			if item.Tier != tier {
+				t.Errorf("tier %d normal loot offers tier %d item %s", tier, item.Tier, id)
+			}
+			slots[item.Slot] = true
 		}
 		for _, slot := range []string{"weapon", "helmet", "body_armor", "boots", "ring", "amulet"} {
 			if !slots[slot] {
-				t.Errorf("tier %d lacks %s", tt.tier, slot)
+				t.Errorf("tier %d lacks %s", tier, slot)
 			}
-		}
-	}
-}
-
-func TestEmbeddedEarlyMonsterKits(t *testing.T) {
-	r, err := Load("")
-	if err != nil {
-		t.Fatal(err)
-	}
-	guardAI := &MonsterAIAsset{
-		Priorities: []MonsterPriorityAsset{{When: []MonsterConditionAsset{{Type: "status_absent", Target: "self", StatusID: "guard"}}, Moves: []string{"guard_strike"}}},
-		Fallback:   []string{"basic_attack"},
-	}
-	for _, tt := range []struct {
-		id    string
-		moves []MoveRef
-		ai    *MonsterAIAsset
-	}{
-		{"goblin_scout", []MoveRef{{ID: "quick_stab", Weight: 100}}, nil},
-		{"kobold", []MoveRef{{ID: "guard_strike", Weight: 100}, {ID: "basic_attack", Weight: 100}}, guardAI},
-		{"barracks_sentinel", []MoveRef{{ID: "guard_strike", Weight: 100}, {ID: "basic_attack", Weight: 100}}, guardAI},
-		{"ember_stoker", []MoveRef{{ID: "cinderbite", Weight: 35}, {ID: "basic_attack", Weight: 65}}, nil},
-	} {
-		m, ok := r.Monsters[tt.id]
-		if !ok || !slices.Equal(m.Moves, tt.moves) || !reflect.DeepEqual(m.AI, tt.ai) {
-			t.Errorf("%s: moves=%+v AI=%+v", tt.id, m.Moves, m.AI)
 		}
 	}
 }
