@@ -141,6 +141,40 @@ func TestInventoryOpensFromExploring(t *testing.T) {
 
 // CmdWear swaps a bag item into its slot; the displaced item takes the bag
 // item's old position. Wearing does NOT close the bag.
+func TestWearHPGearAtOneHP(t *testing.T) {
+	for _, mode := range []string{"inventory", "loot", "full bag loot"} {
+		t.Run(mode, func(t *testing.T) {
+			e := newTestEngine()
+			old := testBagItem("old", "amulet")
+			old.BonusHP = 200
+			e.Player.EquipItem(old)
+			e.Player.CurrentHP = 1
+			replacement := testBagItem("replacement", "amulet")
+			if mode == "inventory" {
+				e.Player.StashItem(replacement)
+				e.State = StateInventory
+			} else {
+				e.PendingLoot = replacement
+				e.State = StateLoot
+				if mode == "full bag loot" {
+					fillBag(e)
+				}
+			}
+			events := e.Process(Command{Type: CmdWear})
+			if e.Player.CurrentHP != 1 || e.Player.Amulet != replacement {
+				t.Fatalf("wear lost living HP or failed: HP=%d", e.Player.CurrentHP)
+			}
+			want := []EventType{EventItemEquipped}
+			if mode == "full bag loot" {
+				want = append(want, EventItemLost)
+			}
+			if !typesEqual(eventTypes(events), want...) {
+				t.Fatalf("events = %v, want %v", eventTypes(events), want)
+			}
+		})
+	}
+}
+
 func TestInventoryWear(t *testing.T) {
 	t.Run("swap sends the displaced item to the bag position", func(t *testing.T) {
 		e := newTestEngine()
