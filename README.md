@@ -53,6 +53,20 @@ larger sizes, the existing two-column game frame expands to use the available
 space, providing more room for the game body and log. The layout updates live
 when the terminal is resized; resizing does not restart the game or reset its
 state. Text remains the same terminal-cell size—there is no font scaling.
+Below the minimum size, game input is suspended except for `Ctrl+C` to quit.
+
+### Inventory controls
+
+Outside combat, press `I` for equipment or `H` for the consumable picker;
+`Tab` switches categories. Use `←`/`→` to select an item or consumable stack.
+On the consumables tab, `Enter` uses one unit of the selected stack; for
+equipment, use the actions shown in the action bar. `C` or `Esc` goes back.
+
+In combat, `H` opens a consumables-only picker. Opening or cancelling it costs
+no turn; successfully using a consumable takes a normal combat turn, so enemies
+can act. Outside menus, `Esc` asks for quit confirmation where available
+(`Y` confirms; any other key cancels); in combat or a chest loot decision,
+`Esc` does nothing. `Ctrl+C` always quits immediately.
 
 ## Modding
 
