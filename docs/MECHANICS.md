@@ -60,8 +60,8 @@ to any specific move (including healing); the +1 DMG ring costs only 50 gold
 under the unchanged price formula. The first two bosses are now dedicated
 single-creature fights with conditional setup/burst/guard kits, not measured
 balance results. Concentrated player DoTs, loss of intermediate-kill XP healing,
-and repeat boss farming need playtesting. Healing rules, normal exploration
-drops, potion values, price rules, status definitions, and combat mechanics
+and repeat boss farming need playtesting. Healing rules, exploration item
+pools, potion values, price rules, status definitions, and combat mechanics
 are unchanged. Ascension now grants a guaranteed standard chest instead of
 guaranteed armor (see "Ascend flow"). This current first balance pass is
 unplaytested; none of these changes represent measured balance results.
@@ -129,19 +129,20 @@ unplaytested; none of these changes represent measured balance results.
 - Statuses are ENCOUNTER-SCOPED: applied by moves (with an application
     chance), never stacked, and cleared when the encounter ends or is
     exited. Hero statuses persist across its monster queue — see "Status effects".
-- Enemy kills grant XP and gold only after DoTs and turn bookkeeping,
+- Enemy kills grant XP only after DoTs and turn bookkeeping,
   provided the hero survives; only then can the queue advance or victory occur
     - mid-combat level ups are possible, but cannot rescue lethal turn-end DoTs
     - each level-up also heals 25% of the base max HP (no rng — see
       "Kill XP")
-    - every defeat also pays `5 × enemy difficulty` gold (no rng)
+    - kills never pay gold (ordinary monsters, queued enemies, and bosses);
+      boss completion bonuses are separate and unchanged
 - When all enemies die, the encounter ends with a victory for the player
     - On a NORMAL floor: unlocks climbing — ASCEND to the next floor
     - On a section's FINAL floor (a section with a boss): unlocks the
       BOSS CHALLENGE instead — the gate opens only when the boss falls
       (see "Bosses")
     - Every ascent grants a guaranteed standard chest on the NEW floor:
-      40% gold, 60% uniformly selected equipment of any slot from that
+      45% gold, 55% uniformly selected equipment of any slot from that
       destination section's `item_tiers`, rolled only on OPEN. Gold stays
       visible until CONTINUE; equipment opens WEAR / STASH / DISCARD —
       see "Items" and "Gold & prices".
@@ -228,8 +229,8 @@ helpers are for non-engine use only (e.g. item durability).
    further DoT damage**; pending ticks cannot reverse the outcome.
 4. Perform non-damage status expiration and cooldown bookkeeping exactly
    once, even on killing turns or after an early lethal-tick stop.
-5. If the hero survives, settle each enemy defeat once: grant XP, kill
-   gold and level-up healing, then any final boss rewards/progression in
+5. If the hero survives, settle each enemy defeat once: grant XP and
+   level-up healing (no kill gold), then any final boss rewards/progression in
    their existing order. Only then advance the queue or declare victory.
 
 DoT order is **recipient order**, not caster action order. If both actors
@@ -365,8 +366,8 @@ is equipment-specific; level-up rescaling and its subsequent heal are unchanged.
   `Engine.PendingChest` (`ChestState{Opened: false, Gold: 0}`) and emits
   `event-chest-found{}`. Discovery neither rolls nor grants a reward.
   Only OPEN / QUIT are accepted. OPEN consumes ONE branch roll
-  (`Intn(100) < 40`), preserving the existing reward chances and pools:
-    - GOLD chest — credits `5 × floor difficulty` exactly once
+  (`Intn(100) < 45`): 45% gold, 55% equipment, with unchanged item pools:
+    - GOLD chest — credits `7 × current floor difficulty budget` exactly once
       (`event-gold-gained`, source "chest"), sets `Opened` and `Gold`, and
       remains in StateChest so the main reward screen can show the amount.
       CONTINUE clears PendingChest and returns to exploring; no RNG,
@@ -393,8 +394,9 @@ is equipment-specific; level-up rescaling and its subsequent heal are unchanged.
       The state-only command query returns the union of both steps;
       `Engine.AvailableCommands()` filters to the current step.
     - Exploration records kind history and drought counters at discovery,
-      never again on OPEN or CONTINUE. This explicit acknowledgment changes
-      reward timing only, not balance, prices, healing, or boss rewards.
+      never again on OPEN or CONTINUE. The explicit acknowledgment itself
+      changes reward timing only; the gold-source rebalance changes the
+      branch threshold and payout, not prices, healing, or boss bonuses.
 - **Inventory (bag screen)** — reachable ONLY from StateExploring (no
   mid-combat bag access):
     - `WEAR <index>` — see above (bag-screen case).
@@ -424,8 +426,8 @@ is equipment-specific; level-up rescaling and its subsequent heal are unchanged.
   one standard chest, replacing the former guaranteed armor reward. The
   floor increments and the ascent/boss unlocks clear before `event-floor-entered`,
   followed by `event-chest-found` and an unopened StateChest. OPEN uses
-  the shared chest result: 40% gold (`5 × destination floor
-  difficulty budget`), or 60% equipment selected uniformly from ALL slots
+  the shared chest result: 45% gold (`7 × destination floor
+  difficulty budget` at OPEN), or 55% equipment selected uniformly from ALL slots
   in the NEW section's allowed item tiers. Gold and empty results remain
   in StateChest until CONTINUE; equipment opens StateLoot
   (WEAR / STASH / DISCARD), never auto-equipping. An empty allowed item
@@ -474,14 +476,26 @@ older mods keep working.
 
 ## Gold & prices
 
-- **Kill gold** — every defeat (mid-combat kills included) pays
-  `5 × enemy difficulty` gold alongside XP after turn-end processing,
-  provided the hero survives. The grant
-  consumes no rng; reported as `event-gold-gained{amount, source:
-  "kill"}`.
-- **Chest gold** — a gold chest pays `5 × floor difficulty` (floor
+- **Kill gold** — zero throughout the tower: ordinary, mid-queue, and boss
+  kills leave the purse unchanged and emit no kill `event-gold-gained`.
+  XP, `event-enemy-defeated`, mid-fight level-ups, and their healing remain
+  unchanged. The legacy `GoldSourceKill` event constant remains available
+  for API compatibility, but gameplay does not emit it.
+- **Chest gold** — both exploration and guaranteed ascent chests have a
+  45% gold / 55% equipment branch on OPEN (`0–44` gold, `45–99` equipment).
+  A gold chest pays `7 × current floor difficulty budget` (floor
   difficulty = `base_difficulty + difficulty_per_floor × floors into the
   section`); reported as `event-gold-gained{amount, source: "chest"}`.
+  Ascension uses the destination floor and section. The coefficient is
+  chest-specific (`chestGoldPerDifficulty = 7`), not shared with combat.
+- **Boss completion gold** — only the authored `boss.gold` bonus remains:
+  265 at floor 5, 1035 at floor 15; legacy bonuses remain 2500 and 5000.
+  No compensating rewards are added. Repeat-farming unlock behavior is unchanged.
+- **Experimental balance pass** — not a measured playtest result. Removing
+  reliable kill income shifts cash toward chest outcomes; watch early merchant
+  cash variance, potion affordability, equipment access at section boundaries,
+  and repeated boss farming. Prices, sell values, healing, encounter-kind
+  weights, and all gear availability/tier pools are unchanged.
 - **Prices** — both derive from the item's `Value()` (bonuses ×50,
   durability-scaled; indestructible items are always at full value):
     - `BuyPrice` = full value — what a merchant charges.
@@ -576,9 +590,9 @@ an extra roll):
     - Clamped by `Hero.Heal`: a Hero at full health gains nothing
     - Does NOT unlock ASCEND
 - **CHEST OF RICHES** — EXPLORE discovers an unopened StateChest:
-    - No reward RNG or award until OPEN; then ONE `Intn(100) < 40`
-      decides gold-vs-item
-    - GOLD — credits `5 × floor difficulty` (`event-gold-gained`, source
+    - No reward RNG or award until OPEN; then ONE `Intn(100) < 45`
+      decides gold-vs-item (45% gold, 55% equipment)
+    - GOLD — credits `7 × current floor difficulty budget` (`event-gold-gained`, source
       "chest") once; remains visible until CONTINUE
     - ITEM — uniformly rolls from the section's allowed tiers (any slot,
       sorted-ID pool) and holds it as `Engine.PendingLoot`, entering
@@ -654,8 +668,8 @@ below documents the shipped behavior.
   ascending resets it with the floor change.
 - Boss victory (the last boss monster dies AND the hero survives turn-end
   DoTs and bookkeeping): the NORMAL per-kill flow
-  first (kill XP; bosses pay `5 × difficulty` gold like anything else;
-  mid-combat level ups included), then the boss's own rewards, in this
+  first (kill XP, no kill gold; mid-combat level ups included), then the
+  boss's own rewards, in this
   rng/event order:
     1. the loot roll — ONE `Intn` over the tier+1 pool: every registry
        item (any slot) of the section's top allowed tier + 1, CAPPED at
@@ -672,13 +686,15 @@ below documents the shipped behavior.
        exploring.
 - Embedded early bosses (approved values, awaiting playtesting):
 
-  | Floor | Single boss / ID | HP / DMG / DEF / SPD / Crit | Difficulty | Gold (kill + bonus = total) | Kill XP | Loot |
+  | Floor | Single boss / ID | HP / DMG / DEF / SPD / Crit | Difficulty | Gold (completion bonus only) | Kill XP | Loot |
   | --- | --- | --- | --- | --- | --- | --- |
-  | 5 | Gateworks Lockmaster / `gateworks_lockmaster` | 95 / 6 / 3 / 10 / 5 | 13 | 65 + 265 = 330 | 187 (previous group: 182) | T2 |
-  | 15 | Emberforged Marshal / `emberforged_marshal` | 165 / 12 / 6 / 8 / 5 | 17 | 85 + 1035 = 1120 | 280 (previous group: 285) | T3 |
+  | 5 | Gateworks Lockmaster / `gateworks_lockmaster` | 95 / 6 / 3 / 10 / 5 | 13 | 265 | 187 (previous group: 182) | T2 |
+  | 15 | Emberforged Marshal / `emberforged_marshal` | 165 / 12 / 6 / 8 / 5 | 17 | 1035 | 280 (previous group: 285) | T3 |
 
-  These replace the chief/drill sergeant and warlord/berserker/orc queues, preserving
-  their total gold and tier+1 loot. XP now arrives on the single final kill:
+  These replaced the chief/drill sergeant and warlord/berserker/orc queues.
+  That earlier replacement preserved the then-current total gold (330/1120);
+  the gold-source rebalance removes kill gold, leaving only the unchanged
+  265/1035 bonuses and tier+1 loot. XP remains 187/280 on the single final kill:
   there are no intermediate kills to trigger level-up healing during the fight.
   Existing `goblin_chief` and `orc_warlord` definitions remain unchanged in the
   registry. Neither new boss appears in
@@ -816,7 +832,7 @@ below documents the shipped behavior.
   calculations → Status effects", including the duration-2 timeline.
 - Effective stats = base + gear + active status modifiers, clamped
   at 0 (DMG at 1). DoT damage CAN kill — through the normal defeat path
-  (kill XP/gold for monsters, game over for the hero).
+  (kill XP, never kill gold, for monsters; game over for the hero).
 - End-of-turn DoTs follow captured initiative recipient order (hero
   recipient first on speed ties), then status application order within
   each recipient. The first lethal tick stops further damage, not
