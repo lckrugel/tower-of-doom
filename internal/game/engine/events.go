@@ -100,6 +100,8 @@ const (
 	EventConsumableBought
 	// A merchant consumable purchase was rejected because shared capacity is full.
 	EventConsumableStorageFull
+	// An unopened chest was discovered; its reward has not been rolled.
+	EventChestFound
 )
 
 // Event is a synchronous command notification. Data is a fresh map, and
@@ -110,6 +112,10 @@ const (
 type Event struct {
 	Type EventType
 	Data map[string]any
+}
+
+func NewChestFound() Event {
+	return Event{Type: EventChestFound, Data: map[string]any{}}
 }
 
 func NewMessage(msg string) Event {

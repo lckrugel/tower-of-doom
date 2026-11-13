@@ -14,6 +14,7 @@ import (
 type stubRng struct {
 	values []int
 	calls  int
+	bounds []int
 }
 
 func (s *stubRng) Intn(n int) int {
@@ -28,6 +29,7 @@ func (s *stubRng) Intn(n int) int {
 		panic(fmt.Sprintf("stubRng scripted value %d at call %d outside Intn(%d) bound", v, s.calls, n))
 	}
 	s.calls++
+	s.bounds = append(s.bounds, n)
 	return v
 }
 

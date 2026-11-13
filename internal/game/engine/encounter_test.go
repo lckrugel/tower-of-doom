@@ -217,13 +217,14 @@ func TestExploreSanctuaryAtFullHealth(t *testing.T) {
 func TestExploreChestWithoutItemRegistryGrantsNothing(t *testing.T) {
 	e := pastFirstExplore(newKindEngine(20, 50)) // chest, then rng 50 ≥ 40 → item chest
 
-	events := e.Process(Command{Type: CmdExplore})
+	e.Process(Command{Type: CmdExplore})
+	events := e.Process(Command{Type: CmdOpenChest})
 
 	if got := eventTypes(events); !typesEqual(got, EventMessage) {
 		t.Errorf("events = %v, want [message (empty chest)]", got)
 	}
-	if e.State != StateExploring {
-		t.Errorf("state after empty chest = %v, want StateExploring", e.State)
+	if e.State != StateChest {
+		t.Errorf("state after empty chest = %v, want StateChest", e.State)
 	}
 }
 
@@ -306,28 +307,29 @@ func TestSecondExploreResumesKindRolls(t *testing.T) {
 // first explore after ASCEND rolls the kind table instead of repeating
 // the forced combat.
 func TestAscendDoesNotResetFirstExploreFlag(t *testing.T) {
-	// Forced combat: 3 picks (0,0,0); sneak away (0); ASCEND (empty armor
-	// pool → no rng); kind Intn(30) = 10 → sanctuary.
+	// Forced combat: 3 picks (0,0,0); sneak away (0); ASCEND (40 → empty
+	// item pool); kind Intn(30) = 10 → sanctuary.
 	e := newKindEngine()
-	stub := &stubRng{values: []int{0, 0, 0, 0, 10}}
+	stub := &stubRng{values: []int{0, 0, 0, 0, 40, 10}}
 	e.rng = stub
 	e.CanAscend = true
 
 	e.Process(Command{Type: CmdExplore}) // forced combat
 	e.Process(Command{Type: CmdSneak})   // away
-	// The test registry has no armor pieces: the ascend emits the
-	// floor event plus the empty-pool message, consuming no rng.
-	if got := eventTypes(e.Process(Command{Type: CmdAscend})); !typesEqual(got, EventFloorEntered, EventMessage) {
-		t.Fatalf("ascend events = %v, want [floor-entered message]", got)
+	// The test registry has no items: ascent consumes only the chest branch roll.
+	if got := eventTypes(e.Process(Command{Type: CmdAscend})); !typesEqual(got, EventFloorEntered, EventChestFound) {
+		t.Fatalf("ascend events = %v, want [floor-entered chest-found]", got)
 	}
+	e.Process(Command{Type: CmdOpenChest})
+	e.Process(Command{Type: CmdContinue})
 
 	events := e.Process(Command{Type: CmdExplore})
 
 	if got := eventTypes(events); !typesEqual(got, EventHeroHealed) {
 		t.Fatalf("events = %v, want [hero-healed] (flag survived ascension)", got)
 	}
-	if stub.calls != 5 {
-		t.Errorf("rng calls = %d, want 5 (3 picks + sneak + kind roll)", stub.calls)
+	if stub.calls != 6 {
+		t.Errorf("rng calls = %d, want 6 (3 picks + sneak + chest branch + kind roll)", stub.calls)
 	}
 }
 
@@ -388,11 +390,11 @@ func TestThirdDifferentKindStillHappens(t *testing.T) {
 
 	events := e.Process(Command{Type: CmdExplore}) // chest roll
 
-	if got := eventTypes(events); !typesEqual(got, EventGoldGained) {
-		t.Fatalf("events = %v, want [gold-gained] (the chest happened)", got)
+	if got := eventTypes(events); !typesEqual(got, EventChestFound) {
+		t.Fatalf("events = %v, want [chest-found] (the chest happened)", got)
 	}
-	if e.State != StateExploring {
-		t.Errorf("state = %v, want StateExploring (gold chest pays on the spot)", e.State)
+	if e.State != StateChest {
+		t.Errorf("state = %v, want StateChest", e.State)
 	}
 }
 
@@ -468,18 +470,19 @@ func TestDifferentKindAfterMerchantPairHappens(t *testing.T) {
 // history [combat, combat] can never satisfy the non-combat streak, so
 // nothing overrides before any kind was recorded (TestExploreSanctuary).
 func TestKindHistorySurvivesAscension(t *testing.T) {
-	// Two sanctuaries (history full), then ASCEND (empty armor pool → no
-	// rng), then a third sanctuary roll must still be overridden.
-	e := pastFirstExplore(newKindEngine(10, 10, 10, 104, 0))
+	// Two sanctuaries (history full), then ASCEND (40 → empty item pool),
+	// then a third sanctuary roll must still be overridden.
+	e := pastFirstExplore(newKindEngine(10, 10, 40, 10, 104, 0))
 	e.CanAscend = true
 
 	e.Process(Command{Type: CmdExplore}) // sanctuary #1
 	e.Process(Command{Type: CmdExplore}) // sanctuary #2
-	// The test registry has no armor pieces: the ascend emits the floor
-	// event plus the empty-pool message, consuming no rng.
-	if got := eventTypes(e.Process(Command{Type: CmdAscend})); !typesEqual(got, EventFloorEntered, EventMessage) {
-		t.Fatalf("ascend events = %v, want [floor-entered message]", got)
+	// The test registry has no items: ascent consumes only the chest branch roll.
+	if got := eventTypes(e.Process(Command{Type: CmdAscend})); !typesEqual(got, EventFloorEntered, EventChestFound) {
+		t.Fatalf("ascend events = %v, want [floor-entered chest-found]", got)
 	}
+	e.Process(Command{Type: CmdOpenChest})
+	e.Process(Command{Type: CmdContinue})
 	if got := e.encounterMisses[EncounterChest]; got != 2 {
 		t.Errorf("chest drought counter after ascension = %d, want preserved at 2", got)
 	}

@@ -16,6 +16,13 @@ const MAX_ENCOUNTER_SIZE = 6
 // loaded from the registry (so mods can redefine the starter gear).
 const starterItemID = "wooden_sword"
 
+// ChestState is the chest screen's read-only view. Gold is credited on opening;
+// an opened chest with zero Gold is empty. Item rewards move to StateLoot.
+type ChestState struct {
+	Opened bool
+	Gold   int
+}
+
 type Engine struct {
 	State        GameState
 	Player       *entities.Hero
@@ -42,6 +49,8 @@ type Engine struct {
 	// chest opens and cleared on every resolution path; it is meaningful
 	// only while State == StateLoot.
 	PendingLoot *entities.Item
+	// PendingChest exists only in StateChest, until continuation or item loot.
+	PendingChest *ChestState
 	// MerchantStock holds the merchant's equipment offers while State ==
 	// StateMerchant. Buying removes an offer; leaving discards them all.
 	MerchantStock []*entities.Item
@@ -144,6 +153,8 @@ func (e *Engine) Process(cmd Command) []Event {
 		return e.handleMerchant(cmd)
 	case StateLearn:
 		return e.handleLearn(cmd)
+	case StateChest:
+		return e.handleChest(cmd)
 	case StateGameOver:
 		return e.handleGameOver(cmd)
 	default:
@@ -165,8 +176,8 @@ func (e *Engine) handleExploring(cmd Command) []Event {
 				e.CurrentFloor, err))
 		}
 		if encounter.Type != EncounterCombat {
-			// Sanctuary resolves instantly, chest opens the StateLoot
-			// decision over its item: no StateEncounter, no FIGHT/SNEAK
+			// Sanctuary resolves instantly; chest opens StateChest:
+			// no StateEncounter, no FIGHT/SNEAK
 			// choice — `CurrentEncounter` only ever holds the combat
 			// queue.
 			e.CurrentEncounter = Encounter{}
@@ -196,21 +207,10 @@ func (e *Engine) handleExploring(cmd Command) []Event {
 		e.BossUnlocked = false
 		sectionDef := e.currentSection()
 		events := []Event{NewFloorEntered(e.CurrentFloor, sectionDef.Name)}
-		// The ascend reward is a loot decision, not an auto-equip: the
-		// armor piece rolled from the NEW floor's section is held as
-		// PendingLoot and the player chooses in StateLoot (wear/stash/
-		// discard) — the very same flow as a chest.
-		if item := e.rollArmorReward(sectionDef.ItemTiers); item != nil {
-			e.PendingLoot = item
-			e.State = StateLoot
-			events = append(events, NewLootFound(item))
-		} else {
-			// Empty armor pool (only possible for registries that skipped
-			// validation): behave like an empty chest — a message and no
-			// loot decision, never StateLoot holding a nil item.
-			events = append(events, NewMessage("No armor piece awaits on this floor."))
-		}
-		return events
+		// Every ascent grants a standard chest from the destination floor,
+		// without rolling an encounter kind or recording exploration history.
+		e.CurrentEncounter = Encounter{}
+		return append(events, e.resolveEncounter(Encounter{Type: EncounterChest})...)
 
 	default:
 		return []Event{NewMessage("Unhandled command")}
@@ -304,8 +304,33 @@ func (e *Engine) heroHasReadyMove() bool {
 	return false
 }
 
-// handleLoot resolves the pending loot decision (StateLoot — chests and,
-// since the ascend rework, ascensions too). Every branch consumes the
+// handleChest rolls rewards only on explicit opening. Gold and empty results
+// remain visible until acknowledged; items use the existing loot decision.
+func (e *Engine) handleChest(cmd Command) []Event {
+	if cmd.Type == CmdContinue {
+		e.PendingChest = nil
+		e.State = StateExploring
+		return nil
+	}
+	section := e.currentSection()
+	e.PendingChest.Opened = true
+	if e.rng.Intn(100) < chestGoldChance {
+		amount := goldPerDifficulty * section.FloorDifficulty(e.CurrentFloor)
+		e.Player.Gold += amount
+		e.PendingChest.Gold = amount
+		return []Event{NewGoldGained(amount, GoldSourceChest)}
+	}
+	if item := e.rollItemReward(section.ItemTiers); item != nil {
+		e.PendingLoot = item
+		e.PendingChest = nil
+		e.State = StateLoot
+		return []Event{NewLootFound(item)}
+	}
+	return []Event{NewMessage("The chest creaks open... but it is empty.")}
+}
+
+// handleLoot resolves the pending item decision (chests and boss loot).
+// Every branch consumes the
 // pending item (clears PendingLoot) and returns to exploring, except a
 // stash rejected by a full bag, which keeps the decision open.
 func (e *Engine) handleLoot(cmd Command) []Event {
@@ -586,14 +611,6 @@ func (e *Engine) pickItem(accept func(entities.ItemSlot) bool, tiers []int) *ent
 	}
 	item := e.itemFromAsset(e.reg.Items[pool[e.rng.Intn(len(pool))]])
 	return &item
-}
-
-// rollArmorReward rolls a random armor piece (helmet, body or boots) from
-// the registry as the reward for ascending, restricted to the section's
-// allowed item tiers (empty = unrestricted). The piece is held as
-// PendingLoot: the player decides its fate in StateLoot, like any chest.
-func (e *Engine) rollArmorReward(tiers []int) *entities.Item {
-	return e.pickItem(entities.IsArmor, tiers)
 }
 
 // rollItemReward rolls a random item from the whole registry (any slot) as

@@ -24,13 +24,80 @@ func chestEngine(wantPick int, rngValues ...int) *Engine {
 	return pastFirstExplore(e)
 }
 
-// A chest no longer auto-equips: EXPLORE rolls the item (same pickItem roll
-// as before), holds it as PendingLoot and opens the StateLoot decision.
+// Chest commands depend on the current step, and reject invalid actions safely.
+func TestChestCommandSteps(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		state   GameState
+		chest   *ChestState
+		allowed []CommandType
+	}{
+		{"unopened", StateChest, &ChestState{}, []CommandType{CmdOpenChest, CmdQuit}},
+		{"gold", StateChest, &ChestState{Opened: true, Gold: 45}, []CommandType{CmdContinue, CmdQuit}},
+		{"empty", StateChest, &ChestState{Opened: true}, []CommandType{CmdContinue, CmdQuit}},
+		{"missing", StateChest, nil, []CommandType{CmdQuit}},
+		{"outside", StateExploring, nil, AllowedCommands(StateExploring)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := chestEngine(0)
+			e.State, e.PendingChest = tc.state, tc.chest
+			commands := e.AvailableCommands()
+			if len(commands) != len(tc.allowed) {
+				t.Fatalf("commands = %v, want %v", commands, tc.allowed)
+			}
+			for i := range commands {
+				if commands[i] != tc.allowed[i] {
+					t.Fatalf("commands = %v, want %v", commands, tc.allowed)
+				}
+			}
+			for _, cmd := range []CommandType{CmdOpenChest, CmdContinue, CmdExplore, CmdAscend, CmdInventory, CmdUseConsumable} {
+				allowed := false
+				for _, c := range tc.allowed {
+					allowed = allowed || c == cmd
+				}
+				if allowed {
+					continue
+				}
+				events := e.Process(Command{Type: cmd})
+				if !typesEqual(eventTypes(events), EventMessage) || e.State != tc.state || e.PendingChest != tc.chest || e.rng.(*stubRng).calls != 0 {
+					t.Fatalf("rejected %v changed state or RNG: %v", cmd, events)
+				}
+			}
+		})
+	}
+}
+
+func TestChestGoldAcknowledgment(t *testing.T) {
+	e := pastFirstExplore(newKindEngine(20, 39))
+	e.Process(Command{Type: CmdExplore})
+	history, misses := e.recentKinds, e.encounterMisses
+	if !typesEqual(eventTypes(e.Process(Command{Type: CmdOpenChest})), EventGoldGained) || e.State != StateChest || e.PendingChest == nil || !e.PendingChest.Opened || e.PendingChest.Gold != 45 || e.Player.Gold != 45 {
+		t.Fatal("gold reward not retained for acknowledgment")
+	}
+	calls := e.rng.(*stubRng).calls
+	e.Process(Command{Type: CmdOpenChest})
+	events := e.Process(Command{Type: CmdContinue})
+	if len(events) != 0 || e.State != StateExploring || e.PendingChest != nil || e.Player.Gold != 45 || e.rng.(*stubRng).calls != calls || e.recentKinds != history || e.encounterMisses != misses {
+		t.Fatal("repeat open or continue changed rewards, RNG, or exploration history")
+	}
+}
+
+// Exploration discovers the chest; opening rolls an item without auto-equipping.
 func TestExploreChestOpensLootDecision(t *testing.T) {
 	// rng 20 → chest; 1 → shiny_sword from the sorted pool.
 	e := chestEngine(1)
 
-	events := e.Process(Command{Type: CmdExplore})
+	discovery := e.Process(Command{Type: CmdExplore})
+	if !typesEqual(eventTypes(discovery), EventChestFound) || e.State != StateChest || e.PendingChest == nil || e.PendingChest.Opened {
+		t.Fatalf("discovery = %v, state = %v, chest = %v", discovery, e.State, e.PendingChest)
+	}
+	if e.rng.(*stubRng).calls != 1 || e.PendingLoot != nil || e.Player.Gold != 0 {
+		t.Fatal("discovery rolled or awarded a reward")
+	}
+	events := e.Process(Command{Type: CmdOpenChest})
+	if e.PendingChest != nil {
+		t.Fatal("item reward retained PendingChest")
+	}
 
 	if got := eventTypes(events); !typesEqual(got, EventLootFound) {
 		t.Fatalf("events = %v, want [loot-found]", got)
@@ -61,6 +128,7 @@ func TestLootWearDisplacedGoesToBag(t *testing.T) {
 	rusty := testBagItem("rusty_sword", "weapon")
 	e.Player.EquipItem(rusty)
 	e.Process(Command{Type: CmdExplore})
+	e.Process(Command{Type: CmdOpenChest})
 	pending := e.PendingLoot
 
 	events := e.Process(Command{Type: CmdWear})
@@ -96,6 +164,7 @@ func TestLootWearWithFullBagDestroysDisplaced(t *testing.T) {
 	e.Player.EquipItem(rusty)
 	fillBag(e)
 	e.Process(Command{Type: CmdExplore})
+	e.Process(Command{Type: CmdOpenChest})
 	pending := e.PendingLoot
 
 	events := e.Process(Command{Type: CmdWear})
@@ -122,6 +191,7 @@ func TestLootWearWithFullBagDestroysDisplaced(t *testing.T) {
 func TestLootWearIntoEmptySlot(t *testing.T) {
 	e := chestEngine(0) // rusty_ring, hero has an empty ring slot
 	e.Process(Command{Type: CmdExplore})
+	e.Process(Command{Type: CmdOpenChest})
 
 	events := e.Process(Command{Type: CmdWear})
 
@@ -145,6 +215,7 @@ func TestLootWearIntoEmptySlot(t *testing.T) {
 func TestLootWearIgnoresIndex(t *testing.T) {
 	e := chestEngine(0) // rusty_ring, hero has an empty ring slot
 	e.Process(Command{Type: CmdExplore})
+	e.Process(Command{Type: CmdOpenChest})
 	pending := e.PendingLoot
 
 	events := e.Process(Command{Type: CmdWear, Index: 7})
@@ -164,6 +235,7 @@ func TestLootWearIgnoresIndex(t *testing.T) {
 func TestLootStash(t *testing.T) {
 	e := chestEngine(0)
 	e.Process(Command{Type: CmdExplore})
+	e.Process(Command{Type: CmdOpenChest})
 	pending := e.PendingLoot
 
 	events := e.Process(Command{Type: CmdStashLoot})
@@ -189,6 +261,7 @@ func TestLootStashWithFullBagIsRejected(t *testing.T) {
 	e := chestEngine(0)
 	fillBag(e)
 	e.Process(Command{Type: CmdExplore})
+	e.Process(Command{Type: CmdOpenChest})
 	pending := e.PendingLoot
 
 	events := e.Process(Command{Type: CmdStashLoot})
@@ -217,6 +290,7 @@ func TestLootStashWithFullBagIsRejected(t *testing.T) {
 func TestLootDiscard(t *testing.T) {
 	e := chestEngine(0)
 	e.Process(Command{Type: CmdExplore})
+	e.Process(Command{Type: CmdOpenChest})
 	pending := e.PendingLoot
 
 	events := e.Process(Command{Type: CmdDiscardLoot})

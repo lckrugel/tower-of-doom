@@ -26,6 +26,8 @@ const (
 	// to the forgetting step (CmdForget) — Engine.ChosenMove marks which
 	// step is live. DECLINE (in either step) keeps everything as it was.
 	StateLearn
+	// A chest awaits opening or acknowledgment of its gold/empty reward.
+	StateChest
 )
 
 func (s GameState) String() string {
@@ -46,6 +48,8 @@ func (s GameState) String() string {
 		return "Merchant"
 	case StateLearn:
 		return "Learn"
+	case StateChest:
+		return "Chest"
 	default:
 		return "Unknown"
 	}
@@ -53,7 +57,7 @@ func (s GameState) String() string {
 
 // Returns which `CommandType`s are allowed for a given `GameState`.
 //
-// StateLearn is STEP-dependent — this state-only query returns the UNION
+// StateLearn and StateChest are STEP-dependent — this query returns the UNION
 // of both steps. Use Engine.AvailableCommands for the active instance's
 // precise command set.
 func AllowedCommands(s GameState) []CommandType {
@@ -72,6 +76,8 @@ func AllowedCommands(s GameState) []CommandType {
 		return []CommandType{CmdBuy, CmdSell, CmdLeave, CmdBuyConsumable, CmdQuit}
 	case StateLearn:
 		return []CommandType{CmdChooseOffer, CmdForget, CmdDecline, CmdQuit}
+	case StateChest:
+		return []CommandType{CmdOpenChest, CmdContinue, CmdQuit}
 	case StateGameOver:
 		return []CommandType{CmdQuit}
 	default:
@@ -96,6 +102,15 @@ func (e *Engine) AvailableCommands() []CommandType {
 //
 // Every state keeps CmdQuit.
 func (e *Engine) allowedCommands(s GameState) []CommandType {
+	if s == StateChest {
+		if e.PendingChest == nil {
+			return []CommandType{CmdQuit}
+		}
+		if e.PendingChest.Opened {
+			return []CommandType{CmdContinue, CmdQuit}
+		}
+		return []CommandType{CmdOpenChest, CmdQuit}
+	}
 	if s != StateLearn {
 		return AllowedCommands(s)
 	}

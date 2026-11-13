@@ -178,7 +178,16 @@ func viewModels() map[string]Model {
 		return m
 	}
 
+	chest := func(pending *engine.ChestState) Model {
+		e := testEngine()
+		e.State, e.PendingChest = engine.StateChest, pending
+		return New(e)
+	}
 	return map[string]Model{
+		"chest missing": chest(nil),
+		"chest closed":  chest(&engine.ChestState{}),
+		"chest gold":    chest(&engine.ChestState{Opened: true, Gold: 137}),
+		"chest empty":   chest(&engine.ChestState{Opened: true}),
 		"exploring":     New(testEngine()),
 		"geared":        geared(),
 		"encounter":     encounter(engine.StateEncounter),

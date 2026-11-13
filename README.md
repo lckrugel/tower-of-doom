@@ -65,8 +65,16 @@ equipment, use the actions shown in the action bar. `C` or `Esc` goes back.
 In combat, `H` opens a consumables-only picker. Opening or cancelling it costs
 no turn; successfully using a consumable takes a normal combat turn, so enemies
 can act. Outside menus, `Esc` asks for quit confirmation where available
-(`Y` confirms; any other key cancels); in combat or a chest loot decision,
+(`Y` confirms; any other key cancels); in combat or any chest decision,
 `Esc` does nothing. `Ctrl+C` always quits immediately.
+
+### Chest controls
+
+Chests found while exploring or awarded on ascension wait for `[O] Open`
+(or select Open and press `Enter`). Gold rewards remain in the main panel
+with the exact amount gained; empty chests also wait for `[C] Continue`.
+Equipment rewards use the existing `[W] Wear`, `[B] Bag`, or `[D] Discard`
+decision instead. Nothing closes automatically; `[Q] Quit` asks for confirmation.
 
 ## Modding
 

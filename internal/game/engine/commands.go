@@ -94,6 +94,10 @@ const (
 	CmdUseConsumable
 	// Buys the merchant's single consumable offer (StateMerchant).
 	CmdBuyConsumable
+	// Opens the pending chest and rolls its reward (StateChest, unopened).
+	CmdOpenChest
+	// Acknowledges an opened gold or empty chest, returning to exploring.
+	CmdContinue
 )
 
 // `Command` is an action taken.
