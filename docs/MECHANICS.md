@@ -60,8 +60,11 @@ to any specific move (including healing); the +1 DMG ring costs only 50 gold
 under the unchanged price formula. The first two bosses are now dedicated
 single-creature fights with conditional setup/burst/guard kits, not measured
 balance results. Concentrated player DoTs, loss of intermediate-kill XP healing,
-and repeat boss farming need playtesting. Healing rules, drops, potion values,
-price rules, status definitions, and combat mechanics are unchanged.
+and repeat boss farming need playtesting. Healing rules, normal exploration
+drops, potion values, price rules, status definitions, and combat mechanics
+are unchanged. Ascension now grants a guaranteed standard chest instead of
+guaranteed armor (see "Ascend flow"). This current first balance pass is
+unplaytested; none of these changes represent measured balance results.
 
 ## Game loop
 
