@@ -4,12 +4,12 @@
 ## Published content progression
 
 The implemented first slice covers floors 1–15. These are approved content
-values, not playtested balance findings. Section IDs remain stable:
+values, not playtested balance findings. Section IDs match their display names:
 
 | Floors | Display name / ID | Budget (base + slope × floors into section) | Item / learned tiers | Boss floor |
 | --- | --- | --- | --- | --- |
-| 1–5 | Goblin Gateworks / `goblin_pits` | 9 + 1 × (floor − 1), range 9–13 | [1] / [1] | 5 |
-| 6–15 | Emberforged Barracks / `goblin_camp_outskirts` | 18 + 1 × (floor − 6), range 18–27 | [2] / [2] | 15 |
+| 1–5 | Goblin Gateworks / `goblin_gateworks` | 9 + 1 × (floor − 1), range 9–13 | [1] / [1] | 5 |
+| 6–15 | Emberforged Barracks / `emberforged_barracks` | 18 + 1 × (floor − 6), range 18–27 | [2] / [2] | 15 |
 | 16–33 | Underdark Reaches / `underdark_reaches` | 44 + 7 × (floor − 16) | [2] / [2,3] | 33 |
 | 34–59 | Wraithfall Bastion / `wraithfall_bastion` | 40 + 10 × (floor − 34) | [2,3] / [3,4] | 59 |
 | 60+ | The Dragon's Hoard / `dragon_hoard` | 60 + 12 × (floor − 60) | [3,4] / [3,4] | None |
@@ -27,8 +27,9 @@ remains in place as a preview/legacy bridge; no T5/T6 pools are activated.
   `guard_strike` while self lacks `guard`, falling back to `basic_attack`.
   Goblin/rat/bomber retain basic attacks. The bomber is a damage threat, not
   an AoE unit; any affordable regular can appear in the forced first combat.
-- **Barracks regulars:** orc 40, berserker 10, hobgoblin 30, ember stoker 20,
-  barracks sentinel 30. Existing orc/berserker/hobgoblin definitions are unchanged.
+- **Barracks regulars:** orc 40, berserker 10, Hobgoblin Drill Sergeant
+  (`hobgoblin_drill_sergeant`) 30, ember stoker 20, barracks sentinel 30.
+  Existing orc/berserker/drill sergeant gameplay values and move kits are unchanged.
   Stoker mixes `cinderbite` (35) with
   `basic_attack` (65), introducing existing burning/weaken effects earlier.
   Sentinel uses the same conditional guard/basic fallback as kobold.
@@ -638,11 +639,11 @@ below documents the shipped behavior.
   | 5 | Gateworks Lockmaster / `gateworks_lockmaster` | 95 / 6 / 3 / 10 / 5 | 13 | 65 + 265 = 330 | 187 (previous group: 182) | T2 |
   | 15 | Emberforged Marshal / `emberforged_marshal` | 165 / 12 / 6 / 8 / 5 | 17 | 85 + 1035 = 1120 | 280 (previous group: 285) | T3 |
 
-  These replace the chief/hobgoblin and warlord/berserker/orc queues, preserving
+  These replace the chief/drill sergeant and warlord/berserker/orc queues, preserving
   their total gold and tier+1 loot. XP now arrives on the single final kill:
   there are no intermediate kills to trigger level-up healing during the fight.
-  Existing `goblin_chief`, `orc_warlord`, and all other old monster IDs remain
-  unchanged in the registry for mod compatibility. Neither new boss appears in
+  Existing `goblin_chief` and `orc_warlord` definitions remain unchanged in the
+  registry. Neither new boss appears in
   regular spawn tables. Normal spawn/kind weights and section budgets are unchanged.
 - Each early boss has four creature-only, unlearnable moves (T1 Lockmaster,
   T2 Marshal; all asset and kit weights 100). They do not enter shrines or

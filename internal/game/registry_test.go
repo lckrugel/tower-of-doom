@@ -69,8 +69,8 @@ func TestEmbeddedProgression(t *testing.T) {
 		section       string
 		boss          bool
 	}{
-		{1, 9, "goblin_pits", false}, {5, 13, "goblin_pits", true},
-		{6, 18, "goblin_camp_outskirts", false}, {15, 27, "goblin_camp_outskirts", true},
+		{1, 9, "goblin_gateworks", false}, {5, 13, "goblin_gateworks", true},
+		{6, 18, "emberforged_barracks", false}, {15, 27, "emberforged_barracks", true},
 		{16, 44, "underdark_reaches", false}, {33, 163, "underdark_reaches", true},
 		{34, 40, "wraithfall_bastion", false}, {59, 290, "wraithfall_bastion", true},
 		{60, 60, "dragon_hoard", false}, {100_000, 1_199_340, "dragon_hoard", false},
@@ -82,6 +82,19 @@ func TestEmbeddedProgression(t *testing.T) {
 		if s.ID != tt.section || s.FloorDifficulty(tt.floor) != tt.budget || r.IsSectionEnd(tt.floor) != tt.boss {
 			t.Errorf("floor %d: section=%s budget=%d boss=%v", tt.floor, s.ID, s.FloorDifficulty(tt.floor), r.IsSectionEnd(tt.floor))
 		}
+	}
+	const drillSergeantID = "hobgoblin_drill_sergeant"
+	if monster, ok := r.Monsters[drillSergeantID]; !ok || monster.ID != drillSergeantID {
+		t.Errorf("missing monster %s", drillSergeantID)
+	}
+	barracks, err := r.SectionForFloor(6)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.ContainsFunc(barracks.Spawns, func(spawn SpawnEntry) bool {
+		return spawn.MonsterID == drillSergeantID
+	}) {
+		t.Errorf("%s must spawn %s", barracks.ID, drillSergeantID)
 	}
 	for tier, floor := range []int{1, 6} {
 		tier++

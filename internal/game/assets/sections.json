@@ -1,6 +1,6 @@
 [
   {
-    "id": "goblin_pits",
+    "id": "goblin_gateworks",
     "name": "Goblin Gateworks",
     "base_difficulty": 9,
     "difficulty_per_floor": 1,
@@ -48,7 +48,7 @@
     ]
   },
   {
-    "id": "goblin_camp_outskirts",
+    "id": "emberforged_barracks",
     "name": "Emberforged Barracks",
     "base_difficulty": 18,
     "difficulty_per_floor": 1,
@@ -64,7 +64,7 @@
         "weight": 10
       },
       {
-        "monster_id": "hobgoblin",
+        "monster_id": "hobgoblin_drill_sergeant",
         "weight": 30
       },
       {
