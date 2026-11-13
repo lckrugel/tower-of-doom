@@ -215,7 +215,7 @@ func TestExploreSanctuaryAtFullHealth(t *testing.T) {
 // A registry without any items makes an ITEM chest resolve as empty (a
 // gold chest would still pay out — it needs no item registry).
 func TestExploreChestWithoutItemRegistryGrantsNothing(t *testing.T) {
-	e := pastFirstExplore(newKindEngine(20, 50)) // chest, then rng 50 ≥ 40 → item chest
+	e := pastFirstExplore(newKindEngine(20, 50)) // chest, then rng 50 ≥ 45 → item chest
 
 	e.Process(Command{Type: CmdExplore})
 	events := e.Process(Command{Type: CmdOpenChest})
@@ -307,10 +307,10 @@ func TestSecondExploreResumesKindRolls(t *testing.T) {
 // first explore after ASCEND rolls the kind table instead of repeating
 // the forced combat.
 func TestAscendDoesNotResetFirstExploreFlag(t *testing.T) {
-	// Forced combat: 3 picks (0,0,0); sneak away (0); ASCEND (40 → empty
+	// Forced combat: 3 picks (0,0,0); sneak away (0); ASCEND (45 → empty
 	// item pool); kind Intn(30) = 10 → sanctuary.
 	e := newKindEngine()
-	stub := &stubRng{values: []int{0, 0, 0, 0, 40, 10}}
+	stub := &stubRng{values: []int{0, 0, 0, 0, 45, 10}}
 	e.rng = stub
 	e.CanAscend = true
 
@@ -380,7 +380,7 @@ func TestThirdIdenticalSanctuaryBecomesCombat(t *testing.T) {
 // a legitimately-rolled chest still happens.
 func TestThirdDifferentKindStillHappens(t *testing.T) {
 	// Forced combat (0,0,0) + sneak (0); sanctuaries (10, 10); chest kind
-	// 20; gold check 0 < 40 → gold chest (no item registry needed).
+	// 20; gold check 0 < 45 → gold chest (no item registry needed).
 	e := newKindEngine(0, 0, 0, 0, 10, 10, 20, 0)
 
 	e.Process(Command{Type: CmdExplore}) // forced combat
@@ -470,9 +470,9 @@ func TestDifferentKindAfterMerchantPairHappens(t *testing.T) {
 // history [combat, combat] can never satisfy the non-combat streak, so
 // nothing overrides before any kind was recorded (TestExploreSanctuary).
 func TestKindHistorySurvivesAscension(t *testing.T) {
-	// Two sanctuaries (history full), then ASCEND (40 → empty item pool),
+	// Two sanctuaries (history full), then ASCEND (45 → empty item pool),
 	// then a third sanctuary roll must still be overridden.
-	e := pastFirstExplore(newKindEngine(10, 10, 40, 10, 104, 0))
+	e := pastFirstExplore(newKindEngine(10, 10, 45, 10, 104, 0))
 	e.CanAscend = true
 
 	e.Process(Command{Type: CmdExplore}) // sanctuary #1

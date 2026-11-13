@@ -226,7 +226,7 @@ func TestZeroMerchantWeightNeverSpawnsMerchant(t *testing.T) {
 	})
 
 	t.Run("exploring a merchantless section consumes no merchant rng", func(t *testing.T) {
-		// rng: 20 → chest, 50 ≥ 40 → item, 0 → pick. Nothing else.
+		// rng: 20 → chest, 50 ≥ 45 → item, 0 → pick. Nothing else.
 		e := chestEngine(0)
 		stub := &stubRng{values: []int{20, 50, 0}}
 		e.rng = stub

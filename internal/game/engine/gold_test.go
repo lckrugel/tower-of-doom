@@ -7,7 +7,7 @@ import (
 )
 
 func TestAscendGoldChestUsesDestinationBudget(t *testing.T) {
-	e := newKindEngine(39) // Even before the first EXPLORE, ascent is not exploration.
+	e := newKindEngine(44) // Even before the first EXPLORE, ascent is not exploration.
 	e.reg.Sections = []game.SectionAsset{
 		{ID: "old", Name: "Old", MinFloor: 1, MaxFloor: 5, BaseDifficulty: 1},
 		{ID: "next", Name: "Next", MinFloor: 6, MaxFloor: -1, BaseDifficulty: 17, DifficultyPerFloor: 3},
@@ -34,10 +34,19 @@ func TestAscendGoldChestUsesDestinationBudget(t *testing.T) {
 		t.Errorf("invalid post-ascend state: floor=%d ascend=%v boss=%v state=%v loot=%v encounter=%v", e.CurrentFloor, e.CanAscend, e.BossUnlocked, e.State, e.PendingLoot, e.CurrentEncounter)
 	}
 	opened := e.Process(Command{Type: CmdOpenChest})
-	if len(opened) != 1 || opened[0].Data["amount"] != 85 || opened[0].Data["source"] != GoldSourceChest || e.Player.Gold != 92 {
+	if !typesEqual(eventTypes(opened), EventGoldGained) || opened[0].Data["amount"] != 119 || opened[0].Data["source"] != GoldSourceChest || e.Player.Gold != 126 {
 		t.Fatalf("open = %v, gold = %d", opened, e.Player.Gold)
 	}
-	e.Process(Command{Type: CmdContinue})
+	if e.State != StateChest || e.PendingChest == nil || !e.PendingChest.Opened || e.PendingChest.Gold != 119 || e.PendingLoot != nil {
+		t.Fatal("gold chest did not retain its reward for acknowledgment")
+	}
+	if repeated := e.Process(Command{Type: CmdOpenChest}); !typesEqual(eventTypes(repeated), EventMessage) || e.Player.Gold != 126 {
+		t.Fatal("repeat open awarded another reward")
+	}
+	continued := e.Process(Command{Type: CmdContinue})
+	if len(continued) != 0 || e.State != StateExploring || e.PendingChest != nil || e.PendingLoot != nil || e.Player.Gold != 126 {
+		t.Fatal("continue changed gold or failed to clear the chest")
+	}
 	if e.firstExploreDone != firstExplore || e.recentKinds != history || e.encounterMisses != misses {
 		t.Error("ascension chest changed exploration pacing/history")
 	}
@@ -47,43 +56,37 @@ func TestAscendGoldChestUsesDestinationBudget(t *testing.T) {
 	}
 }
 
-// Kills pay a flat 5 × enemy-difficulty gold on every defeat (mid-combat
-// kills included), alongside the instant XP. The grant consumes no rng.
-func TestKillGrantsGold(t *testing.T) {
-	t.Run("gold scales with the enemy difficulty", func(t *testing.T) {
+// Kills grant XP but never gold, including between queued enemies.
+func TestKillsGrantXPWithoutGold(t *testing.T) {
+	t.Run("ordinary kill preserves the purse", func(t *testing.T) {
 		e := newTestEngine(1, 50) // swing 60 — one-shots the orc
 		heroWithDamage(e, 60)
-		startEncounter(e, monsterFromFixture("orc")) // difficulty 5 → 25 gold
+		startEncounter(e, monsterFromFixture("orc"))
 		e.State = StateCombat
+		e.Player.Gold = 7
 
 		events := e.Process(Command{Type: CmdMove, Index: 0})
 
 		if got := eventTypes(events); !typesEqual(got,
-			EventMoveUsed, EventCombatDamageDealt, EventEnemyDefeated, EventGoldGained, EventVictory) {
-			t.Fatalf("events = %v, want [move-used dealt defeated gold-gained victory]", got)
+			EventMoveUsed, EventCombatDamageDealt, EventEnemyDefeated, EventVictory) {
+			t.Fatalf("events = %v, want [move-used dealt defeated victory]", got)
 		}
-		gold := events[3]
-		if amount, _ := gold.Data["amount"].(int); amount != 25 {
-			t.Errorf("amount = %v, want 25 (5 × difficulty 5)", amount)
-		}
-		if source, _ := gold.Data["source"].(string); source != GoldSourceKill {
-			t.Errorf("source = %v, want %q", source, GoldSourceKill)
-		}
-		if got := e.Player.Gold; got != 25 {
-			t.Errorf("hero gold = %d, want 25", got)
+		if e.Player.Gold != 7 || e.Player.Xp != 45 {
+			t.Errorf("gold/XP = %d/%d, want 7/45", e.Player.Gold, e.Player.Xp)
 		}
 	})
 
-	t.Run("mid-combat kills pay too, without ending the fight", func(t *testing.T) {
+	t.Run("mid-combat kills grant XP without gold or ending the fight", func(t *testing.T) {
 		e := newTestEngine(1, 50) // swing 40 — one-shots the goblin
 		heroWithDamage(e, 40)
 		startEncounter(e, monsterFromFixture("goblin"), monsterFromFixture("orc"))
 		e.State = StateCombat
+		e.Player.Gold = 7
 
-		e.Process(Command{Type: CmdMove, Index: 0}) // goblin (difficulty 3) falls
+		events := e.Process(Command{Type: CmdMove, Index: 0})
 
-		if got := e.Player.Gold; got != 15 {
-			t.Errorf("gold after the goblin = %d, want 15 (still mid-combat)", got)
+		if !typesEqual(eventTypes(events), EventMoveUsed, EventCombatDamageDealt, EventEnemyDefeated) || e.Player.Gold != 7 || e.Player.Xp != 21 {
+			t.Errorf("mid-combat events=%v gold/XP=%d/%d, want defeat and 7/21", eventTypes(events), e.Player.Gold, e.Player.Xp)
 		}
 		if e.State != StateCombat {
 			t.Errorf("state = %v, want StateCombat (combat continues)", e.State)
@@ -91,12 +94,12 @@ func TestKillGrantsGold(t *testing.T) {
 
 		heroWithDamage(e, 60) // swing 60 — one-shots the orc
 		e.Process(Command{Type: CmdMove, Index: 0})
-		if got := e.Player.Gold; got != 40 {
-			t.Errorf("gold after the orc = %d, want 40 (15 + 25)", got)
+		if e.Player.Gold != 7 || e.Player.Xp != 66 {
+			t.Errorf("final gold/XP = %d/%d, want 7/66", e.Player.Gold, e.Player.Xp)
 		}
 	})
 
-	t.Run("the gold grant consumes no rng", func(t *testing.T) {
+	t.Run("kill settlement consumes no rng", func(t *testing.T) {
 		e := newTestEngine(1, 50)
 		heroWithDamage(e, 40)
 		startEncounter(e, monsterFromFixture("goblin"))
@@ -113,11 +116,11 @@ func TestKillGrantsGold(t *testing.T) {
 	})
 }
 
-// Opening pays gold instead of an item 40% of the time. Gold skips StateLoot
+// Opening pays gold instead of an item 45% of the time. Gold skips StateLoot
 // but remains on the chest screen until acknowledgment.
 func TestChestGold(t *testing.T) {
-	t.Run("gold chest pays 5 × floor difficulty and skips StateLoot", func(t *testing.T) {
-		e := pastFirstExplore(newKindEngine(20, 0)) // chest, then rng 0 < 40 → gold
+	t.Run("gold chest pays 7 × floor difficulty and skips StateLoot", func(t *testing.T) {
+		e := pastFirstExplore(newKindEngine(20, 0)) // chest, then rng 0 < 45 → gold
 
 		e.Process(Command{Type: CmdExplore})
 		events := e.Process(Command{Type: CmdOpenChest})
@@ -125,15 +128,15 @@ func TestChestGold(t *testing.T) {
 		if got := eventTypes(events); !typesEqual(got, EventGoldGained) {
 			t.Fatalf("events = %v, want [gold-gained]", got)
 		}
-		// Goblin Pits floor 1: difficulty 9 → 45 gold.
-		if amount, _ := events[0].Data["amount"].(int); amount != 45 {
-			t.Errorf("amount = %v, want 45 (5 × floor difficulty 9)", amount)
+		// Goblin Pits floor 1: difficulty 9 → 63 gold.
+		if amount, _ := events[0].Data["amount"].(int); amount != 63 {
+			t.Errorf("amount = %v, want 63 (7 × floor difficulty 9)", amount)
 		}
 		if source, _ := events[0].Data["source"].(string); source != GoldSourceChest {
 			t.Errorf("source = %v, want %q", source, GoldSourceChest)
 		}
-		if got := e.Player.Gold; got != 45 {
-			t.Errorf("hero gold = %d, want 45", got)
+		if got := e.Player.Gold; got != 63 {
+			t.Errorf("hero gold = %d, want 63", got)
 		}
 		if e.State != StateChest {
 			t.Errorf("state = %v, want StateChest (acknowledge gold)", e.State)
@@ -147,29 +150,38 @@ func TestChestGold(t *testing.T) {
 	})
 
 	t.Run("the amount scales with the floor difficulty", func(t *testing.T) {
-		e := pastFirstExplore(newKindEngine(20, 39)) // still gold (39 < 40), on floor 2
+		e := pastFirstExplore(newKindEngine(20, 44)) // still gold (44 < 45), on floor 2
 		e.CurrentFloor = 2                           // difficulty 9 + 3 = 12
 
 		e.Process(Command{Type: CmdExplore})
 		events := e.Process(Command{Type: CmdOpenChest})
 
-		if amount, _ := events[0].Data["amount"].(int); amount != 60 {
-			t.Errorf("amount = %v, want 60 (5 × floor difficulty 12)", amount)
+		if amount, _ := events[0].Data["amount"].(int); amount != 84 {
+			t.Errorf("amount = %v, want 84 (7 × floor difficulty 12)", amount)
+		}
+		if stub := e.rng.(*stubRng); stub.calls != 2 || stub.bounds[0] != 30 || stub.bounds[1] != 100 {
+			t.Errorf("RNG bounds = %v, want [30 100] (kind then branch)", stub.bounds)
 		}
 	})
 
-	t.Run("item chest keeps the loot decision (40 boundary excluded)", func(t *testing.T) {
-		e := chestEngine(0) // rng [20 chest, 40 is not < 40, 0 pick]
-		e.rng = &stubRng{values: []int{20, 40, 0}}
+	t.Run("item chest keeps the loot decision (45 boundary excluded)", func(t *testing.T) {
+		e := chestEngine(0) // rng [20 chest, 45 is not < 45, 0 pick]
+		e.rng = &stubRng{values: []int{20, 45, 0}}
 
 		e.Process(Command{Type: CmdExplore})
 		events := e.Process(Command{Type: CmdOpenChest})
 
 		if got := eventTypes(events); !typesEqual(got, EventLootFound) {
-			t.Fatalf("events = %v, want [loot-found] (40 is not < 40)", got)
+			t.Fatalf("events = %v, want [loot-found] (45 is not < 45)", got)
 		}
 		if e.State != StateLoot {
 			t.Errorf("state = %v, want StateLoot", e.State)
+		}
+		if e.PendingChest != nil || e.PendingLoot == nil || e.Player.Gold != 0 {
+			t.Fatal("item branch changed gold or left invalid pending rewards")
+		}
+		if stub := e.rng.(*stubRng); stub.calls != 3 || stub.bounds[0] != 30 || stub.bounds[1] != 100 || stub.bounds[2] != 2 {
+			t.Errorf("RNG bounds = %v, want [30 100 2]", stub.bounds)
 		}
 	})
 }

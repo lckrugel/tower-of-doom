@@ -74,11 +74,11 @@ const encounterDroughtIncreasePercent = 10
 
 // chestGoldChance is the chance (percentage) that a chest pays out gold
 // instead of holding an item.
-const chestGoldChance = 40
+const chestGoldChance = 45
 
-// goldPerDifficulty is the economy's gold coefficient: kills pay it per
-// unit of enemy difficulty, gold chests per unit of floor difficulty.
-const goldPerDifficulty = 5
+// chestGoldPerDifficulty is the gold chest payout per unit of current
+// floor difficulty, shared by exploration and ascension chests.
+const chestGoldPerDifficulty = 7
 
 // rollEncounterType sorteia o tipo do encontro a partir dos pesos da seção.
 //
