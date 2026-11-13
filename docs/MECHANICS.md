@@ -86,10 +86,9 @@ unplaytested; none of these changes represent measured balance results.
       consumption is unchanged) — see "Types of encounters"
     - COMBAT encounters keep the two-step flow (StateEncounter)
     - SANCTUARY encounters resolve instantly, on the spot (heal)
-    - CHEST encounters roll gold-vs-item first (one extra rng roll):
-      a GOLD chest pays out and exploring continues directly, an ITEM
-      chest rolls an item and opens StateLoot: decide
-      WEAR / STASH / DISCARD — see "Items"
+    - CHEST encounters open StateChest with an unopened chest and no reward
+      roll. OPEN reveals gold (then CONTINUE), an item (StateLoot:
+      WEAR / STASH / DISCARD), or an empty chest (then CONTINUE) — see "Items"
     - MERCHANT encounters open StateMerchant: BUY / SELL / LEAVE —
       see "Gold & prices" and "Types of encounters"
     - SHRINE encounters offer ONE or TWO moves and open StateLearn:
@@ -143,8 +142,9 @@ unplaytested; none of these changes represent measured balance results.
       (see "Bosses")
     - Every ascent grants a guaranteed standard chest on the NEW floor:
       40% gold, 60% uniformly selected equipment of any slot from that
-      destination section's `item_tiers`. Gold pays immediately; equipment
-      opens WEAR / STASH / DISCARD — see "Items" and "Gold & prices".
+      destination section's `item_tiers`, rolled only on OPEN. Gold stays
+      visible until CONTINUE; equipment opens WEAR / STASH / DISCARD —
+      see "Items" and "Gold & prices".
 - After combat games goes to StateExploring again
     - If combat was won, ASCEND is now permitted — EXCEPT on the final
       floor of a section with a boss, where the challenge unlocks and
@@ -361,20 +361,40 @@ is equipment-specific; level-up rescaling and its subsequent heal are unchanged.
     - Out-of-range/negative indexes are a generic invalid command with
       no state change, never a panic (player-reachable); in StateLoot the
       index is ignored instead.
-- **Chest flow** — after the encounter-kind roll, ONE extra rng roll
-  (`Intn(100) < 40`) decides gold-vs-item:
-    - GOLD chest — pays `5 × floor difficulty` on the spot
-      (`event-gold-gained`, source "chest") and returns to exploring
-      directly: NO StateLoot decision for gold.
+- **Chest flow** — discovery enters StateChest with an unopened
+  `Engine.PendingChest` (`ChestState{Opened: false, Gold: 0}`) and emits
+  `event-chest-found{}`. Discovery neither rolls nor grants a reward.
+  Only OPEN / QUIT are accepted. OPEN consumes ONE branch roll
+  (`Intn(100) < 40`), preserving the existing reward chances and pools:
+    - GOLD chest — credits `5 × floor difficulty` exactly once
+      (`event-gold-gained`, source "chest"), sets `Opened` and `Gold`, and
+      remains in StateChest so the main reward screen can show the amount.
+      CONTINUE clears PendingChest and returns to exploring; no RNG,
+      additional award, or log event is produced. There is no StateLoot
+      decision for gold.
     - ITEM chest — rolls an item from the section's allowed tiers (sorted
       pool; rng roll unchanged apart from the gold check ahead of it) and
-      holds it as `Engine.PendingLoot`, entering StateLoot. The player
+      holds it as `Engine.PendingLoot`, clears PendingChest, and enters
+      StateLoot. The player
       decides:
       - `WEAR` — see above (pending-loot case).
       - `STASH` — stores it in the bag. While the bag is full the attempt
         is rejected (`event-bag-full`, NO state change: the decision
         stays open and the item stays pending).
-      - `DISCARD` — destroys it on the spot.
+       - `DISCARD` — destroys it on the spot.
+    - EMPTY chest — an empty allowed item pool consumes only the branch
+      roll, emits the existing empty-chest message, and stays in StateChest
+      with `Opened: true, Gold: 0` until CONTINUE.
+    - Opened gold/empty chests accept only CONTINUE / QUIT. Premature
+      CONTINUE, repeated OPEN, and exploration, ascent, inventory or potion
+      commands during the chest screen are rejected without RNG or changes.
+      Rendering is read-only. PendingChest is nil outside StateChest;
+      a malformed StateChest without it rejects commands except QUIT safely.
+      The state-only command query returns the union of both steps;
+      `Engine.AvailableCommands()` filters to the current step.
+    - Exploration records kind history and drought counters at discovery,
+      never again on OPEN or CONTINUE. This explicit acknowledgment changes
+      reward timing only, not balance, prices, healing, or boss rewards.
 - **Inventory (bag screen)** — reachable ONLY from StateExploring (no
   mid-combat bag access):
     - `WEAR <index>` — see above (bag-screen case).
@@ -403,12 +423,14 @@ is equipment-specific; level-up rescaling and its subsequent heal are unchanged.
 - **Ascend flow** — every successful ascent, throughout the tower, grants
   one standard chest, replacing the former guaranteed armor reward. The
   floor increments and the ascent/boss unlocks clear before `event-floor-entered`,
-  followed by the shared chest result: 40% gold (`5 × destination floor
+  followed by `event-chest-found` and an unopened StateChest. OPEN uses
+  the shared chest result: 40% gold (`5 × destination floor
   difficulty budget`), or 60% equipment selected uniformly from ALL slots
-  in the NEW section's allowed item tiers. Gold leaves StateExploring with
-  no pending loot; equipment opens StateLoot (WEAR / STASH / DISCARD), never
-  auto-equipping. An empty allowed item pool on the item branch emits the
-  standard empty-chest message and stays exploring.
+  in the NEW section's allowed item tiers. Gold and empty results remain
+  in StateChest until CONTINUE; equipment opens StateLoot
+  (WEAR / STASH / DISCARD), never auto-equipping. An empty allowed item
+  pool emits the standard empty-chest message. CurrentEncounter is zero
+  throughout this flow; discovery itself consumes no RNG.
   There is no chest-appearance gate or encounter-kind roll, no combat or
   `event-encounter-found`, and no exploration history/miss-counter update.
   The per-run forced first combat and subsequent exploration pacing are
@@ -553,13 +575,14 @@ an extra roll):
     - Heals `50%` of the Hero's **base** max HP (equipment excluded, floored)
     - Clamped by `Hero.Heal`: a Hero at full health gains nothing
     - Does NOT unlock ASCEND
-- **CHEST OF RICHES** — resolves on EXPLORE:
-    - ONE extra rng roll (`Intn(100) < 40`) decides gold-vs-item
-    - GOLD — pays `5 × floor difficulty` (`event-gold-gained`, source
-      "chest") and exploring continues directly: no StateLoot decision
-    - ITEM — rolls a random item from the section's allowed tiers (any
-      slot, sorted-ID pool; the same roll as before, now tier-gated) and
-      holds it as `Engine.PendingLoot`, entering StateLoot — see "Items"
+- **CHEST OF RICHES** — EXPLORE discovers an unopened StateChest:
+    - No reward RNG or award until OPEN; then ONE `Intn(100) < 40`
+      decides gold-vs-item
+    - GOLD — credits `5 × floor difficulty` (`event-gold-gained`, source
+      "chest") once; remains visible until CONTINUE
+    - ITEM — uniformly rolls from the section's allowed tiers (any slot,
+      sorted-ID pool) and holds it as `Engine.PendingLoot`, entering
+      StateLoot — see "Items"; an empty pool waits for CONTINUE instead
     - Does NOT unlock ASCEND
 - **MERCHANT** — a wandering shop; opens StateMerchant on EXPLORE:
     - Stocks up to 4 DISTINCT offers from the section's allowed item
