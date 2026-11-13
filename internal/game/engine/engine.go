@@ -79,6 +79,10 @@ type Engine struct {
 	// decideEncounterKind), so a sanctuary/chest/merchant can never open
 	// a run. Per run: ascension does not reset it.
 	firstExploreDone bool
+	// merchantWarmupDecisions counts random exploration-kind decisions with
+	// a positive authored merchant weight, capped at five. Per run, independent
+	// of drought misses: visits and ascension never reset it.
+	merchantWarmupDecisions int
 	// encounterMisses counts eligible exploration encounters since each
 	// non-combat type was last visited. It survives ascension; unavailable
 	// types do not accrue misses.

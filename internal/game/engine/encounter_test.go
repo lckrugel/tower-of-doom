@@ -68,6 +68,123 @@ func TestRollEncounterTypeWithoutTableConsumesNoRng(t *testing.T) {
 	}
 }
 
+func TestMerchantOpeningRampWeightsAndRng(t *testing.T) {
+	e := newKindEngine(0)
+	w := game.EncounterTypeWeights{Combat: 10, Sanctuary: 10, Chest: 10, Merchant: 10, Shrine: 10}
+	stub := e.rng.(*stubRng)
+	if got := e.decideEncounterKind(w); got != EncounterCombat || stub.calls != 0 || e.merchantWarmupDecisions != 0 {
+		t.Fatal("forced opening must skip both the kind roll and merchant warmup")
+	}
+	// The forced opening still counts as a drought miss. Even on step five,
+	// merchant weight is exactly the authored base, not drought-boosted.
+	for i, want := range []int{2, 4, 6, 8, 10, 12} {
+		t.Run(fmt.Sprintf("decision_%d", i+1), func(t *testing.T) {
+			got := e.encounterWeightsWithProtection(w)
+			other := increaseEncounterWeight(10, i+1)
+			if got.Merchant != want || got.Combat != 10 || got.Sanctuary != other || got.Chest != other || got.Shrine != other {
+				t.Fatalf("weights = %+v, want merchant %d and other non-combat weights %d", got, want, other)
+			}
+			if kind := e.decideEncounterKind(w); kind != EncounterCombat {
+				t.Fatalf("kind = %v, want combat", kind)
+			}
+			if stub.calls != i+1 || stub.bounds[i] != 10+3*other+want {
+				t.Fatalf("rng bounds = %v, want one kind roll with bound %d", stub.bounds, 10+3*other+want)
+			}
+			if e.merchantWarmupDecisions != min(i+1, 5) || e.encounterMisses[EncounterMerchant] != i+2 {
+				t.Fatalf("progress/misses = %d/%d, want %d/%d", e.merchantWarmupDecisions, e.encounterMisses[EncounterMerchant], min(i+1, 5), i+2)
+			}
+		})
+	}
+	if fresh := NewEngine(e.reg); fresh.merchantWarmupDecisions != 0 {
+		t.Fatal("a new run must start the warmup afresh")
+	}
+}
+
+func TestMerchantOpeningRampRoundsUpAndKeepsZeroUnavailable(t *testing.T) {
+	for _, tt := range []struct {
+		base int
+		want [5]int
+	}{
+		{0, [5]int{0, 0, 0, 0, 0}},
+		{1, [5]int{1, 1, 1, 1, 1}},
+		{3, [5]int{1, 2, 2, 3, 3}},
+		{11, [5]int{3, 5, 7, 9, 11}},
+	} {
+		t.Run(fmt.Sprintf("base_%d", tt.base), func(t *testing.T) {
+			e := newKindEngine()
+			e.encounterMisses[EncounterMerchant] = 20
+			for step, want := range tt.want {
+				e.merchantWarmupDecisions = step
+				got := e.encounterWeightsWithProtection(game.EncounterTypeWeights{Merchant: tt.base})
+				if got != (game.EncounterTypeWeights{Merchant: want}) {
+					t.Errorf("step %d weights = %+v, want merchant-only weight %d", step+1, got, want)
+				}
+			}
+		})
+	}
+}
+
+func TestMerchantOpeningRampFreezesWhenUnavailable(t *testing.T) {
+	e := pastFirstExplore(newKindEngine(0))
+	w := game.EncounterTypeWeights{Combat: 10, Merchant: 10}
+	e.decideEncounterKind(w)
+	for _, unavailable := range []game.EncounterTypeWeights{{Combat: 10}, {}} {
+		e.decideEncounterKind(unavailable)
+		if e.merchantWarmupDecisions != 1 || e.encounterMisses[EncounterMerchant] != 1 {
+			t.Fatal("unavailable merchant must freeze both warmup and drought counters")
+		}
+		if got := e.encounterWeightsWithProtection(unavailable); got != unavailable {
+			t.Fatalf("unavailable weights changed: %+v", got)
+		}
+	}
+	if got := e.encounterWeightsWithProtection(w).Merchant; got != 4 {
+		t.Fatalf("resumed merchant weight = %d, want second-step weight 4", got)
+	}
+	e.decideEncounterKind(w)
+	if e.merchantWarmupDecisions != 2 {
+		t.Fatal("warmup did not resume when merchant became available")
+	}
+}
+
+func TestMerchantOpeningRampCountsDiscoveryNotOtherActions(t *testing.T) {
+	e := pastFirstExplore(newKindEngine(20, 0, 0))
+	e.reg.Sections[0].EncounterTypes.Merchant = 10
+	e.CanAscend = true
+	for _, tt := range []struct {
+		cmd  CommandType
+		want int
+	}{
+		{CmdExplore, 1}, // random chest discovery
+		{CmdOpenChest, 1},
+		{CmdContinue, 1},
+		{CmdAscend, 1}, // guaranteed chest, not a random kind decision
+		{CmdOpenChest, 1},
+		{CmdContinue, 1},
+	} {
+		e.Process(Command{Type: tt.cmd})
+		if e.merchantWarmupDecisions != tt.want {
+			t.Fatalf("after %v warmup = %d, want %d", tt.cmd, e.merchantWarmupDecisions, tt.want)
+		}
+	}
+	if e.CurrentFloor != 2 || e.State != StateExploring || e.encounterWeightsWithProtection(e.reg.Sections[0].EncounterTypes).Merchant != 4 {
+		t.Fatal("ascension must preserve the second-step merchant weight")
+	}
+	// Combat entry is not another exploration-kind decision either.
+	e.State = StateEncounter
+	e.CurrentEncounter = Encounter{Monsters: []entities.Monster{entities.NewMonsterFromAsset(testMonsters()["goblin"])}}
+	e.Process(Command{Type: CmdFight})
+	if e.State != StateCombat || e.merchantWarmupDecisions != 1 {
+		t.Fatal("combat entry must preserve warmup progress")
+	}
+	boss := pastFirstExplore(newBossEngine(0))
+	boss.decideEncounterKind(game.EncounterTypeWeights{Combat: 10, Merchant: 10})
+	boss.CurrentFloor, boss.BossUnlocked = 5, true
+	boss.Process(Command{Type: CmdChallengeBoss})
+	if boss.State != StateCombat || !boss.CurrentEncounter.Boss || boss.merchantWarmupDecisions != 1 {
+		t.Fatal("boss challenge must preserve warmup progress")
+	}
+}
+
 func TestEncounterDroughtWeightIncreasesAfterGracePeriod(t *testing.T) {
 	weights := game.EncounterTypeWeights{Combat: 10, Sanctuary: 10}
 	tests := []struct {
@@ -416,6 +533,9 @@ func TestMerchantStreakBecomesCombat(t *testing.T) {
 		if got := eventTypes(e.Process(Command{Type: CmdLeave})); len(got) != 1 || got[0] != EventMessage {
 			t.Fatalf("leave events = %v, want a single message", got)
 		}
+		if e.merchantWarmupDecisions != stub.calls/6 || e.encounterMisses[EncounterMerchant] != 0 {
+			t.Fatal("merchant visit/leave must advance warmup once and reset only drought misses")
+		}
 	}
 
 	events := e.Process(Command{Type: CmdExplore}) // third merchant roll
@@ -436,6 +556,12 @@ func TestMerchantStreakBecomesCombat(t *testing.T) {
 	// one Intn + 2 monster picks; a reroll would shift the count.
 	if stub.calls != 15 {
 		t.Errorf("rng calls = %d, want 15 (no extra rng for the override)", stub.calls)
+	}
+	if e.merchantWarmupDecisions != 3 || e.encounterMisses[EncounterMerchant] != 1 {
+		t.Fatal("streak-overridden merchant roll must advance warmup and record actual combat")
+	}
+	if stub.bounds[0] != 32 || stub.bounds[6] != 34 || stub.bounds[12] != 36 {
+		t.Errorf("kind bounds = %d/%d/%d, want 32/34/36", stub.bounds[0], stub.bounds[6], stub.bounds[12])
 	}
 }
 
