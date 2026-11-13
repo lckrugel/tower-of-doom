@@ -46,6 +46,37 @@ var confirmableStates = []engine.GameState{
 	engine.StateExploring, engine.StateEncounter, engine.StateCombat,
 	engine.StateLoot, engine.StateInventory, engine.StateMerchant,
 	engine.StateLearn,
+	engine.StateChest,
+}
+
+func TestChestEscapeAndResizePreserveBothStages(t *testing.T) {
+	for _, opened := range []bool{false, true} {
+		m := New(testEngine())
+		m.engine.State, m.engine.PendingChest = engine.StateChest, &engine.ChestState{Opened: opened, Gold: 42}
+		chest, gold := m.engine.PendingChest, m.engine.Player.Gold
+		m, _ = press(m, "esc")
+		if m.confirmQuit || m.engine.State != engine.StateChest {
+			t.Fatal("Escape dismissed a chest stage")
+		}
+		m, _ = press(m, "q")
+		if !m.confirmQuit {
+			t.Fatal("Q must confirm at either chest stage")
+		}
+		m, _ = press(m, "n")
+		u, _ := m.Update(tea.WindowSizeMsg{Width: 1, Height: 1})
+		m = u.(Model)
+		for _, key := range []string{"o", "c", "enter", "esc", "q"} {
+			m, _ = press(m, key)
+		}
+		u, _ = m.Update(tea.WindowSizeMsg{Width: minWidth, Height: minHeight})
+		m = u.(Model)
+		if m.engine.PendingChest != chest || chest.Opened != opened || m.engine.Player.Gold != gold || m.confirmQuit {
+			t.Fatal("resize/input changed a pending chest")
+		}
+		if _, cmd := press(m, "ctrl+c"); cmd == nil {
+			t.Fatal("chest blocked emergency quit")
+		}
+	}
 }
 
 // Pressing q never dispatches right away: the model arms the quit

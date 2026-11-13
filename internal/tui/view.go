@@ -222,7 +222,7 @@ func (m Model) badge() string {
 		style = styleBadgeWarn
 	case engine.StateCombat:
 		style = styleBadgeCombat
-	case engine.StateLoot:
+	case engine.StateChest, engine.StateLoot:
 		style = styleBadgeWarn
 	case engine.StateMerchant:
 		style = styleBadgeWarn
@@ -260,6 +260,8 @@ func (m Model) body() string {
 		return strings.Join(lines, "\n")
 	case engine.StateLoot: // the pending item, ahead of the three-way choice
 		return m.lootPanel()
+	case engine.StateChest:
+		return m.chestPanel()
 	case engine.StateInventory: // the whole bag, selection included
 		return m.inventoryPanel()
 	case engine.StateMerchant: // the shop: offers and bag in one list
@@ -275,6 +277,26 @@ func (m Model) body() string {
 	default:
 		return ""
 	}
+}
+
+// chestPanel reads the engine's pending reward; rendering never opens or
+// acknowledges a chest, and the award is not derived from the hero's purse.
+func (m Model) chestPanel() string {
+	heading := m.panelHeading("◈ CHEST") + "\n\n"
+	chest := m.engine.PendingChest
+	if chest == nil {
+		return heading + styleDim.Render("  No chest is waiting.")
+	}
+	if !chest.Opened {
+		return heading + stylePanelTitle.Render("  A chest awaits") + "\n" +
+			styleDim.Render("  [O] Open to reveal its contents.")
+	}
+	if chest.Gold > 0 {
+		return heading + styleXP.Bold(true).Render(fmt.Sprintf("  +%d gold", chest.Gold)) + "\n" +
+			styleDim.Render("  Added to your purse. [C] Continue.")
+	}
+	return heading + stylePanelTitle.Render("  The chest is empty") + "\n" +
+		styleDim.Render("  Nothing to collect. [C] Continue.")
 }
 
 // lootPanel is the chest-decision screen: the pending item and the
@@ -1090,6 +1112,8 @@ func (m Model) actionBar() string {
 		}
 	case engine.StateLoot:
 		hint = "   decide the loot's fate"
+	case engine.StateChest:
+		hint = "   ← → select · ⏎ confirm"
 	case engine.StateLearn:
 		if m.learnForgetStep() {
 			hint = "   ← → pick the move to forget"

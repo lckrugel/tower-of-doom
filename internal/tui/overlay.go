@@ -58,6 +58,8 @@ func (m Model) overlayPanel() string {
 	} else if m.engine.State == engine.StateCombat {
 		// The moves live in the grid there: the legend says so.
 		rows = append(rows, styleDim.Render("  1-4 or arrows pick a move · ⏎ use it"))
+	} else if m.engine.State == engine.StateChest {
+		rows = append(rows, styleDim.Render("  ←/→ select · Enter confirm · Esc does not dismiss the chest"))
 	}
 
 	rows = append(rows, styleDim.Render("? — any key closes the overlay"))

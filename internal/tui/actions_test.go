@@ -75,6 +75,7 @@ func TestActionsPerState(t *testing.T) {
 		{"encounter", engine.StateEncounter, false, false, []string{"f", "s", "q"}},
 		{"combat", engine.StateCombat, false, false, []string{"r", "h", "q"}}, // moves live in the grid
 		{"loot", engine.StateLoot, false, false, []string{"w", "b", "d", "q"}},
+		{"chest", engine.StateChest, false, false, []string{"o", "q"}},
 		{"inventory", engine.StateInventory, true, false, []string{"w", "x", "h", "c", "q"}},
 		{"merchant", engine.StateMerchant, true, true, []string{"p", "v", "c", "q"}},
 		{"learn choosing", engine.StateLearn, false, false, []string{"l", "c", "q"}},
@@ -94,6 +95,9 @@ func TestActionsPerState(t *testing.T) {
 					shopItem("Offer A"), shopItem("Offer B"), shopItem("Offer C"))
 			}
 			e.State = tt.state
+			if tt.state == engine.StateChest {
+				e.PendingChest = &engine.ChestState{}
+			}
 
 			actions := actionsFor(e)
 
@@ -177,13 +181,13 @@ func TestBagActionsAreDisabledOnAnEmptyBag(t *testing.T) {
 	}
 }
 
-// No shortcut may change meaning across states except for contextual
-// navigation: [C] Back maps to each menu's own exit command, and [F]
-// Forget reuses Fight's letter on the shrine's separate step.
+// Contextual shortcuts may share letters, but never collide on one bar:
+// C navigates, F fights/forgets, and O opens a chest/buys a consumable.
 func TestShortcutsAreGloballyUnique(t *testing.T) {
 	// Keys deliberately serving different contextual commands across states.
 	reused := map[string]map[engine.CommandType]bool{
-		"c": {engine.CmdClose: true, engine.CmdLeave: true, engine.CmdDecline: true},
+		"c": {engine.CmdClose: true, engine.CmdLeave: true, engine.CmdDecline: true, engine.CmdContinue: true},
+		"o": {engine.CmdOpenChest: true, engine.CmdBuyConsumable: true},
 		"f": {engine.CmdFight: true, engine.CmdForget: true},
 	}
 	byKey := make(map[string]engine.CommandType)
@@ -204,10 +208,26 @@ func TestShortcutsAreGloballyUnique(t *testing.T) {
 	for _, state := range []engine.GameState{
 		engine.StateExploring, engine.StateEncounter, engine.StateCombat, engine.StateGameOver,
 		engine.StateLoot, engine.StateInventory, engine.StateMerchant,
+		engine.StateChest,
 	} {
 		e := testEngine()
 		e.State = state
+		if state == engine.StateMerchant {
+			e.MerchantConsumable = &game.ConsumableAsset{ID: "potion", Name: "Potion"}
+		}
 		visit(state, actionsFor(e))
+	}
+	for _, opened := range []bool{false, true} {
+		e := testEngine()
+		e.State, e.PendingChest = engine.StateChest, &engine.ChestState{Opened: opened}
+		visit(e.State, actionsFor(e))
+		want := "o"
+		if opened {
+			want = "c"
+		}
+		if !keysEqual(keysOf(actionsFor(e)), want, "q") {
+			t.Errorf("chest opened=%v: keys=%v", opened, keysOf(actionsFor(e)))
+		}
 	}
 	// The shrine is visited PER STEP — each step's bar is what actually
 	// renders (the union view never reaches the screen).

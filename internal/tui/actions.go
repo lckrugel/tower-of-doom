@@ -33,8 +33,8 @@ type action struct {
 // orderedOptions is the canonical display/d Dispatch order for every action
 // across all states; each state's bar shows only what AllowedCommands
 // permits, in this order.
-// Shortcut keys are assigned once per command and never overlap between
-// states: the same key must always mean the same action, so combat
+// Shortcut keys are assigned once per command, except for contextual menu
+// navigation and Open/Buy Consumable in mutually exclusive states, so combat
 // muscle memory (e.g. spamming Attack) can't spill into another command
 // once the state changes.
 var orderedOptions = []struct {
@@ -50,6 +50,8 @@ var orderedOptions = []struct {
 	{"i", "Inventory", engine.CmdInventory},
 	{"f", "Fight", engine.CmdFight},
 	{"s", "Sneak", engine.CmdSneak},
+	{"o", "Open", engine.CmdOpenChest},
+	{"c", "Continue", engine.CmdContinue},
 	// CmdMove is deliberately absent: in combat the moves live in the
 	// 2×2 move grid (see combatActions), not on the bar.
 	{"r", "Flee", engine.CmdFlee},     // r for "run"

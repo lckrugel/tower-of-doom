@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -12,8 +13,8 @@ import (
 
 // chestEngine builds an engine whose only encounter type is a chest: an
 // all-zero combat/sanctuary table rolls CHEST deterministically (see the
-// engine's rollEncounterType), so a post-opener EXPLORE opens the loot
-// decision without any rng seeding. BaseDifficulty gives the forced
+// engine's rollEncounterType), so a post-opener EXPLORE discovers a chest
+// without any rng seeding. BaseDifficulty gives the forced
 // opening combat (encounter pacing: a run always opens with combat)
 // something to spawn.
 func chestEngine() *engine.Engine {
@@ -81,6 +82,12 @@ func exploreUntilChest(t *testing.T, m Model) Model {
 			m, _ = press(m, "f")
 		case engine.StateCombat:
 			m, _ = press(m, "1") // the basic-attack move chip (combat 2.0 bar)
+		case engine.StateChest:
+			if m.engine.PendingChest.Opened {
+				m, _ = press(m, "c")
+			} else {
+				m, _ = press(m, "o")
+			}
 		case engine.StateLoot:
 			return m
 		default:
@@ -128,16 +135,81 @@ func isWorn(h *entities.Hero, item *entities.Item) bool {
 	return slices.Contains(worn, item)
 }
 
-// Exploring on a chest opens the loot decision: the item is held as
-// pending, nothing equipped or stored yet.
-func TestExploreOnAChestOpensTheLootDecision(t *testing.T) {
-	m := chestModel(t)
-
-	if m.engine.State != engine.StateLoot {
-		t.Fatalf("state after explore = %v, want StateLoot", m.engine.State)
+// Exploring discovers an unopened chest, without paying out its reward.
+func TestExploreOnAChestWaitsForOpen(t *testing.T) {
+	m, _ := press(New(chestEngine()), "e")
+	m = fightThroughTheOpener(t, m)
+	gold := m.engine.Player.Gold
+	m, _ = press(m, "e")
+	if m.engine.State != engine.StateChest || m.engine.PendingChest == nil || m.engine.PendingChest.Opened {
+		t.Fatal("discovery must leave an unopened chest")
 	}
-	if m.engine.PendingLoot == nil {
-		t.Fatal("the chest left no pending loot")
+	if m.engine.Player.Gold != gold || m.engine.PendingLoot != nil {
+		t.Fatal("discovery awarded a reward before Open")
+	}
+	for _, want := range []string{"CHEST", "A chest awaits", "[O] Open"} {
+		if !strings.Contains(stripANSI(m.View()), want) {
+			t.Errorf("discovery view missing %q", want)
+		}
+	}
+	if !strings.Contains(stripANSI(m.log[len(m.log)-1]), "chest") {
+		t.Fatal("discovery needs a meaningful log line")
+	}
+	m, _ = press(m, "enter")
+	if m.engine.State == engine.StateLoot {
+		if m.engine.PendingChest != nil || m.engine.PendingLoot == nil || !m.showsEquipment() {
+			t.Fatal("opening an item chest must retain the equipment decision")
+		}
+		return
+	}
+	chest := m.engine.PendingChest
+	if m.engine.State != engine.StateChest || chest == nil || !chest.Opened || m.engine.Player.Gold != gold+chest.Gold {
+		t.Fatal("Open must credit the reward once and keep the chest visible")
+	}
+	m, _ = press(m, "o")
+	_ = m.View()
+	m, _ = press(m, "c")
+	if m.engine.State != engine.StateExploring || m.engine.PendingChest != nil || m.engine.Player.Gold != gold+chest.Gold {
+		t.Fatal("repeated Open/render/Continue changed the reward")
+	}
+}
+
+func TestChestRewardPersistsUntilContinue(t *testing.T) {
+	for _, gold := range []int{0, 137} {
+		t.Run(fmt.Sprint(gold), func(t *testing.T) {
+			e := testEngine()
+			e.State, e.PendingChest = engine.StateChest, &engine.ChestState{Opened: true, Gold: gold}
+			e.Player.Gold = 900 + gold
+			m := New(e)
+			m.log = nil // the reward must not depend on log visibility
+			want := "The chest is empty"
+			if gold > 0 {
+				want = fmt.Sprintf("+%d gold", gold)
+			}
+			for _, key := range []string{"", "right", "left", "o", "e", "esc", "?", "?"} {
+				if key != "" {
+					m, _ = press(m, key)
+				}
+				for range 2 {
+					_ = m.View()
+					if !strings.Contains(stripANSI(m.body()), want) || !strings.Contains(stripANSI(m.actionBar()), "[C] Continue") {
+						t.Fatalf("persistent main reward missing after %q: %s", key, m.View())
+					}
+				}
+				if e.State != engine.StateChest || e.Player.Gold != 900+gold || m.confirmQuit {
+					t.Fatalf("%q changed or dismissed the reward", key)
+				}
+			}
+			continueKey := "enter"
+			if gold == 0 {
+				continueKey = "c"
+			}
+			m, _ = press(m, continueKey)
+			m, _ = press(m, "c")
+			if e.State != engine.StateExploring || e.PendingChest != nil || e.Player.Gold != 900+gold {
+				t.Fatal("Continue must clear the chest without another award")
+			}
+		})
 	}
 }
 
@@ -184,14 +256,29 @@ func ascendEngine() *engine.Engine {
 	})
 }
 
-// Ascending no longer equips the reward: the new floor's armor piece
-// opens the same loot decision a chest does, and W wears it from there.
-func TestAscendPresentsTheArmorRewardAsLoot(t *testing.T) {
+// Ascension discovers a chest before awarding anything. An item result
+// keeps the existing equipment decision; gold stays visible until Continue.
+func TestAscendPresentsChestBeforeReward(t *testing.T) {
 	e := ascendEngine()
 	e.CanAscend = true
 	m := New(e)
+	gold := e.Player.Gold
 
 	m, _ = press(m, "u")
+	if m.engine.State != engine.StateChest || m.engine.PendingChest == nil || m.engine.PendingChest.Opened || e.Player.Gold != gold {
+		t.Fatal("ascension must present an unopened chest")
+	}
+	m, _ = press(m, "enter")
+	if m.engine.State == engine.StateChest {
+		if !m.engine.PendingChest.Opened || !strings.Contains(stripANSI(m.body()), fmt.Sprintf("+%d gold", m.engine.PendingChest.Gold)) {
+			t.Fatal("ascension gold must remain visible in the main panel")
+		}
+		m, _ = press(m, "c")
+		if m.engine.State != engine.StateExploring {
+			t.Fatal("Continue did not resolve ascension reward")
+		}
+		return
+	}
 
 	if m.engine.State != engine.StateLoot {
 		t.Fatalf("state after 'u' = %v, want StateLoot", m.engine.State)

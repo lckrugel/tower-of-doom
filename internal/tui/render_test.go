@@ -386,6 +386,12 @@ func TestEventText(t *testing.T) {
 			nil,
 		},
 		{
+			"chest discovery",
+			engine.NewChestFound(),
+			"You discover a chest — open it to reveal its contents.",
+			nil,
+		},
+		{
 			"gold from the boss",
 			engine.NewGoldGained(250, engine.GoldSourceBoss),
 			"The fallen boss drops 250 gold!",

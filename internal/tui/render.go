@@ -102,6 +102,8 @@ func eventText(ev engine.Event) string {
 		return combatHealedText(ev.Data)
 	case engine.EventLootFound:
 		return lootFoundText(ev.Data)
+	case engine.EventChestFound:
+		return "You discover a chest — open it to reveal its contents."
 	case engine.EventItemEquipped:
 		return itemEquippedText(ev.Data)
 	case engine.EventItemStashed:

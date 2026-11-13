@@ -194,7 +194,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		switch m.engine.State {
 		case engine.StateInventory, engine.StateMerchant, engine.StateLearn:
 			return m.dispatch(backAction(m.engine.State))
-		case engine.StateLoot, engine.StateCombat:
+		case engine.StateChest, engine.StateLoot, engine.StateCombat:
 			return m, nil
 		}
 		return m.confirmOrDispatch(quitAction())
