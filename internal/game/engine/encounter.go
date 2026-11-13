@@ -72,6 +72,10 @@ const sanctuaryHealPercent = 50
 const encounterDroughtGraceVisits = 4
 const encounterDroughtIncreasePercent = 10
 
+// The first five merchant-eligible random kind decisions use 20–100% of
+// the authored merchant weight. Merchant drought boosts begin on the sixth.
+const merchantWarmupDecisions = 5
+
 // chestGoldChance is the chance (percentage) that a chest pays out gold
 // instead of holding an item.
 const chestGoldChance = 45
@@ -119,6 +123,10 @@ func (e *Engine) rollEncounterType(w game.EncounterTypeWeights) EncounterType {
 //     kind actually happens. After four misses, each further miss adds 10%
 //     of that kind's authored weight (rounded up). A visit resets its
 //     counter; unavailable kinds freeze. There is no forced selection.
+//   - The first five random decisions with merchants available scale their
+//     authored weight from 20% to 100%, without merchant drought boosts.
+//     They advance even on merchant visits or streak overrides, but not on
+//     the forced opening. Drought misses are still recorded normally.
 //
 // Every resolved kind — combat included, the forced first one too — is
 // recorded into the two-slot history and drought counters, so an override
@@ -132,6 +140,9 @@ func (e *Engine) decideEncounterKind(w game.EncounterTypeWeights) EncounterType 
 		return EncounterCombat
 	}
 	kind := e.rollEncounterType(e.encounterWeightsWithProtection(w))
+	if w.Merchant > 0 && e.merchantWarmupDecisions < merchantWarmupDecisions {
+		e.merchantWarmupDecisions++
+	}
 	if kind != EncounterCombat &&
 		e.recentKinds[0] == kind && e.recentKinds[1] == kind {
 		kind = EncounterCombat
@@ -144,9 +155,14 @@ func (e *Engine) decideEncounterKind(w game.EncounterTypeWeights) EncounterType 
 // encounterWeightsWithProtection gently raises a non-combat encounter's
 // weight after its grace period. Zero-weight types stay unavailable; their
 // counters are frozen by recordEncounterVisit until a section enables them.
+// Merchant warmup replaces only its drought adjustment for five decisions.
 func (e *Engine) encounterWeightsWithProtection(w game.EncounterTypeWeights) game.EncounterTypeWeights {
 	weights := [EncounterShrine + 1]int{w.Combat, w.Sanctuary, w.Chest, w.Merchant, w.Shrine}
 	for kind := EncounterSanctuary; kind <= EncounterShrine; kind++ {
+		if kind == EncounterMerchant && e.merchantWarmupDecisions < merchantWarmupDecisions {
+			weights[kind] = merchantWarmupWeight(weights[kind], e.merchantWarmupDecisions)
+			continue
+		}
 		weights[kind] = increaseEncounterWeight(weights[kind], e.encounterMisses[kind])
 	}
 	return game.EncounterTypeWeights{
@@ -156,6 +172,17 @@ func (e *Engine) encounterWeightsWithProtection(w game.EncounterTypeWeights) gam
 		Merchant:  weights[EncounterMerchant],
 		Shrine:    weights[EncounterShrine],
 	}
+}
+
+// merchantWarmupWeight returns ceil(base * (completed+1) / 5), where
+// completed is in [0, 4]. Positive weights stay at least one; unavailable
+// weights are unchanged. Split the product to avoid overflowing on large bases.
+func merchantWarmupWeight(base, completed int) int {
+	if base <= 0 {
+		return base
+	}
+	step := completed + 1
+	return base/merchantWarmupDecisions*step + (base%merchantWarmupDecisions*step+merchantWarmupDecisions-1)/merchantWarmupDecisions
 }
 
 // increaseEncounterWeight adds a rounded-up 10% of the authored weight for
