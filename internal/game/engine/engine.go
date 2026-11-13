@@ -16,6 +16,13 @@ const MAX_ENCOUNTER_SIZE = 6
 // loaded from the registry (so mods can redefine the starter gear).
 const starterItemID = "wooden_sword"
 
+// ChestState is the chest screen's read-only view. Gold is credited on opening;
+// an opened chest with zero Gold is empty. Item rewards move to StateLoot.
+type ChestState struct {
+	Opened bool
+	Gold   int
+}
+
 type Engine struct {
 	State        GameState
 	Player       *entities.Hero
@@ -42,6 +49,8 @@ type Engine struct {
 	// chest opens and cleared on every resolution path; it is meaningful
 	// only while State == StateLoot.
 	PendingLoot *entities.Item
+	// PendingChest exists only in StateChest, until continuation or item loot.
+	PendingChest *ChestState
 	// MerchantStock holds the merchant's equipment offers while State ==
 	// StateMerchant. Buying removes an offer; leaving discards them all.
 	MerchantStock []*entities.Item
@@ -144,6 +153,8 @@ func (e *Engine) Process(cmd Command) []Event {
 		return e.handleMerchant(cmd)
 	case StateLearn:
 		return e.handleLearn(cmd)
+	case StateChest:
+		return e.handleChest(cmd)
 	case StateGameOver:
 		return e.handleGameOver(cmd)
 	default:
@@ -165,8 +176,8 @@ func (e *Engine) handleExploring(cmd Command) []Event {
 				e.CurrentFloor, err))
 		}
 		if encounter.Type != EncounterCombat {
-			// Sanctuary resolves instantly, chest opens the StateLoot
-			// decision over its item: no StateEncounter, no FIGHT/SNEAK
+			// Sanctuary resolves instantly; chest opens StateChest:
+			// no StateEncounter, no FIGHT/SNEAK
 			// choice — `CurrentEncounter` only ever holds the combat
 			// queue.
 			e.CurrentEncounter = Encounter{}
@@ -293,8 +304,33 @@ func (e *Engine) heroHasReadyMove() bool {
 	return false
 }
 
-// handleLoot resolves the pending loot decision (StateLoot — chests and,
-// since the ascend rework, ascensions too). Every branch consumes the
+// handleChest rolls rewards only on explicit opening. Gold and empty results
+// remain visible until acknowledged; items use the existing loot decision.
+func (e *Engine) handleChest(cmd Command) []Event {
+	if cmd.Type == CmdContinue {
+		e.PendingChest = nil
+		e.State = StateExploring
+		return nil
+	}
+	section := e.currentSection()
+	e.PendingChest.Opened = true
+	if e.rng.Intn(100) < chestGoldChance {
+		amount := goldPerDifficulty * section.FloorDifficulty(e.CurrentFloor)
+		e.Player.Gold += amount
+		e.PendingChest.Gold = amount
+		return []Event{NewGoldGained(amount, GoldSourceChest)}
+	}
+	if item := e.rollItemReward(section.ItemTiers); item != nil {
+		e.PendingLoot = item
+		e.PendingChest = nil
+		e.State = StateLoot
+		return []Event{NewLootFound(item)}
+	}
+	return []Event{NewMessage("The chest creaks open... but it is empty.")}
+}
+
+// handleLoot resolves the pending item decision (chests and boss loot).
+// Every branch consumes the
 // pending item (clears PendingLoot) and returns to exploring, except a
 // stash rejected by a full bag, which keeps the decision open.
 func (e *Engine) handleLoot(cmd Command) []Event {

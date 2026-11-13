@@ -231,7 +231,8 @@ func TestZeroMerchantWeightNeverSpawnsMerchant(t *testing.T) {
 		stub := &stubRng{values: []int{20, 50, 0}}
 		e.rng = stub
 
-		events := e.Process(Command{Type: CmdExplore})
+		e.Process(Command{Type: CmdExplore})
+		events := e.Process(Command{Type: CmdOpenChest})
 
 		if got := eventTypes(events); !typesEqual(got, EventLootFound) {
 			t.Fatalf("events = %v, want [loot-found]", got)

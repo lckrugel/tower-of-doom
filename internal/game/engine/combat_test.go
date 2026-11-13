@@ -954,10 +954,9 @@ func TestAscendUnlocking(t *testing.T) {
 		e.rng = &stubRng{values: []int{40}} // item branch, empty registry
 		events := e.Process(Command{Type: CmdAscend})
 
-		// The test registry has no items: the ascend emits the
-		// floor event plus the empty-pool message and stays exploring.
-		if got := eventTypes(events); !typesEqual(got, EventFloorEntered, EventMessage) {
-			t.Errorf("events = %v, want [floor-entered message]", got)
+		// Ascension discovers an unopened chest, even with an empty item pool.
+		if got := eventTypes(events); !typesEqual(got, EventFloorEntered, EventChestFound) {
+			t.Errorf("events = %v, want [floor-entered chest-found]", got)
 		}
 		if e.CurrentFloor != 2 {
 			t.Errorf("floor = %d, want 2", e.CurrentFloor)
@@ -965,8 +964,8 @@ func TestAscendUnlocking(t *testing.T) {
 		if e.CanAscend {
 			t.Error("ascending must re-lock until the next victory")
 		}
-		if e.State != StateExploring {
-			t.Errorf("state after ascend = %v, want StateExploring", e.State)
+		if e.State != StateChest {
+			t.Errorf("state after ascend = %v, want StateChest", e.State)
 		}
 	})
 }
@@ -1066,6 +1065,7 @@ func TestAscendChestGrantsRandomItem(t *testing.T) {
 			e.CanAscend = true
 
 			events := e.Process(Command{Type: CmdAscend})
+			events = append(events[:1], e.Process(Command{Type: CmdOpenChest})...)
 
 			// Floor event first, loot decision second.
 			if got := eventTypes(events); !typesEqual(got, EventFloorEntered, EventLootFound) {
@@ -1089,27 +1089,26 @@ func TestAscendChestGrantsRandomItem(t *testing.T) {
 	}
 }
 
-// A registry without items makes the item branch work with just the floor
-// event and a message: the empty-pool guard behaves like an empty chest,
-// staying in StateExploring with nothing pending.
+// Opening an ascent chest with no item pool leaves an empty reward to acknowledge.
 func TestAscendWithoutItemRegistryGrantsNothing(t *testing.T) {
 	e := newTestEngine(40)
 	e.CanAscend = true
 
 	events := e.Process(Command{Type: CmdAscend})
+	events = append(events[:1], e.Process(Command{Type: CmdOpenChest})...)
 
 	if got := eventTypes(events); !typesEqual(got, EventFloorEntered, EventMessage) {
 		t.Fatalf("events = %v, want [floor-entered message]", got)
 	}
-	if e.State != StateExploring || e.PendingLoot != nil {
-		t.Errorf("state = %v, pending = %v, want Exploring/nil", e.State, e.PendingLoot)
+	if e.State != StateChest || e.PendingLoot != nil {
+		t.Errorf("state = %v, pending = %v, want Chest/nil", e.State, e.PendingLoot)
 	}
 }
 
 func TestQuitAllowedInEveryState(t *testing.T) {
 	for _, state := range []GameState{
 		StateExploring, StateEncounter, StateCombat, StateGameOver,
-		StateLoot, StateInventory, StateMerchant,
+		StateLoot, StateInventory, StateMerchant, StateChest,
 	} {
 		e := newTestEngine()
 		e.State = state
@@ -1430,6 +1429,7 @@ func TestAscendLootWearDisplacesGearToBag(t *testing.T) {
 	e.CanAscend = true
 
 	events := e.Process(Command{Type: CmdAscend})
+	events = append(events[:1], e.Process(Command{Type: CmdOpenChest})...)
 
 	// Floor, then the reward held as pending loot.
 	if got := eventTypes(events); !typesEqual(got, EventFloorEntered, EventLootFound) {
@@ -1477,6 +1477,7 @@ func TestAscendLootWearWithFullBagDestroysDisplaced(t *testing.T) {
 	e.CanAscend = true
 
 	events := e.Process(Command{Type: CmdAscend})
+	events = append(events[:1], e.Process(Command{Type: CmdOpenChest})...)
 
 	if got := eventTypes(events); !typesEqual(got, EventFloorEntered, EventLootFound) {
 		t.Fatalf("events = %v, want [floor-entered loot-found]", got)
@@ -1509,6 +1510,7 @@ func TestAscendLootStashAndDiscard(t *testing.T) {
 		e.reg.Items = ascendItems()
 		e.CanAscend = true
 		e.Process(Command{Type: CmdAscend})
+		e.Process(Command{Type: CmdOpenChest})
 		return e, e.PendingLoot
 	}
 

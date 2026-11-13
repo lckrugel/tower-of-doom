@@ -46,7 +46,8 @@ func TestChestRollsOnlyAllowedTiers(t *testing.T) {
 	for _, pick := range []int{0, 1, 2, 3} {
 		e := tieredEngine([]int{1}, 20, 50, pick)
 
-		events := e.Process(Command{Type: CmdExplore})
+		e.Process(Command{Type: CmdExplore})
+		events := e.Process(Command{Type: CmdOpenChest})
 
 		if got := eventTypes(events); !typesEqual(got, EventLootFound) {
 			t.Fatalf("pick %d: events = %v, want [loot-found]", pick, got)
@@ -63,7 +64,8 @@ func TestChestRollsOnlyAllowedTiers(t *testing.T) {
 func TestUnrestrictedSectionRollsEveryTier(t *testing.T) {
 	e := tieredEngine(nil, 20, 50, 0) // first sorted id → adamant_crown (tier 2)
 
-	events := e.Process(Command{Type: CmdExplore})
+	e.Process(Command{Type: CmdExplore})
+	events := e.Process(Command{Type: CmdOpenChest})
 
 	item, _ := events[0].Data["item"].(*entities.Item)
 	if item == nil || item.ID != "adamant_crown" {
@@ -78,6 +80,7 @@ func TestAscendChestRespectsTiersAndAllowsAllSlots(t *testing.T) {
 		e.CanAscend = true
 
 		events := e.Process(Command{Type: CmdAscend})
+		events = append(events[:1], e.Process(Command{Type: CmdOpenChest})...)
 
 		if got := eventTypes(events); !typesEqual(got, EventFloorEntered, EventLootFound) {
 			t.Fatalf("pick %d: events = %v, want [floor-entered loot-found]", pick, got)
@@ -126,6 +129,7 @@ func TestSectionBoundaryAscendRewardUsesNewSectionTiers(t *testing.T) {
 		e.BossUnlocked = true
 
 		events := e.Process(Command{Type: CmdAscend})
+		events = append(events[:1], e.Process(Command{Type: CmdOpenChest})...)
 		if got := eventTypes(events); !typesEqual(got, EventFloorEntered, EventLootFound) {
 			t.Fatalf("tier %d: events = %v, want [floor-entered loot-found]", destinationTier, got)
 		}
@@ -149,6 +153,7 @@ func TestAscendChestUnrestrictedReachesEveryTier(t *testing.T) {
 	e.CanAscend = true
 
 	events := e.Process(Command{Type: CmdAscend})
+	events = append(events[:1], e.Process(Command{Type: CmdOpenChest})...)
 
 	if got := eventTypes(events); !typesEqual(got, EventFloorEntered, EventLootFound) {
 		t.Fatalf("events = %v, want [floor-entered loot-found]", got)
@@ -167,30 +172,34 @@ func TestAscendChestUnrestrictedReachesEveryTier(t *testing.T) {
 func TestChestWithEmptyAllowedTierPoolIsEmpty(t *testing.T) {
 	e := tieredEngine([]int{7}, 20, 50, 0) // no tier-7 item exists; registry skips validation
 
-	events := e.Process(Command{Type: CmdExplore})
+	e.Process(Command{Type: CmdExplore})
+	events := e.Process(Command{Type: CmdOpenChest})
 
 	if got := eventTypes(events); !typesEqual(got, EventMessage) {
 		t.Fatalf("events = %v, want [message (empty chest)]", got)
 	}
-	if e.State != StateExploring || e.PendingLoot != nil {
-		t.Errorf("state = %v, pending = %v, want Exploring/nil", e.State, e.PendingLoot)
+	if e.State != StateChest || e.PendingLoot != nil || e.PendingChest == nil || !e.PendingChest.Opened || e.PendingChest.Gold != 0 {
+		t.Errorf("state = %v, chest = %v, want opened empty chest", e.State, e.PendingChest)
+	}
+	e.Process(Command{Type: CmdContinue})
+	if e.State != StateExploring || e.PendingChest != nil {
+		t.Fatal("empty chest not cleared")
 	}
 }
 
-// An empty item pool on ascend behaves like an empty chest too: the floor
-// is entered, a message is emitted and the run stays exploring with
-// nothing pending — never StateLoot holding a nil item.
-func TestAscendWithEmptyItemPoolStaysExploring(t *testing.T) {
+// An empty ascent chest waits for acknowledgment, never StateLoot with a nil item.
+func TestAscendWithEmptyItemPoolWaitsForContinue(t *testing.T) {
 	e := tieredEngine([]int{7}, 40) // no tier-7 item exists; registry skips validation
 	e.CanAscend = true
 
 	events := e.Process(Command{Type: CmdAscend})
+	events = append(events[:1], e.Process(Command{Type: CmdOpenChest})...)
 
 	if got := eventTypes(events); !typesEqual(got, EventFloorEntered, EventMessage) {
 		t.Fatalf("events = %v, want [floor-entered message]", got)
 	}
-	if e.State != StateExploring || e.PendingLoot != nil {
-		t.Errorf("state = %v, pending = %v, want Exploring/nil", e.State, e.PendingLoot)
+	if e.State != StateChest || e.PendingLoot != nil || e.PendingChest == nil || !e.PendingChest.Opened {
+		t.Errorf("state = %v, chest = %v, want opened empty chest", e.State, e.PendingChest)
 	}
 	if e.CanAscend {
 		t.Error("ascend did not consume the CanAscend flag")

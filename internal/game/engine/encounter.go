@@ -209,9 +209,8 @@ func (e *Engine) recordEncounterKind(kind EncounterType) {
 	e.recentKinds[1] = kind
 }
 
-// resolveEncounter handles the EncounterTypes that resolve on the spot:
-// a sanctuary (heal) resolves instantly, while a chest grants gold or holds
-// an item as PendingLoot for the StateLoot decision (equip/stash/discard).
+// resolveEncounter handles non-combat encounters: sanctuaries heal instantly,
+// while chests open StateChest without rolling or awarding their rewards.
 // Only combat keeps the flow two-stepped, going through StateEncounter for
 // FIGHT/SNEAK.
 //
@@ -223,27 +222,10 @@ func (e *Engine) resolveEncounter(encounter Encounter) []Event {
 		healed := e.restAtSanctuary()
 		return []Event{NewHeroHealedExact(e.Player, healed, e.Player.CurrentHPPercent())}
 	case EncounterChest:
-		section := e.currentSection()
-		// One roll decides gold-vs-item (also used by guaranteed ascent chests): a
-		// gold chest pays out on the spot and skips the loot decision
-		// entirely — exploring continues directly.
-		if e.rng.Intn(100) < chestGoldChance {
-			amount := goldPerDifficulty * section.FloorDifficulty(e.CurrentFloor)
-			e.Player.Gold += amount
-			return []Event{NewGoldGained(amount, GoldSourceChest)}
-		}
-		// The rng roll for the item stays exactly as before; only the
-		// disposition of the rolled item changed (no auto-equip anymore).
-		// The pool is gated by the section's item_tiers (empty =
-		// unrestricted).
-		if item := e.rollItemReward(section.ItemTiers); item != nil {
-			e.PendingLoot = item
-			e.State = StateLoot
-			return []Event{NewLootFound(item)}
-		}
-		// Registry defines no items at all — the chest is just empty,
-		// and exploring continues.
-		return []Event{NewMessage("The chest creaks open... but it is empty.")}
+		e.CurrentEncounter = Encounter{}
+		e.PendingChest = &ChestState{}
+		e.State = StateChest
+		return []Event{NewChestFound()}
 	case EncounterMerchant:
 		// EXPLORE opens the shop: the stock is rolled from the section's
 		// allowed item tiers and held in MerchantStock until the player

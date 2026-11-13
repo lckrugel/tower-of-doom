@@ -21,18 +21,23 @@ func TestAscendGoldChestUsesDestinationBudget(t *testing.T) {
 
 	events := e.Process(Command{Type: CmdAscend})
 
-	if got := eventTypes(events); !typesEqual(got, EventFloorEntered, EventGoldGained) {
-		t.Fatalf("events = %v, want [floor-entered gold-gained]", got)
+	if got := eventTypes(events); !typesEqual(got, EventFloorEntered, EventChestFound) {
+		t.Fatalf("events = %v, want [floor-entered chest-found]", got)
 	}
 	if events[0].Data["floor"] != 6 || events[0].Data["section"] != "Next" {
 		t.Errorf("floor event = %v, want destination floor 6 / Next", events[0].Data)
 	}
-	if events[1].Data["amount"] != 85 || events[1].Data["source"] != GoldSourceChest || e.Player.Gold != 92 {
-		t.Errorf("gold event = %v, total = %d, want 85 chest gold added to 7", events[1].Data, e.Player.Gold)
+	if e.rng.(*stubRng).calls != 0 || e.Player.Gold != 7 || e.PendingChest == nil || e.PendingChest.Opened {
+		t.Fatal("ascent discovery rolled or awarded a reward")
 	}
-	if e.CurrentFloor != 6 || e.CanAscend || e.BossUnlocked || e.State != StateExploring || e.PendingLoot != nil || len(e.CurrentEncounter.Monsters) != 0 {
+	if e.CurrentFloor != 6 || e.CanAscend || e.BossUnlocked || e.State != StateChest || e.PendingLoot != nil || len(e.CurrentEncounter.Monsters) != 0 {
 		t.Errorf("invalid post-ascend state: floor=%d ascend=%v boss=%v state=%v loot=%v encounter=%v", e.CurrentFloor, e.CanAscend, e.BossUnlocked, e.State, e.PendingLoot, e.CurrentEncounter)
 	}
+	opened := e.Process(Command{Type: CmdOpenChest})
+	if len(opened) != 1 || opened[0].Data["amount"] != 85 || opened[0].Data["source"] != GoldSourceChest || e.Player.Gold != 92 {
+		t.Fatalf("open = %v, gold = %d", opened, e.Player.Gold)
+	}
+	e.Process(Command{Type: CmdContinue})
 	if e.firstExploreDone != firstExplore || e.recentKinds != history || e.encounterMisses != misses {
 		t.Error("ascension chest changed exploration pacing/history")
 	}
@@ -108,14 +113,14 @@ func TestKillGrantsGold(t *testing.T) {
 	})
 }
 
-// A chest pays gold instead of an item 40% of the time — one extra rng
-// roll right after the encounter-kind roll — and skips the StateLoot
-// decision entirely.
+// Opening pays gold instead of an item 40% of the time. Gold skips StateLoot
+// but remains on the chest screen until acknowledgment.
 func TestChestGold(t *testing.T) {
 	t.Run("gold chest pays 5 × floor difficulty and skips StateLoot", func(t *testing.T) {
 		e := pastFirstExplore(newKindEngine(20, 0)) // chest, then rng 0 < 40 → gold
 
-		events := e.Process(Command{Type: CmdExplore})
+		e.Process(Command{Type: CmdExplore})
+		events := e.Process(Command{Type: CmdOpenChest})
 
 		if got := eventTypes(events); !typesEqual(got, EventGoldGained) {
 			t.Fatalf("events = %v, want [gold-gained]", got)
@@ -130,8 +135,8 @@ func TestChestGold(t *testing.T) {
 		if got := e.Player.Gold; got != 45 {
 			t.Errorf("hero gold = %d, want 45", got)
 		}
-		if e.State != StateExploring {
-			t.Errorf("state = %v, want StateExploring (no loot decision for gold)", e.State)
+		if e.State != StateChest {
+			t.Errorf("state = %v, want StateChest (acknowledge gold)", e.State)
 		}
 		if e.PendingLoot != nil {
 			t.Errorf("PendingLoot = %v, want nil", e.PendingLoot)
@@ -145,7 +150,8 @@ func TestChestGold(t *testing.T) {
 		e := pastFirstExplore(newKindEngine(20, 39)) // still gold (39 < 40), on floor 2
 		e.CurrentFloor = 2                           // difficulty 9 + 3 = 12
 
-		events := e.Process(Command{Type: CmdExplore})
+		e.Process(Command{Type: CmdExplore})
+		events := e.Process(Command{Type: CmdOpenChest})
 
 		if amount, _ := events[0].Data["amount"].(int); amount != 60 {
 			t.Errorf("amount = %v, want 60 (5 × floor difficulty 12)", amount)
@@ -156,7 +162,8 @@ func TestChestGold(t *testing.T) {
 		e := chestEngine(0) // rng [20 chest, 40 is not < 40, 0 pick]
 		e.rng = &stubRng{values: []int{20, 40, 0}}
 
-		events := e.Process(Command{Type: CmdExplore})
+		e.Process(Command{Type: CmdExplore})
+		events := e.Process(Command{Type: CmdOpenChest})
 
 		if got := eventTypes(events); !typesEqual(got, EventLootFound) {
 			t.Fatalf("events = %v, want [loot-found] (40 is not < 40)", got)
