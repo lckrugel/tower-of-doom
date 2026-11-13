@@ -315,7 +315,7 @@ func (e *Engine) handleChest(cmd Command) []Event {
 	section := e.currentSection()
 	e.PendingChest.Opened = true
 	if e.rng.Intn(100) < chestGoldChance {
-		amount := goldPerDifficulty * section.FloorDifficulty(e.CurrentFloor)
+		amount := chestGoldPerDifficulty * section.FloorDifficulty(e.CurrentFloor)
 		e.Player.Gold += amount
 		e.PendingChest.Gold = amount
 		return []Event{NewGoldGained(amount, GoldSourceChest)}

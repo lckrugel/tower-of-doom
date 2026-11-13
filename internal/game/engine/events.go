@@ -537,7 +537,8 @@ func NewBagFull() Event {
 
 // Gold sources for EventGoldGained's "source" payload.
 const (
-	// GoldSourceKill — gold granted for defeating a monster.
+	// GoldSourceKill is retained for event API compatibility; gameplay no
+	// longer grants gold for defeating a monster.
 	GoldSourceKill = "kill"
 	// GoldSourceChest — gold granted by a chest that paid out coins
 	// instead of holding an item.

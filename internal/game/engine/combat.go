@@ -453,26 +453,23 @@ func (e *Engine) finishTurn(events []Event, heroMove, enemyMove *entities.Move, 
 	return events
 }
 
-// appendEnemyDefeat grants kill XP and gold after turn finalization
+// appendEnemyDefeat grants kill XP (never gold) after turn finalization
 // (mid-combat level ups are possible), advances the encounter queue and
 // resolves the encounter's end when the last enemy falls — one of three
 // endings: a BOSS victory (the boss rewards and the gate, see
 // appendBossVictory), the boss CHALLENGE unlocking (a normal victory on
 // the final floor of a section with a boss gate — ASCEND stays locked),
-// or the plain victory (ASCEND unlocks, as always). The gold grants
-// consume no rng. The next monster steps in with fresh enemy-local state
+// or the plain victory (ASCEND unlocks, as always). Kill rewards consume
+// no rng. The next monster steps in with fresh enemy-local state
 // and cannot act until the next turn.
 func (e *Engine) appendEnemyDefeat(events []Event) []Event {
 	enemy := e.currentEnemy()
 	xp := enemy.GetKillXp()
-	gold := goldPerDifficulty * enemy.Difficulty
 	oldLvl := e.Player.Lvl
 
 	healed := e.Player.GiveXP(xp)
-	e.Player.Gold += gold
 	e.kills++
 	events = append(events, NewEnemyDefeated(enemy.Name(), xp))
-	events = append(events, NewGoldGained(gold, GoldSourceKill))
 	if e.Player.Lvl > oldLvl {
 		// The heal rides the level-up event (giveXP returns the total the
 		// level ups actually healed; the heal itself consumes no rng).

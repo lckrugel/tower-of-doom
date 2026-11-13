@@ -566,8 +566,8 @@ func TestMoveKillsEnemyAndAdvancesQueue(t *testing.T) {
 
 	// Hero kills on its strike: the enemy never gets its turn this round
 	// and the next enemy in the queue steps in with normal initiative.
-	if got := eventTypes(events); !typesEqual(got, EventMoveUsed, EventCombatDamageDealt, EventEnemyDefeated, EventGoldGained) {
-		t.Errorf("events = %v, want [move-used dealt defeated gold-gained]", got)
+	if got := eventTypes(events); !typesEqual(got, EventMoveUsed, EventCombatDamageDealt, EventEnemyDefeated) {
+		t.Errorf("events = %v, want [move-used dealt defeated]", got)
 	}
 	evt := events[2]
 	if name := evt.Data["enemy"]; name != "Goblin" {
@@ -590,8 +590,8 @@ func TestVictoryOnLastEnemyKill(t *testing.T) {
 
 	events := e.Process(Command{Type: CmdMove, Index: 0})
 
-	if got := eventTypes(events); !typesEqual(got, EventMoveUsed, EventCombatDamageDealt, EventEnemyDefeated, EventGoldGained, EventVictory) {
-		t.Errorf("events = %v, want [move-used dealt defeated gold-gained victory]", got)
+	if got := eventTypes(events); !typesEqual(got, EventMoveUsed, EventCombatDamageDealt, EventEnemyDefeated, EventVictory) {
+		t.Errorf("events = %v, want [move-used dealt defeated victory]", got)
 	}
 	if e.State != StateExploring {
 		t.Errorf("state after victory = %v, want StateExploring", e.State)
@@ -639,7 +639,7 @@ func TestAttackKillResolvesHeroDotBeforeRewards(t *testing.T) {
 					t.Errorf("lethal DoT granted rewards or progression: state=%v hero=%+v kills=%d ascend=%v", e.State, e.Player, e.kills, e.CanAscend)
 				}
 			} else {
-				if got := eventTypes(events); !typesEqual(got, EventMoveUsed, EventCombatDamageDealt, EventStatusDamage, EventEnemyDefeated, EventGoldGained, EventLevelUp, EventVictory) {
+				if got := eventTypes(events); !typesEqual(got, EventMoveUsed, EventCombatDamageDealt, EventStatusDamage, EventEnemyDefeated, EventLevelUp, EventVictory) {
 					t.Errorf("events = %v, want DoT before defeat rewards and level-up", got)
 				}
 				// 50 - 10% of pre-level max 100 = 40; rescale to 44, heal 27.
@@ -711,18 +711,18 @@ func TestMidCombatLevelUp(t *testing.T) {
 	events := e.Process(Command{Type: CmdMove, Index: 0})
 
 	if got := eventTypes(events); !typesEqual(got,
-		EventMoveUsed, EventCombatDamageDealt, EventEnemyDefeated, EventGoldGained, EventLevelUp) {
-		t.Errorf("events = %v, want [move-used dealt defeated gold-gained level-up]", got)
+		EventMoveUsed, EventCombatDamageDealt, EventEnemyDefeated, EventLevelUp) {
+		t.Errorf("events = %v, want [move-used dealt defeated level-up]", got)
 	}
 	if e.Player.Lvl != 2 {
 		t.Errorf("hero level = %d, want 2 (mid-combat level up)", e.Player.Lvl)
 	}
-	if lvl := events[4].Data["level"]; lvl != 2 {
+	if lvl := events[3].Data["level"]; lvl != 2 {
 		t.Errorf("level event data = %v, want 2", lvl)
 	}
 	// A full-health hero gains nothing from the level-up heal — the
 	// additive "healed" key reports 0.
-	if healed := events[4].Data["healed"]; healed != 0 {
+	if healed := events[3].Data["healed"]; healed != 0 {
 		t.Errorf("healed event data = %v, want 0 (already at full health)", healed)
 	}
 	// Combat continues with the next enemy, still in StateCombat.
@@ -746,12 +746,12 @@ func TestMidCombatLevelUpHeals(t *testing.T) {
 	events := e.Process(Command{Type: CmdMove, Index: 0})
 
 	if got := eventTypes(events); !typesEqual(got,
-		EventMoveUsed, EventCombatDamageDealt, EventEnemyDefeated, EventGoldGained, EventLevelUp) {
-		t.Fatalf("events = %v, want [move-used dealt defeated gold-gained level-up]", got)
+		EventMoveUsed, EventCombatDamageDealt, EventEnemyDefeated, EventLevelUp) {
+		t.Fatalf("events = %v, want [move-used dealt defeated level-up]", got)
 	}
 	// 50/100 → rescaled to 55/110, then healed 25% of the new base max
 	// HP (110 × 25% = 27.5, floored to 27).
-	if healed := events[4].Data["healed"]; healed != 27 {
+	if healed := events[3].Data["healed"]; healed != 27 {
 		t.Errorf("healed event data = %v, want 27 (25%% of base max HP 110)", healed)
 	}
 	if hp := e.Player.CurrentHP; hp != 82 {
@@ -951,7 +951,7 @@ func TestAscendUnlocking(t *testing.T) {
 		if !e.CanAscend {
 			t.Fatal("victory did not unlock ascending")
 		}
-		e.rng = &stubRng{values: []int{40}} // item branch, empty registry
+		e.rng = &stubRng{values: []int{45}} // item branch, empty registry
 		events := e.Process(Command{Type: CmdAscend})
 
 		// Ascension discovers an unopened chest, even with an empty item pool.
@@ -1059,7 +1059,7 @@ func TestAscendChestGrantsRandomItem(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			e := newTestEngine(40, tt.rngPick)
+			e := newTestEngine(45, tt.rngPick)
 			e.reg.Items = ascendItems()
 			weaponBefore := e.Player.Weapon
 			e.CanAscend = true
@@ -1091,7 +1091,7 @@ func TestAscendChestGrantsRandomItem(t *testing.T) {
 
 // Opening an ascent chest with no item pool leaves an empty reward to acknowledge.
 func TestAscendWithoutItemRegistryGrantsNothing(t *testing.T) {
-	e := newTestEngine(40)
+	e := newTestEngine(45)
 	e.CanAscend = true
 
 	events := e.Process(Command{Type: CmdAscend})
@@ -1420,7 +1420,7 @@ func TestCritNeverFiresWithZeroThreshold(t *testing.T) {
 // The ascend reward is a loot decision: wearing it from StateLoot sends
 // the displaced gear to the bag when there is room.
 func TestAscendLootWearDisplacesGearToBag(t *testing.T) {
-	e := newTestEngine(40, 1) // item branch, helm_cap from the sorted chest pool
+	e := newTestEngine(45, 1) // item branch, helm_cap from the sorted chest pool
 	e.reg.Items = ascendItems()
 	oldHelm := entities.NewItemFromAsset(game.ItemAsset{
 		ID: "rusty_helm", Name: "Rusty Helm", Slot: "helmet", BonusDEF: 1,
@@ -1465,7 +1465,7 @@ func TestAscendLootWearDisplacesGearToBag(t *testing.T) {
 // With the bag full, wearing the ascend reward from StateLoot destroys the
 // displaced gear (EventItemLost) — same as the chest flow.
 func TestAscendLootWearWithFullBagDestroysDisplaced(t *testing.T) {
-	e := newTestEngine(40, 1) // item branch, helm_cap
+	e := newTestEngine(45, 1) // item branch, helm_cap
 	e.reg.Items = ascendItems()
 	oldHelm := entities.NewItemFromAsset(game.ItemAsset{
 		ID: "rusty_helm", Name: "Rusty Helm", Slot: "helmet", BonusDEF: 1,
@@ -1506,7 +1506,7 @@ func TestAscendLootWearWithFullBagDestroysDisplaced(t *testing.T) {
 // discarded — exactly the chest options.
 func TestAscendLootStashAndDiscard(t *testing.T) {
 	setup := func(rngPick int) (*Engine, *entities.Item) {
-		e := newTestEngine(40, rngPick)
+		e := newTestEngine(45, rngPick)
 		e.reg.Items = ascendItems()
 		e.CanAscend = true
 		e.Process(Command{Type: CmdAscend})

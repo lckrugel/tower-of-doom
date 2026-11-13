@@ -14,7 +14,7 @@ func TestEmbeddedEarlyBossProgression(t *testing.T) {
 	for _, tt := range []struct {
 		floor, gold, lootTier int
 		id                    string
-	}{{5, 330, 2, "gateworks_lockmaster"}, {15, 1120, 3, "emberforged_marshal"}} {
+	}{{5, 265, 2, "gateworks_lockmaster"}, {15, 1035, 3, "emberforged_marshal"}} {
 		t.Run(tt.id, func(t *testing.T) {
 			r, err := game.Load("")
 			if err != nil {
@@ -104,7 +104,7 @@ func TestNormalVictoryOnARegularFloorUnlocksAscend(t *testing.T) {
 	events := e.Process(Command{Type: CmdMove, Index: 0})
 
 	if got := eventTypes(events); !typesEqual(got,
-		EventMoveUsed, EventCombatDamageDealt, EventEnemyDefeated, EventGoldGained, EventVictory) {
+		EventMoveUsed, EventCombatDamageDealt, EventEnemyDefeated, EventVictory) {
 		t.Fatalf("events = %v, want the plain victory flow", got)
 	}
 	if !e.CanAscend {
@@ -127,8 +127,8 @@ func TestFinalFloorVictoryUnlocksTheBossChallenge(t *testing.T) {
 	events := e.Process(Command{Type: CmdMove, Index: 0})
 
 	if got := eventTypes(events); !typesEqual(got,
-		EventMoveUsed, EventCombatDamageDealt, EventEnemyDefeated, EventGoldGained, EventBossUnlocked) {
-		t.Fatalf("events = %v, want [...gold-gained boss-unlocked]", got)
+		EventMoveUsed, EventCombatDamageDealt, EventEnemyDefeated, EventBossUnlocked) {
+		t.Fatalf("events = %v, want [...defeated boss-unlocked]", got)
 	}
 	if !e.BossUnlocked {
 		t.Error("final-floor victory did not unlock the boss challenge")
@@ -157,7 +157,7 @@ func TestFinalFloorWithoutBossKeepsTheOldRegime(t *testing.T) {
 	events := e.Process(Command{Type: CmdMove, Index: 0})
 
 	if got := eventTypes(events); !typesEqual(got,
-		EventMoveUsed, EventCombatDamageDealt, EventEnemyDefeated, EventGoldGained, EventVictory) {
+		EventMoveUsed, EventCombatDamageDealt, EventEnemyDefeated, EventVictory) {
 		t.Fatalf("events = %v, want the plain victory flow", got)
 	}
 	if !e.CanAscend || e.BossUnlocked {
@@ -343,7 +343,7 @@ func TestFleeAndTheBossChallenge(t *testing.T) {
 
 // ——— The boss victory ———
 
-// The BOSS victory: the per-kill flow first (XP + kill gold), then the
+// The BOSS victory: the per-kill flow first (XP, no gold), then the
 // tier+1 loot roll (ONE Intn over the pool), the gold bonus and the
 // victory. The engine ends in StateLoot with the reward pending, the
 // gate finally open.
@@ -369,28 +369,22 @@ func TestBossVictoryRewards(t *testing.T) {
 		events := e.Process(Command{Type: CmdMove, Index: 0})
 
 		if got := eventTypes(events); !typesEqual(got,
-			EventMoveUsed, EventCombatDamageDealt, EventEnemyDefeated, EventGoldGained,
+			EventMoveUsed, EventCombatDamageDealt, EventEnemyDefeated,
 			EventLootFound, EventGoldGained, EventVictory) {
 			t.Fatalf("events = %v, want the full boss victory flow", got)
 		}
-		// Per-kill gold first (5 × difficulty 3), the boss bonus second.
-		if amount, _ := events[3].Data["amount"].(int); amount != 15 {
-			t.Errorf("kill gold = %v, want 15", events[3].Data["amount"])
+		// Only the authored completion bonus pays gold, after loot.
+		if amount, _ := events[4].Data["amount"].(int); amount != 100 {
+			t.Errorf("boss gold = %v, want 100 (the asset's bonus)", events[4].Data["amount"])
 		}
-		if source, _ := events[3].Data["source"].(string); source != GoldSourceKill {
-			t.Errorf("kill gold source = %v, want %q", source, GoldSourceKill)
-		}
-		if amount, _ := events[5].Data["amount"].(int); amount != 100 {
-			t.Errorf("boss gold = %v, want 100 (the asset's bonus)", events[5].Data["amount"])
-		}
-		if source, _ := events[5].Data["source"].(string); source != GoldSourceBoss {
+		if source, _ := events[4].Data["source"].(string); source != GoldSourceBoss {
 			t.Errorf("boss gold source = %v, want %q", source, GoldSourceBoss)
 		}
-		if got := e.Player.Gold; got != 115 {
-			t.Errorf("hero gold = %d, want 115 (kill 15 + bonus 100)", got)
+		if got := e.Player.Gold; got != 100 {
+			t.Errorf("hero gold = %d, want 100 (bonus only)", got)
 		}
 		// The rolled item is held as PendingLoot: the chest decision.
-		item, _ := events[4].Data["item"].(*entities.Item)
+		item, _ := events[3].Data["item"].(*entities.Item)
 		if item == nil || item.ID != "t2_ring" {
 			t.Errorf("loot = %v, want t2_ring (rng pick 1 over [t2_helm, t2_ring])", item)
 		}
@@ -419,7 +413,7 @@ func TestBossVictoryRewards(t *testing.T) {
 
 		events := e.Process(Command{Type: CmdMove, Index: 0})
 
-		item, _ := events[4].Data["item"].(*entities.Item)
+		item, _ := events[3].Data["item"].(*entities.Item)
 		if item == nil || item.ID != "t2_helm" {
 			t.Errorf("loot = %v, want t2_helm (rng pick 0)", item)
 		}
@@ -435,15 +429,15 @@ func TestBossVictoryRewards(t *testing.T) {
 		events := e.Process(Command{Type: CmdMove, Index: 0})
 
 		if got := eventTypes(events); !typesEqual(got,
-			EventMoveUsed, EventCombatDamageDealt, EventEnemyDefeated, EventGoldGained,
+			EventMoveUsed, EventCombatDamageDealt, EventEnemyDefeated,
 			EventGoldGained, EventVictory) {
 			t.Fatalf("events = %v, want the no-loot victory flow", got)
 		}
 		if e.State != StateExploring || e.PendingLoot != nil {
 			t.Errorf("state = %v, pending = %v, want Exploring/nil", e.State, e.PendingLoot)
 		}
-		if got := e.Player.Gold; got != 115 {
-			t.Errorf("gold = %d, want 115 (the gold bonus is kept)", got)
+		if got := e.Player.Gold; got != 100 {
+			t.Errorf("gold = %d, want 100 (the gold bonus is kept)", got)
 		}
 		if got := e.rng.(*stubRng).calls; got != 2 {
 			t.Errorf("rng calls = %d, want 2 (an empty pool never rolls)", got)
@@ -459,7 +453,7 @@ func TestBossVictoryRewards(t *testing.T) {
 
 		events := e.Process(Command{Type: CmdMove, Index: 0})
 
-		item, _ := events[4].Data["item"].(*entities.Item)
+		item, _ := events[3].Data["item"].(*entities.Item)
 		if item == nil || item.ID != "t3_mail" {
 			t.Errorf("loot = %v, want t3_mail (capped at the max tier)", item)
 		}
@@ -471,7 +465,7 @@ func TestBossVictoryRewards(t *testing.T) {
 
 		events := e.Process(Command{Type: CmdMove, Index: 0})
 
-		item, _ := events[4].Data["item"].(*entities.Item)
+		item, _ := events[3].Data["item"].(*entities.Item)
 		if item == nil || item.ID != "t3_mail" {
 			t.Errorf("loot = %v, want t3_mail (registry max tier)", item)
 		}
@@ -489,15 +483,16 @@ func TestBossVictoryWithoutGoldBonus(t *testing.T) {
 	e.CurrentEncounter.Boss = true
 	e.State = StateCombat
 	e.rng = &stubRng{values: []int{1, 50}} // the strike; the empty item registry never rolls
+	e.Player.Gold = 7
 
 	events := e.Process(Command{Type: CmdMove, Index: 0})
 
 	if got := eventTypes(events); !typesEqual(got,
-		EventMoveUsed, EventCombatDamageDealt, EventEnemyDefeated, EventGoldGained, EventVictory) {
-		t.Fatalf("events = %v, want the kill gold only", got)
+		EventMoveUsed, EventCombatDamageDealt, EventEnemyDefeated, EventVictory) {
+		t.Fatalf("events = %v, want victory without gold", got)
 	}
-	if got := e.Player.Gold; got != 15 {
-		t.Errorf("gold = %d, want 15 (kill gold only)", got)
+	if e.Player.Gold != 7 || e.Player.Xp != 21 {
+		t.Errorf("gold/XP = %d/%d, want 7/21", e.Player.Gold, e.Player.Xp)
 	}
 	if !e.CanAscend {
 		t.Error("the boss victory must unlock ascending")

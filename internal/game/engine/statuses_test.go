@@ -237,7 +237,7 @@ func TestStatusApplication(t *testing.T) {
 		events := e.Process(Command{Type: CmdMove, Index: combatMoveIndex(e, "sure_poison")})
 
 		if got := eventTypes(events); !typesEqual(got,
-			EventMoveUsed, EventCombatDamageDealt, EventEnemyDefeated, EventGoldGained) {
+			EventMoveUsed, EventCombatDamageDealt, EventEnemyDefeated) {
 			t.Fatalf("events = %v, want no status event on a kill", got)
 		}
 		if stub.calls != 3 {
@@ -538,7 +538,7 @@ func TestEffectiveStatAppliesStatusPercentagesToEquipmentInclusiveBaseline(t *te
 }
 
 // DoT damage is a plain clamp (no mitigation) and CAN kill: a monster
-// dying to poison goes through the normal defeat path (XP, gold,
+// dying to poison goes through the normal defeat path (XP,
 // queue/victory).
 func TestDoTKillsTheMonster(t *testing.T) {
 	e := statusesEngine(1, 50, 0, 0, 1, 50)
@@ -557,7 +557,7 @@ func TestDoTKillsTheMonster(t *testing.T) {
 	if got := eventTypes(events); !typesEqual(got,
 		EventMoveUsed, EventCombatDamageDealt, EventStatusApplied,
 		EventMoveUsed, EventCombatDamageTaken, EventStatusDamage,
-		EventEnemyDefeated, EventGoldGained, EventVictory) {
+		EventEnemyDefeated, EventVictory) {
 		t.Fatalf("events = %v, want the DoT kill through the defeat path", got)
 	}
 	if dmg, _ := events[5].Data["amount"].(int); dmg != 1 {

@@ -69,8 +69,8 @@ func (e *Engine) bossEncounter(section game.SectionAsset) (Encounter, error) {
 }
 
 // appendBossVictory resolves the boss's fall (the last boss monster just
-// went through the NORMAL defeat flow — bosses pay kill XP and
-// 5×difficulty gold like anything else). The victory's own rewards, in
+// went through the NORMAL defeat flow — kill XP only, never kill gold).
+// Completion gold is a separate bonus. The victory's own rewards, in
 // this event order (the rng contract is step 1's single roll):
 //
 //  1. the loot roll — ONE Intn over the tier+1 pool (see rollBossLoot);

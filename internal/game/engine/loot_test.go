@@ -68,16 +68,16 @@ func TestChestCommandSteps(t *testing.T) {
 }
 
 func TestChestGoldAcknowledgment(t *testing.T) {
-	e := pastFirstExplore(newKindEngine(20, 39))
+	e := pastFirstExplore(newKindEngine(20, 44))
 	e.Process(Command{Type: CmdExplore})
 	history, misses := e.recentKinds, e.encounterMisses
-	if !typesEqual(eventTypes(e.Process(Command{Type: CmdOpenChest})), EventGoldGained) || e.State != StateChest || e.PendingChest == nil || !e.PendingChest.Opened || e.PendingChest.Gold != 45 || e.Player.Gold != 45 {
+	if !typesEqual(eventTypes(e.Process(Command{Type: CmdOpenChest})), EventGoldGained) || e.State != StateChest || e.PendingChest == nil || !e.PendingChest.Opened || e.PendingChest.Gold != 63 || e.Player.Gold != 63 {
 		t.Fatal("gold reward not retained for acknowledgment")
 	}
 	calls := e.rng.(*stubRng).calls
 	e.Process(Command{Type: CmdOpenChest})
 	events := e.Process(Command{Type: CmdContinue})
-	if len(events) != 0 || e.State != StateExploring || e.PendingChest != nil || e.Player.Gold != 45 || e.rng.(*stubRng).calls != calls || e.recentKinds != history || e.encounterMisses != misses {
+	if len(events) != 0 || e.State != StateExploring || e.PendingChest != nil || e.Player.Gold != 63 || e.rng.(*stubRng).calls != calls || e.recentKinds != history || e.encounterMisses != misses {
 		t.Fatal("repeat open or continue changed rewards, RNG, or exploration history")
 	}
 }

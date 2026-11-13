@@ -68,7 +68,7 @@ func fightThroughTheOpener(t *testing.T, m Model) Model {
 }
 
 // exploreUntilChest presses EXPLORE until a chest yields a pending
-// item. Chests may pay out gold instead (engine economy, 40%), and the
+// item. Chests may pay out gold instead (engine economy, 45%), and the
 // no-triple-streak override periodically forces a combat in a
 // chest-only section — both are fought through; the bound keeps a freak
 // losing streak from hanging the suite instead of failing it.

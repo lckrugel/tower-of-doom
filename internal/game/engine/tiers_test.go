@@ -76,7 +76,7 @@ func TestUnrestrictedSectionRollsEveryTier(t *testing.T) {
 // Ascension uses the standard chest's uniform, all-slot tier-filtered pool.
 func TestAscendChestRespectsTiersAndAllowsAllSlots(t *testing.T) {
 	for pick, wantID := range []string{"t1_helm", "t1_mail", "t1_ring", "t1_sword"} {
-		e := tieredEngine([]int{1}, 40, pick)
+		e := tieredEngine([]int{1}, 45, pick)
 		e.CanAscend = true
 
 		events := e.Process(Command{Type: CmdAscend})
@@ -113,7 +113,7 @@ func TestSectionBoundaryAscendRewardUsesNewSectionTiers(t *testing.T) {
 	// Fixture sections cover both the first boundary and legacy higher tiers;
 	// this specifies engine behavior without locking tests to asset contents.
 	for _, destinationTier := range []int{2, 3, 4} {
-		e := tieredEngine(nil, 40, 0)
+		e := tieredEngine(nil, 45, 0)
 		oldFloor := 5 * (destinationTier - 1)
 		e.reg.Items["next_weapon"] = game.ItemAsset{ID: "next_weapon", Name: "Next Weapon", Slot: "weapon", Tier: destinationTier}
 		e.reg.Sections = []game.SectionAsset{
@@ -129,19 +129,25 @@ func TestSectionBoundaryAscendRewardUsesNewSectionTiers(t *testing.T) {
 		e.BossUnlocked = true
 
 		events := e.Process(Command{Type: CmdAscend})
-		events = append(events[:1], e.Process(Command{Type: CmdOpenChest})...)
-		if got := eventTypes(events); !typesEqual(got, EventFloorEntered, EventLootFound) {
-			t.Fatalf("tier %d: events = %v, want [floor-entered loot-found]", destinationTier, got)
+		if !typesEqual(eventTypes(events), EventFloorEntered, EventChestFound) || e.State != StateChest || e.PendingChest == nil || e.PendingChest.Opened || e.rng.(*stubRng).calls != 0 {
+			t.Fatalf("tier %d: ascent must discover an unopened chest without RNG: %v", destinationTier, events)
 		}
 		if events[0].Data["section"] != "Next Fixture Section" || events[0].Data["floor"] != oldFloor+1 {
 			t.Fatalf("floor event = %v, want destination section/floor", events[0].Data)
 		}
-		item := events[1].Data["item"].(*entities.Item)
+		opened := e.Process(Command{Type: CmdOpenChest})
+		if !typesEqual(eventTypes(opened), EventLootFound) {
+			t.Fatalf("open events = %v, want [loot-found]", eventTypes(opened))
+		}
+		item := opened[0].Data["item"].(*entities.Item)
 		if item.Tier != destinationTier || item.ID != "next_weapon" {
 			t.Errorf("section-boundary reward = %v, want destination tier %d weapon", item, destinationTier)
 		}
-		if e.CanAscend || e.BossUnlocked || e.State != StateLoot || e.PendingLoot != item {
+		if e.CanAscend || e.BossUnlocked || e.State != StateLoot || e.PendingLoot != item || e.PendingChest != nil || e.Player.Gold != 0 {
 			t.Error("item chest did not clear old floor flags and open the loot decision")
+		}
+		if stub := e.rng.(*stubRng); stub.calls != 2 || stub.bounds[0] != 100 || stub.bounds[1] != 1 {
+			t.Errorf("RNG bounds = %v, want [100 1]", stub.bounds)
 		}
 	}
 }
@@ -149,7 +155,7 @@ func TestSectionBoundaryAscendRewardUsesNewSectionTiers(t *testing.T) {
 // Unrestricted, the ascend chest pool reaches the tier-2 helmet (it is
 // sorted first), so the gating above is what kept it out.
 func TestAscendChestUnrestrictedReachesEveryTier(t *testing.T) {
-	e := tieredEngine(nil, 40, 0)
+	e := tieredEngine(nil, 45, 0)
 	e.CanAscend = true
 
 	events := e.Process(Command{Type: CmdAscend})
@@ -189,7 +195,7 @@ func TestChestWithEmptyAllowedTierPoolIsEmpty(t *testing.T) {
 
 // An empty ascent chest waits for acknowledgment, never StateLoot with a nil item.
 func TestAscendWithEmptyItemPoolWaitsForContinue(t *testing.T) {
-	e := tieredEngine([]int{7}, 40) // no tier-7 item exists; registry skips validation
+	e := tieredEngine([]int{7}, 45) // no tier-7 item exists; registry skips validation
 	e.CanAscend = true
 
 	events := e.Process(Command{Type: CmdAscend})
