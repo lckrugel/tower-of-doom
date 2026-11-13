@@ -35,7 +35,8 @@ remains in place as a preview/legacy bridge; no T5/T6 pools are activated.
   Sentinel uses the same conditional guard/basic fallback as kobold.
 - **Encounter-kind weights remain unchanged**, in combat/sanctuary/chest/
   merchant/shrine order: Gateworks 100/40/0/10/20; Barracks 100/30/10/15/20.
-  These are authored weights, not fixed probabilities under drought protection.
+  These are authored weights, not fixed probabilities under the merchant
+  opening ramp and drought protection.
 - **Exact T1 learned pool:** `guard_strike` (defense), `field_dressing` (heal),
   `measured_strike` (125% damage, +10 crit points, cooldown 2), and `hamstring`
   (85% damage then 80% chance of existing duration-3 `slow`, cooldown 3).
@@ -549,17 +550,17 @@ the table (or with every weight at 0) is combat-only and consumes no
 rng for the kind roll, so old sections/mods keep their exact spawn
 behavior.
 
-Two engine-level PACING rules shape the kind decision (they hold
-regardless of frontend, and both are rng-neutral or rng-saving — never
+Engine-level PACING rules shape the kind decision (they hold
+regardless of frontend, and are rng-neutral or rng-saving — never
 an extra roll):
 
 - **The run's first EXPLORE is always COMBAT.** The very first kind
   decision of a run skips the kind roll entirely (zero rng consumed), so
   a sanctuary, chest or merchant can never open a run. The flag is per
   run — ascending does not reset it — and every later explore rolls the
-  kind table, adjusted by the drought protection below. The forced combat
-  counts as a missed visit for each available non-combat kind and is the
-  first entry of the history below.
+  kind table, adjusted by the merchant ramp and drought protection below.
+  The forced combat counts as a missed visit for each available non-combat
+  kind and is the first entry of the history below.
 - **No three identical non-combat kinds in a row.** The engine records
   the kinds of the last two resolved kind decisions; when a roll lands
   on a non-combat kind equal to BOTH of them, the result is overridden
@@ -569,6 +570,28 @@ an extra roll):
   kinds feed this history — monster picks, chest gold rolls and merchant
   stock are never affected — and an override is recorded as what
   actually happened (combat), so it naturally breaks the streak.
+- **Merchant opening ramp, once per run.** The first FIVE random exploration
+  kind decisions with a positive authored merchant weight use 20%, 40%, 60%,
+  80%, then 100% of that weight, rounded up (minimum 1 for positive bases).
+  For example, Gateworks' authored merchant weight 10 becomes 2/4/6/8/10.
+  These are relative selection weights, not fixed encounter probabilities;
+  other kinds keep their normal weights and drought protection.
+  The forced opening combat does not advance this separate, capped counter.
+  Every eligible random decision does, even if it selects a merchant or the
+  streak rule overrides the result to combat. Zero/absent merchant weights
+  stay disabled and freeze progress until merchants are available again.
+  Merchant visits, ascension and combat never reset the ramp; only a new run
+  starts it afresh. Random chest discovery counts once, but opening or
+  continuing a chest, the guaranteed ascension chest, merchant actions,
+  combat actions and boss challenges do not advance it. Scaling happens
+  before the existing kind pick and consumes no additional RNG.
+  Merchant drought boosts are withheld for ALL five ramp decisions, including
+  the fifth (exactly 100% of authored base); they resume on the sixth eligible
+  decision using the normally accumulated misses. Misses still accrue during
+  warmup, including the forced opening, and merchant visits still reset only
+  the merchant drought counter. Thus, with base 10 and no merchant visits,
+  six misses (opening plus five random decisions) make the sixth random
+  merchant weight 12, not 10. Other kinds' drought boosts are never withheld.
 - **Unlucky protection gradually raises encounter weights.** For each
   non-combat kind with a positive weight in the current section, the engine
   tracks eligible exploration encounters since that kind was last visited.
