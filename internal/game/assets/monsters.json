@@ -1,5 +1,77 @@
 [
   {
+    "id": "gateworks_lockmaster",
+    "name": "Gateworks Lockmaster",
+    "difficulty": 13,
+    "hp": 95,
+    "dmg": 6,
+    "spd": 10,
+    "def": 3,
+    "crit": 5,
+    "moves": [
+      { "id": "lockmaster_ratchet", "weight": 100 },
+      { "id": "lockmaster_windup", "weight": 100 },
+      { "id": "lockmaster_dropbolt", "weight": 100 },
+      { "id": "lockmaster_lockdown", "weight": 100 }
+    ],
+    "ai": {
+      "priorities": [
+        {
+          "when": [
+            { "type": "hp_below", "target": "self", "percent": 35 },
+            { "type": "status_absent", "target": "self", "status_id": "guard" }
+          ],
+          "moves": ["lockmaster_lockdown"]
+        },
+        {
+          "when": [{ "type": "status_present", "target": "self", "status_id": "titan_grip" }],
+          "moves": ["lockmaster_dropbolt"]
+        },
+        {
+          "when": [{ "type": "status_absent", "target": "self", "status_id": "titan_grip" }],
+          "moves": ["lockmaster_windup"]
+        }
+      ],
+      "fallback": ["lockmaster_ratchet"]
+    }
+  },
+  {
+    "id": "emberforged_marshal",
+    "name": "Emberforged Marshal",
+    "difficulty": 17,
+    "hp": 165,
+    "dmg": 12,
+    "spd": 8,
+    "def": 6,
+    "crit": 5,
+    "moves": [
+      { "id": "marshal_hammerstroke", "weight": 100 },
+      { "id": "marshal_forgebrand", "weight": 100 },
+      { "id": "marshal_anvilfall", "weight": 100 },
+      { "id": "marshal_quenchguard", "weight": 100 }
+    ],
+    "ai": {
+      "priorities": [
+        {
+          "when": [
+            { "type": "hp_below", "target": "self", "percent": 35 },
+            { "type": "status_absent", "target": "self", "status_id": "guard" }
+          ],
+          "moves": ["marshal_quenchguard"]
+        },
+        {
+          "when": [{ "type": "status_present", "target": "self", "status_id": "breachfire" }],
+          "moves": ["marshal_anvilfall"]
+        },
+        {
+          "when": [{ "type": "status_absent", "target": "self", "status_id": "breachfire" }],
+          "moves": ["marshal_forgebrand"]
+        }
+      ],
+      "fallback": ["marshal_hammerstroke"]
+    }
+  },
+  {
     "id": "goblin",
     "name": "Goblin",
     "difficulty": 3,
@@ -17,7 +89,10 @@
     "dmg": 2,
     "spd": 13,
     "def": 0,
-    "crit": 15
+    "crit": 15,
+    "moves": [
+      { "id": "quick_stab", "weight": 100 }
+    ]
   },
   {
     "id": "goblin_bomber",
@@ -62,7 +137,7 @@
     }
   },
   {
-    "id": "hobgoblin",
+    "id": "hobgoblin_drill_sergeant",
     "name": "Hobgoblin Drill Sergeant",
     "difficulty": 7,
     "hp": 45,
@@ -159,7 +234,57 @@
     "dmg": 2,
     "spd": 9,
     "def": 1,
-    "crit": 5
+    "crit": 5,
+    "moves": [
+      { "id": "guard_strike", "weight": 100 },
+      { "id": "basic_attack", "weight": 100 }
+    ],
+    "ai": {
+      "priorities": [
+        {
+          "when": [{ "type": "status_absent", "target": "self", "status_id": "guard" }],
+          "moves": ["guard_strike"]
+        }
+      ],
+      "fallback": ["basic_attack"]
+    }
+  },
+  {
+    "id": "ember_stoker",
+    "name": "Ember Stoker",
+    "difficulty": 7,
+    "hp": 30,
+    "dmg": 5,
+    "spd": 11,
+    "def": 1,
+    "crit": 5,
+    "moves": [
+      { "id": "cinderbite", "weight": 35 },
+      { "id": "basic_attack", "weight": 65 }
+    ]
+  },
+  {
+    "id": "barracks_sentinel",
+    "name": "Barracks Sentinel",
+    "difficulty": 7,
+    "hp": 40,
+    "dmg": 5,
+    "spd": 8,
+    "def": 5,
+    "crit": 5,
+    "moves": [
+      { "id": "guard_strike", "weight": 100 },
+      { "id": "basic_attack", "weight": 100 }
+    ],
+    "ai": {
+      "priorities": [
+        {
+          "when": [{ "type": "status_absent", "target": "self", "status_id": "guard" }],
+          "moves": ["guard_strike"]
+        }
+      ],
+      "fallback": ["basic_attack"]
+    }
   },
   {
     "id": "cave_spider",

@@ -8,6 +8,51 @@ import (
 	"github.com/lckrugel/tower-of-doom/internal/game/engine/entities"
 )
 
+// The shipped early bosses use the same challenge/unlock/reward flow as
+// arbitrary authored groups; these checks deliberately avoid stat snapshots.
+func TestEmbeddedEarlyBossProgression(t *testing.T) {
+	for _, tt := range []struct {
+		floor, gold, lootTier int
+		id                    string
+	}{{5, 330, 2, "gateworks_lockmaster"}, {15, 1120, 3, "emberforged_marshal"}} {
+		t.Run(tt.id, func(t *testing.T) {
+			r, err := game.Load("")
+			if err != nil {
+				t.Fatal(err)
+			}
+			e := NewEngine(r)
+			e.CurrentFloor = tt.floor
+			// Isolate reward totals from XP thresholds and incidental healing.
+			e.Player.Lvl = 10
+			heroWithDamage(e, 1000)
+			startEncounter(e, monsterFromFixture("goblin"))
+			e.State = StateCombat
+			e.rng = &stubRng{values: []int{0}}
+			e.Process(Command{Type: CmdMove, Index: 0})
+			if !e.BossUnlocked || e.CanAscend {
+				t.Fatal("normal final-floor victory must unlock the challenge, not ascend")
+			}
+			stub := &stubRng{values: []int{0}}
+			e.rng = stub
+			e.Process(Command{Type: CmdChallengeBoss})
+			if e.State != StateCombat || !e.CurrentEncounter.Boss || !idsEqual(monsterIDs(e.CurrentEncounter.Monsters), tt.id) {
+				t.Fatalf("challenge must construct only %s: %+v", tt.id, e.CurrentEncounter)
+			}
+			if stub.calls != 0 || len(e.currentEnemy().Moves()) != 4 {
+				t.Fatal("challenge must resolve the full kit without RNG")
+			}
+			gold := e.Player.Gold
+			e.Process(Command{Type: CmdMove, Index: 0})
+			if e.Player.Gold-gold != tt.gold || !e.CanAscend || e.BossUnlocked {
+				t.Errorf("boss payout=%d ascend=%v unlocked=%v", e.Player.Gold-gold, e.CanAscend, e.BossUnlocked)
+			}
+			if e.PendingLoot == nil || e.PendingLoot.Tier != tt.lootTier || e.State != StateLoot {
+				t.Errorf("boss must retain tier+1 loot: %+v, state=%v", e.PendingLoot, e.State)
+			}
+		})
+	}
+}
+
 // ——— Boss challenge fixtures ———
 
 // bossTestSections is the pits (floors 1-5) with a boss block: the final

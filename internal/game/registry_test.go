@@ -54,6 +54,120 @@ func TestValidateAcceptsValidContent(t *testing.T) {
 	}
 }
 
+// The first published slice has disjoint boundaries and retains legacy budgets
+// after floor 15; validation also checks all new references and weapon grants.
+func TestEmbeddedProgression(t *testing.T) {
+	r, err := Load("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Validate(100_000); err != nil {
+		t.Fatal(err)
+	}
+	for _, tt := range []struct {
+		floor, budget int
+		section       string
+		boss          bool
+	}{
+		{1, 9, "goblin_gateworks", false}, {5, 13, "goblin_gateworks", true},
+		{6, 18, "emberforged_barracks", false}, {15, 27, "emberforged_barracks", true},
+		{16, 44, "underdark_reaches", false}, {33, 163, "underdark_reaches", true},
+		{34, 40, "wraithfall_bastion", false}, {59, 290, "wraithfall_bastion", true},
+		{60, 60, "dragon_hoard", false}, {100_000, 1_199_340, "dragon_hoard", false},
+	} {
+		s, err := r.SectionForFloor(tt.floor)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if s.ID != tt.section || s.FloorDifficulty(tt.floor) != tt.budget || r.IsSectionEnd(tt.floor) != tt.boss {
+			t.Errorf("floor %d: section=%s budget=%d boss=%v", tt.floor, s.ID, s.FloorDifficulty(tt.floor), r.IsSectionEnd(tt.floor))
+		}
+	}
+	const drillSergeantID = "hobgoblin_drill_sergeant"
+	if monster, ok := r.Monsters[drillSergeantID]; !ok || monster.ID != drillSergeantID {
+		t.Errorf("missing monster %s", drillSergeantID)
+	}
+	barracks, err := r.SectionForFloor(6)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.ContainsFunc(barracks.Spawns, func(spawn SpawnEntry) bool {
+		return spawn.MonsterID == drillSergeantID
+	}) {
+		t.Errorf("%s must spawn %s", barracks.ID, drillSergeantID)
+	}
+	for tier, floor := range []int{1, 6} {
+		tier++
+		s, _ := r.SectionForFloor(floor)
+		if !slices.Equal(s.ItemTiers, []int{tier}) || !slices.Equal(s.MoveTiers, []int{tier}) {
+			t.Errorf("floor %d: normal loot and shrines must use only tier %d", floor, tier)
+		}
+		moves := r.MovesForTiers(s.MoveTiers)
+		if len(moves) == 0 {
+			t.Errorf("tier %d has no shrine choices", tier)
+		}
+		for _, m := range moves {
+			if m.Tier != tier || !m.Learnable || m.Type == "weapon" {
+				t.Errorf("tier %d shrine offers incompatible move %s", tier, m.ID)
+			}
+		}
+		// Both early tiers cover all six slots, including their new accessories.
+		slots := map[string]bool{}
+		for _, id := range r.ItemIDsForTiers(s.ItemTiers) {
+			item := r.Items[id]
+			if item.Tier != tier {
+				t.Errorf("tier %d normal loot offers tier %d item %s", tier, item.Tier, id)
+			}
+			slots[item.Slot] = true
+		}
+		for _, slot := range []string{"weapon", "helmet", "body_armor", "boots", "ring", "amulet"} {
+			if !slots[slot] {
+				t.Errorf("tier %d lacks %s", tier, slot)
+			}
+		}
+	}
+}
+
+func TestEmbeddedEarlyBossIsolation(t *testing.T) {
+	r, err := Load("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"gateworks_lockmaster", "emberforged_marshal"} {
+		boss, ok := r.Monsters[id]
+		if !ok {
+			t.Errorf("missing dedicated boss %s", id)
+			continue
+		}
+		if len(boss.Moves) != 4 || boss.AI == nil {
+			t.Errorf("%s must have a four-move conditional kit", id)
+		}
+		for _, ref := range boss.Moves {
+			move, ok := r.Moves[ref.ID]
+			if !ok || move.Type != "creature" || move.Learnable {
+				t.Errorf("%s move %s must be creature-only and unlearnable", id, ref.ID)
+			}
+			for _, offered := range r.MovesForTiers(nil) {
+				if offered.ID == ref.ID {
+					t.Errorf("boss move %s leaked into shrine pool", ref.ID)
+				}
+			}
+		}
+		for _, section := range r.Sections {
+			for _, spawn := range section.Spawns {
+				if spawn.MonsterID == id {
+					t.Errorf("boss %s leaked into regular spawns in %s", id, section.ID)
+				}
+			}
+		}
+	}
+	for _, id := range []string{"goblin_chief", "orc_warlord"} {
+		if _, ok := r.Monsters[id]; !ok {
+			t.Errorf("legacy monster %s must remain available to mods", id)
+		}
+	}
+}
+
 func TestMoveEffectsDecodeAndValidate(t *testing.T) {
 	var mv MoveAsset
 	err := json.Unmarshal([]byte(`{"id":"m","name":"M","type":"both","tier":1,"cooldown":0,"weight":1,"effects":[{"type":"damage","target":"enemy","dmg_modifier":120},{"type":"heal","target":"self","flat":5,"percent":10},{"type":"status","target":"enemy","status":{"id":"poison","chance":50}}]}`), &mv)

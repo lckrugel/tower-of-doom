@@ -12,7 +12,7 @@ import (
 //
 // ONE boss per section, fought at the section's END (the floor where
 // Registry.IsSectionEnd holds — first-match section resolution, so the
-// embedded content's floor 3 is the goblin pits' end). A normal-combat
+// embedded content's floor 5 is the Goblin Gateworks' end). A normal-combat
 // victory there unlocks the challenge (EventBossUnlocked) instead of
 // ASCEND; killing the boss is what opens the gate. See docs/MECHANICS.md,
 // "Combat 2.0 → Bosses".

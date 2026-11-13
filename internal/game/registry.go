@@ -290,8 +290,8 @@ func (r *Registry) SectionForFloor(floor int) (SectionAsset, error) {
 // section covering it — the floor where a section's boss gates the
 // ascension. Resolution is first-match (SectionForFloor): a floor two
 // sections claim belongs to the EARLIER one, and its end is the
-// earlier's (the embedded content's floor 3 is the goblin pits' end, not
-// the outskirts' first floor — the documented behavior). An infinite
+// earlier's. The embedded Goblin Gateworks ends on floor 5, and
+// Emberforged Barracks begins on floor 6 without overlap. An infinite
 // tail section (max_floor == -1) has no final floor, and a floor no
 // section covers is not a section end either.
 func (r *Registry) IsSectionEnd(floor int) bool {

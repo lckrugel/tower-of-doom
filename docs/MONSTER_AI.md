@@ -86,18 +86,42 @@ to moves in the monster's kit. Older assets without `ai` remain valid.
 
 ## Current examples
 
-- **Vampire Spawn:** below 35% HP, prioritizes `rallying_cut`; otherwise uses
+- **Gateworks Lockmaster (floor 5):** first, strictly below 35% HP and without
+  `guard`, uses `lockmaster_lockdown` (CD4: 50% damage, then self Guard).
+  Otherwise, with `titan_grip`, uses `lockmaster_dropbolt` (CD3, 150% damage);
+  without it, uses `lockmaster_windup` (CD4, self Titan's Grip only). Its sole
+  fallback is `lockmaster_ratchet` (CD0, 100% damage).
+- **Emberforged Marshal (floor 15):** first, strictly below 35% HP and without
+  `guard`, uses `marshal_quenchguard` (CD4: 60% damage, then self Guard).
+  Otherwise, with `breachfire`, uses `marshal_anvilfall` (CD3, 140% damage);
+  without it, uses `marshal_forgebrand` (CD5: self Breachfire, then self Open
+  Guard, no damage). Its sole fallback is `marshal_hammerstroke` (CD0, 100%
+  damage). Despite the forge theme, this kit applies no Burning.
+
+Both dedicated boss kits have four creature-only, unlearnable moves, all with
+kit weight 100. Damage effects have no bonus crit; all status applications have
+100% chance. These are conditional patterns, **not strict scripts**: a locked
+defensive move falls through to the buff/setup rules; a locked burst or setup
+falls back to the basic attack. Already-active Guard blocks defensive refresh.
+Bursts do not consume their setup buffs. Existing duration/tick rules still
+apply (Titan's Grip 2, Breachfire 3, Open Guard 2, Guard 2), so buffs can remain
+after a burst and cooldowns can interrupt the apparent cycle. Status
+application/expiry logs provide the cue, not an advance move announcement or
+an intention preview. Neither kit heals or introduces a new status/effect.
+See [boss mechanics](MECHANICS.md#bosses-implemented) for stats and payouts;
+these approved fights still await player playtesting.
+
+Legacy monster IDs and definitions remain available, including the now-unused
+`goblin_chief` and `orc_warlord`. Other examples (not changed by the boss rework):
+
+- **Vampire Spawn:** below 50% HP, prioritizes `rallying_cut`; otherwise uses
   `assassins_strike` as its fallback.
 - **Goblin Chief:** below 60% HP and without Guard, prioritizes `guard_strike`;
   otherwise uses `heavy_slash`.
-- **Dragonling:** its fallback is `cinderbite`. When it already has
-  `breachfire`, it prioritizes `skull_crusher`. Its move kit also includes
-  `brand_of_the_breach`, which can apply Breachfire and expose the Dragonling's
-  guard. However, Brand is currently in neither its priority list nor its
-  fallback list, so this AI selector does not choose it. The Breachfire
-  follow-up rule is therefore dormant unless another effect applies that
-  status. This is a content/configuration mismatch with the intended setup
-  behavior, not a hidden move-selection feature.
+- **Dragonling:** without `breachfire`, prioritizes `brand_of_the_breach`,
+  applying Breachfire and exposing its guard. With Breachfire, prioritizes
+  `skull_crusher`. Its fallback is `cinderbite` when the conditional moves
+  cannot supply a ready candidate.
 
 These are opt-in examples, not a global behavior applied to every monster.
 The system does not currently support exact intention displays, damage

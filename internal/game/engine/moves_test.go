@@ -835,6 +835,102 @@ func TestMonsterCooldownsRecover(t *testing.T) {
 	}
 }
 
+func TestEmbeddedEarlyBossConditionalMoves(t *testing.T) {
+	for _, kit := range []struct {
+		floor                            int
+		setup, burst, guard, basic, buff string
+	}{
+		{5, "lockmaster_windup", "lockmaster_dropbolt", "lockmaster_lockdown", "lockmaster_ratchet", "titan_grip"},
+		{15, "marshal_forgebrand", "marshal_anvilfall", "marshal_quenchguard", "marshal_hammerstroke", "breachfire"},
+	} {
+		t.Run(kit.setup, func(t *testing.T) {
+			for _, tc := range []struct {
+				name                                                        string
+				buff, lowHP, guarded, setupLocked, burstLocked, guardLocked bool
+				want                                                        string
+			}{
+				{name: "setup before burst", want: kit.setup},
+				{name: "buff enables burst", buff: true, want: kit.burst},
+				{name: "no unbuffed burst when setup locked", setupLocked: true, want: kit.basic},
+				{name: "buffed burst cooldown uses basic", buff: true, burstLocked: true, want: kit.basic},
+				{name: "low HP guard preempts burst", buff: true, lowHP: true, want: kit.guard},
+				{name: "low HP guard preempts setup", lowHP: true, want: kit.guard},
+				{name: "active guard is not refreshed", buff: true, lowHP: true, guarded: true, want: kit.burst},
+				{name: "guard cooldown falls through", buff: true, lowHP: true, guardLocked: true, want: kit.burst},
+			} {
+				t.Run(tc.name, func(t *testing.T) {
+					r, err := game.Load("")
+					if err != nil {
+						t.Fatal(err)
+					}
+					e := NewEngine(r)
+					e.CurrentFloor, e.BossUnlocked = kit.floor, true
+					e.Process(Command{Type: CmdChallengeBoss})
+					apply := func(id string) { e.enemyCombat.applyStatus(entities.NewStatusFromAsset(r.Statuses[id])) }
+					if tc.buff {
+						apply(kit.buff)
+					}
+					if tc.guarded {
+						apply("guard")
+					}
+					if tc.lowHP {
+						e.currentEnemy().TakeDmg(e.currentEnemy().MaxHP() * 3 / 4)
+					}
+					for id, locked := range map[string]bool{kit.setup: tc.setupLocked, kit.burst: tc.burstLocked, kit.guard: tc.guardLocked} {
+						if locked {
+							e.enemyCombat.cooldowns[id] = 1
+						}
+					}
+					stub := &stubRng{values: []int{0}}
+					e.rng = stub
+					move := e.enemyTurnMove()
+					if move.ID != tc.want || stub.calls != 1 {
+						t.Fatalf("move=%s picks=%d, want %s and one pick", move.ID, stub.calls, tc.want)
+					}
+					if tc.want == kit.setup {
+						hp := e.Player.HP()
+						e.enemyStrike(move)
+						if e.Player.HP() != hp || !e.monsterConditionMatches(game.MonsterConditionAsset{Type: "status_present", Target: "self", StatusID: kit.buff}) {
+							t.Fatal("setup must apply its buff without damaging the hero")
+						}
+						wantCalls := 2 // one pick and one status chance
+						if kit.buff == "breachfire" {
+							wantCalls++
+							if !e.monsterConditionMatches(game.MonsterConditionAsset{Type: "status_present", Target: "self", StatusID: "open_guard"}) {
+								t.Error("Forgebrand must expose the Marshal's guard")
+							}
+						}
+						if stub.calls != wantCalls {
+							t.Errorf("setup RNG calls=%d, want %d", stub.calls, wantCalls)
+						}
+						if next := e.enemyTurnMove(); next.ID != kit.burst {
+							t.Errorf("after setup selected %s, want burst", next.ID)
+						}
+					}
+					if tc.want == kit.burst {
+						e.enemyStrike(move)
+						if !e.monsterConditionMatches(game.MonsterConditionAsset{Type: "status_present", Target: "self", StatusID: kit.buff}) {
+							t.Fatal("burst must not consume the setup buff")
+						}
+						if stub.calls != 3 {
+							t.Errorf("burst RNG calls=%d, want pick + spread + crit", stub.calls)
+						}
+					}
+					if tc.want == kit.guard {
+						e.enemyStrike(move)
+						if !e.monsterConditionMatches(game.MonsterConditionAsset{Type: "status_present", Target: "self", StatusID: "guard"}) || stub.calls != 4 {
+							t.Error("guard move must apply Guard with pick + spread + crit + status RNG")
+						}
+						if next := e.enemyTurnMove(); next.ID == kit.guard {
+							t.Error("newly active Guard must prevent immediate guard spam")
+						}
+					}
+				})
+			}
+		})
+	}
+}
+
 func TestMonsterAIPrioritiesAndFallback(t *testing.T) {
 	makeAIEngine := func(t *testing.T, hpDamage int, rules []game.MonsterPriorityAsset, fallback []string, moves ...game.MoveRef) (*Engine, *stubRng) {
 		t.Helper()

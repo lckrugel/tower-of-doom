@@ -1,6 +1,68 @@
 # Proposed game mechanics(WIP)
 
 
+## Published content progression
+
+The implemented first slice covers floors 1–15. These are approved content
+values, not playtested balance findings. Section IDs match their display names:
+
+| Floors | Display name / ID | Budget (base + slope × floors into section) | Item / learned tiers | Boss floor |
+| --- | --- | --- | --- | --- |
+| 1–5 | Goblin Gateworks / `goblin_gateworks` | 9 + 1 × (floor − 1), range 9–13 | [1] / [1] | 5 |
+| 6–15 | Emberforged Barracks / `emberforged_barracks` | 18 + 1 × (floor − 6), range 18–27 | [2] / [2] | 15 |
+| 16–33 | Underdark Reaches / `underdark_reaches` | 44 + 7 × (floor − 16) | [2] / [2,3] | 33 |
+| 34–59 | Wraithfall Bastion / `wraithfall_bastion` | 40 + 10 × (floor − 34) | [2,3] / [3,4] | 59 |
+| 60+ | The Dragon's Hoard / `dragon_hoard` | 60 + 12 × (floor − 60) | [3,4] / [3,4] | None |
+
+Floors 16+ are a **legacy continuation**, not the planned six-section/six-tier
+campaign. The full six-section migration is not implemented. Underdark's shifted
+minimum and base preserve its old budgets on every floor from 16 onward:
+`44 + 7 × (floor − 16) = 30 + 7 × (floor − 14)`. Existing T3/T4 equipment
+remains in place as a preview/legacy bridge; no T5/T6 pools are activated.
+
+### First-slice roles and pools
+
+- **Gateworks regulars (spawn weights):** goblin 100, scout 60, giant rat 25,
+  kobold 25, bomber 15. The scout uses `quick_stab`; the kobold prioritizes
+  `guard_strike` while self lacks `guard`, falling back to `basic_attack`.
+  Goblin/rat/bomber retain basic attacks. The bomber is a damage threat, not
+  an AoE unit; any affordable regular can appear in the forced first combat.
+- **Barracks regulars:** orc 40, berserker 10, Hobgoblin Drill Sergeant
+  (`hobgoblin_drill_sergeant`) 30, ember stoker 20, barracks sentinel 30.
+  Existing orc/berserker/drill sergeant gameplay values and move kits are unchanged.
+  Stoker mixes `cinderbite` (35) with
+  `basic_attack` (65), introducing existing burning/weaken effects earlier.
+  Sentinel uses the same conditional guard/basic fallback as kobold.
+- **Encounter-kind weights remain unchanged**, in combat/sanctuary/chest/
+  merchant/shrine order: Gateworks 100/40/0/10/20; Barracks 100/30/10/15/20.
+  These are authored weights, not fixed probabilities under drought protection.
+- **Exact T1 learned pool:** `guard_strike` (defense), `field_dressing` (heal),
+  `measured_strike` (125% damage, +10 crit points, cooldown 2), and `hamstring`
+  (85% damage then 80% chance of existing duration-3 `slow`, cooldown 3).
+  Both new moves are learnable `both` moves, not weapon basics.
+- **Exact T2 learned pool:** `heavy_slash`, `cinderbite`, `windstep`.
+  Only tier metadata of `crushing_blow`, `venomous_blade`, `shield_wall`, and
+  `venomous_feint` moved to transitional T3; their effects, weights, types, and
+  cooldowns are unchanged. Monster kits are not gated by learned tier.
+- **Gear:** T1 adds `gatekeeper_amulet` (+5 HP), `gateworks_shiv` (+4 DMG,
+  +2 SPD, `quick_stab` basic), and `runner_boots` (+6 SPD). T2 adds
+  `emberforged_ring` (+1 DMG), `barracks_amulet` (+8 HP, +2 DEF),
+  `barracks_axe` (+10 DMG, −2 SPD, `basic_attack` basic), and `stoker_vest`
+  (+15 HP, +6 DEF, +2 SPD). Both early tiers now cover six equipment slots
+  with eight choices. All existing gear values/names and `wooden_sword` remain.
+- **Tier+1 previews remain intentional:** merchant upgrades and boss rewards
+  can provide T2 gear in Gateworks and T3 gear in Barracks. Shrines have no
+  equivalent learned-move preview.
+
+Balance still needs playtesting: the floor 15→16 budget jumps 27→44; stoker
+brings burning into regular early combat; four T1 shrine choices dilute access
+to any specific move (including healing); the +1 DMG ring costs only 50 gold
+under the unchanged price formula. The first two bosses are now dedicated
+single-creature fights with conditional setup/burst/guard kits, not measured
+balance results. Concentrated player DoTs, loss of intermediate-kill XP healing,
+and repeat boss farming need playtesting. Healing rules, drops, potion values,
+price rules, status definitions, and combat mechanics are unchanged.
+
 ## Game loop
 
 - Game starts (StateExploring)
@@ -525,8 +587,8 @@ below documents the shipped behavior.
   floor where `Registry.IsSectionEnd(floor)` holds (`max_floor == floor`
   of the section covering the floor). Sections resolve FIRST-MATCH
   (`SectionForFloor`): a floor two sections claim belongs to the
-  EARLIER one — the embedded content's floor 3 is the goblin pits' end
-  (its boss is the pits'), not the outskirts' first floor.
+  EARLIER one. The embedded ranges are now disjoint: Gateworks ends at 5,
+  and Barracks starts at 6 and ends at 15.
 - Boss groups are PREDEFINED in the section assets (`"boss": {monsters,
   gold}`): fixed monster lists — no weights, no difficulty budget —
   fought in the authored order, each monster's move refs resolved
@@ -570,12 +632,49 @@ below documents the shipped behavior.
        (`CanAscend = true`, `BossUnlocked` consumed). With a pending
        item the engine stays in StateLoot; without one, back to
        exploring.
-- Embedded groups (tuned as a considerable challenge for the section's
-  LATE floors; gold ≈ 3-5× the boss floor's gold): goblin pits floor 3
-  — goblin chief + hobgoblin, 250 gold; outskirts floor 13 — orc
-  warlord + berserker + orc, 1000; underdark floor 33 — lich +
-  vampire spawn + wraith, 2500; wraithfall floor 59 — beholder + two
-  wraiths, 5000.
+- Embedded early bosses (approved values, awaiting playtesting):
+
+  | Floor | Single boss / ID | HP / DMG / DEF / SPD / Crit | Difficulty | Gold (kill + bonus = total) | Kill XP | Loot |
+  | --- | --- | --- | --- | --- | --- | --- |
+  | 5 | Gateworks Lockmaster / `gateworks_lockmaster` | 95 / 6 / 3 / 10 / 5 | 13 | 65 + 265 = 330 | 187 (previous group: 182) | T2 |
+  | 15 | Emberforged Marshal / `emberforged_marshal` | 165 / 12 / 6 / 8 / 5 | 17 | 85 + 1035 = 1120 | 280 (previous group: 285) | T3 |
+
+  These replace the chief/drill sergeant and warlord/berserker/orc queues, preserving
+  their total gold and tier+1 loot. XP now arrives on the single final kill:
+  there are no intermediate kills to trigger level-up healing during the fight.
+  Existing `goblin_chief` and `orc_warlord` definitions remain unchanged in the
+  registry. Neither new boss appears in
+  regular spawn tables. Normal spawn/kind weights and section budgets are unchanged.
+- Each early boss has four creature-only, unlearnable moves (T1 Lockmaster,
+  T2 Marshal; all asset and kit weights 100). They do not enter shrines or
+  change the hero's learned pools or four-move cap:
+
+  | Move ID | Cooldown | Ordered effects |
+  | --- | --- | --- |
+  | `lockmaster_ratchet` | 0 | Enemy damage 100% |
+  | `lockmaster_windup` | 4 | Self `titan_grip`, 100% chance |
+  | `lockmaster_dropbolt` | 3 | Enemy damage 150% |
+  | `lockmaster_lockdown` | 4 | Enemy damage 50%, then self `guard`, 100% chance |
+  | `marshal_hammerstroke` | 0 | Enemy damage 100% |
+  | `marshal_forgebrand` | 5 | Self `breachfire`, then self `open_guard`, both 100% chance |
+  | `marshal_anvilfall` | 3 | Enemy damage 140% |
+  | `marshal_quenchguard` | 4 | Enemy damage 60%, then self `guard`, 100% chance |
+
+  Every damage effect has zero crit bonus (the bosses retain their base crit).
+  Neither kit burns or heals; no statuses or effects were added. AI priority is
+  low HP (strictly below 35%) and no Guard → defensive move; setup buff present
+  → burst; setup buff absent → setup; otherwise only the cooldown-0 basic.
+  Rules with no ready move fall through. This is conditional AI, not a strict
+  phase counter. Existing `titan_grip` (+25% DMG, duration 2), `breachfire`
+  (+40% DMG, duration 3), `open_guard` (−50% DEF, duration 2), and `guard`
+  (+5 DEF and +10%, duration 2) retain their values and normal ticking. Bursts
+  do not consume setup buffs; a buff may outlast a burst, while cooldowns can
+  force basic attacks. Guard is not refreshed while already active.
+  Status application/expiry logs are the cue: there is no advance move
+  announcement, intention preview, or strict next-turn guarantee.
+- Later embedded groups remain unchanged placeholders: underdark floor 33 —
+  lich + vampire spawn + wraith, 2500 bonus gold; wraithfall floor 59 — beholder
+  + two wraiths, 5000 bonus gold.
 - Sections WITHOUT a boss block keep the old behavior on their final
   floor (normal victory → ASCEND): mod compatibility. The infinite
   dragon_hoard tail (`max_floor: -1`) has NO final floor — no boss
@@ -764,12 +863,10 @@ below documents the shipped behavior.
   dormant; runtime encounters emit `event-shrine-offered`.
 - Shrines are non-combat kinds: the no-triple pacing rule covers them
   (three shrines in a row is impossible) and they never unlock ASCEND.
-- Embedded content: every section carries a `shrine` weight (11-13% of
-  its kind roll) and `move_tiers`; six new tier 2-4 moves keep every
-  section's pool supplied mid-run; 19 of the 24 monsters fight with
-  authored move sets (early trash keeps the basic_attack fallback) and
-  the iron/steel/draconic swords grant tier-appropriate moves — see the
-  "Moves & statuses — data model" tables below.
+- Embedded content: every section carries a `shrine` weight and populated
+  `move_tiers`. The exact early pools and new weapon basics are listed in
+  "Published content progression" above; later pools retain transitional
+  T3/T4 content. Some regulars keep the `basic_attack` fallback.
 
 Learning is capped at 3 learned moves (`MaxLearnedMoves`); the weapon's
 single basic action occupies index 0 and learned moves follow it.

@@ -1,5 +1,104 @@
 [
   {
+    "id": "lockmaster_ratchet",
+    "name": "Ratchet",
+    "type": "creature",
+    "tier": 1,
+    "cooldown": 0,
+    "weight": 100,
+    "effects": [
+      { "type": "damage", "target": "enemy", "dmg_modifier": 100, "crit_bonus": 0 }
+    ],
+    "learnable": false
+  },
+  {
+    "id": "lockmaster_windup",
+    "name": "Windup",
+    "type": "creature",
+    "tier": 1,
+    "cooldown": 4,
+    "weight": 100,
+    "effects": [
+      { "type": "status", "target": "self", "status": { "id": "titan_grip", "chance": 100 } }
+    ],
+    "learnable": false
+  },
+  {
+    "id": "lockmaster_dropbolt",
+    "name": "Dropbolt",
+    "type": "creature",
+    "tier": 1,
+    "cooldown": 3,
+    "weight": 100,
+    "effects": [
+      { "type": "damage", "target": "enemy", "dmg_modifier": 150, "crit_bonus": 0 }
+    ],
+    "learnable": false
+  },
+  {
+    "id": "lockmaster_lockdown",
+    "name": "Lockdown",
+    "type": "creature",
+    "tier": 1,
+    "cooldown": 4,
+    "weight": 100,
+    "effects": [
+      { "type": "damage", "target": "enemy", "dmg_modifier": 50, "crit_bonus": 0 },
+      { "type": "status", "target": "self", "status": { "id": "guard", "chance": 100 } }
+    ],
+    "learnable": false
+  },
+  {
+    "id": "marshal_hammerstroke",
+    "name": "Hammerstroke",
+    "type": "creature",
+    "tier": 2,
+    "cooldown": 0,
+    "weight": 100,
+    "effects": [
+      { "type": "damage", "target": "enemy", "dmg_modifier": 100, "crit_bonus": 0 }
+    ],
+    "learnable": false
+  },
+  {
+    "id": "marshal_forgebrand",
+    "name": "Forgebrand",
+    "type": "creature",
+    "tier": 2,
+    "cooldown": 5,
+    "weight": 100,
+    "effects": [
+      { "type": "status", "target": "self", "status": { "id": "breachfire", "chance": 100 } },
+      { "type": "status", "target": "self", "status": { "id": "open_guard", "chance": 100 } }
+    ],
+    "learnable": false
+  },
+  {
+    "id": "marshal_anvilfall",
+    "name": "Anvilfall",
+    "type": "creature",
+    "tier": 2,
+    "cooldown": 3,
+    "weight": 100,
+    "effects": [
+      { "type": "damage", "target": "enemy", "dmg_modifier": 140, "crit_bonus": 0 }
+    ],
+    "learnable": false
+  },
+  {
+    "id": "marshal_quenchguard",
+    "name": "Quenchguard",
+    "type": "creature",
+    "tier": 2,
+    "cooldown": 4,
+    "weight": 100,
+    "effects": [
+      { "type": "damage", "target": "enemy", "dmg_modifier": 60, "crit_bonus": 0 },
+      { "type": "status", "target": "self", "status": { "id": "guard", "chance": 100 } }
+    ],
+    "learnable": false
+  },
+  {
     "id": "basic_attack",
     "name": "Basic Strike",
     "type": "both",
@@ -121,7 +220,7 @@
     "id": "crushing_blow",
     "name": "Crushing Blow",
     "type": "creature",
-    "tier": 2,
+    "tier": 3,
     "cooldown": 3,
     "weight": 40,
     "effects": [
@@ -205,7 +304,7 @@
     "id": "venomous_blade",
     "name": "Venomous Blade",
     "type": "both",
-    "tier": 2,
+    "tier": 3,
     "cooldown": 2,
     "weight": 50,
     "effects": [
@@ -230,7 +329,7 @@
     "id": "shield_wall",
     "name": "Shield Wall",
     "type": "both",
-    "tier": 2,
+    "tier": 3,
     "cooldown": 3,
     "weight": 30,
     "effects": [
@@ -347,7 +446,7 @@
     "id": "venomous_feint",
     "name": "Venomous Feint",
     "type": "both",
-    "tier": 2,
+    "tier": 3,
     "cooldown": 3,
     "weight": 30,
     "effects": [
@@ -546,6 +645,45 @@
           "id": "deep_wound",
           "chance": 100
         }
+      }
+    ],
+    "learnable": true
+  },
+  {
+    "id": "measured_strike",
+    "name": "Measured Strike",
+    "type": "both",
+    "tier": 1,
+    "cooldown": 2,
+    "weight": 50,
+    "effects": [
+      {
+        "type": "damage",
+        "target": "enemy",
+        "dmg_modifier": 125,
+        "crit_bonus": 10
+      }
+    ],
+    "learnable": true
+  },
+  {
+    "id": "hamstring",
+    "name": "Hamstring",
+    "type": "both",
+    "tier": 1,
+    "cooldown": 3,
+    "weight": 40,
+    "effects": [
+      {
+        "type": "damage",
+        "target": "enemy",
+        "dmg_modifier": 85,
+        "crit_bonus": 0
+      },
+      {
+        "type": "status",
+        "target": "enemy",
+        "status": { "id": "slow", "chance": 80 }
       }
     ],
     "learnable": true
