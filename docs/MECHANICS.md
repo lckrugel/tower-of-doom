@@ -138,10 +138,10 @@ price rules, status definitions, and combat mechanics are unchanged.
     - On a section's FINAL floor (a section with a boss): unlocks the
       BOSS CHALLENGE instead — the gate opens only when the boss falls
       (see "Bosses")
-    - Ascending also rolls a random armor piece (helmet/body/boots) from
-      the registry, restricted to the section's `item_tiers`, and opens
-      the SAME loot decision as a chest: WEAR / STASH / DISCARD — see
-      "Items" (gold and item tiers: see "Gold & prices" / "Item tiers")
+    - Every ascent grants a guaranteed standard chest on the NEW floor:
+      40% gold, 60% uniformly selected equipment of any slot from that
+      destination section's `item_tiers`. Gold pays immediately; equipment
+      opens WEAR / STASH / DISCARD — see "Items" and "Gold & prices".
 - After combat games goes to StateExploring again
     - If combat was won, ASCEND is now permitted — EXCEPT on the final
       floor of a section with a boss, where the challenge unlocks and
@@ -397,11 +397,23 @@ is equipment-specific; level-up rescaling and its subsequent heal are unchanged.
       Hero before their initiative, the potion is not consumed.
     - The TUI shows the pouch count and potion effect; its action is
       available in combat and exploration/inventory only when relevant.
-- **Ascend flow** — there is NO auto-equip anymore: ascending rolls the
-  armor reward from the NEW floor's section and opens the very same
-  StateLoot decision (WEAR / STASH / DISCARD — the pending-loot case
-  above). An empty armor pool degrades like an empty chest: a message
-  event and exploring continues (no loot decision).
+- **Ascend flow** — every successful ascent, throughout the tower, grants
+  one standard chest, replacing the former guaranteed armor reward. The
+  floor increments and the ascent/boss unlocks clear before `event-floor-entered`,
+  followed by the shared chest result: 40% gold (`5 × destination floor
+  difficulty budget`), or 60% equipment selected uniformly from ALL slots
+  in the NEW section's allowed item tiers. Gold leaves StateExploring with
+  no pending loot; equipment opens StateLoot (WEAR / STASH / DISCARD), never
+  auto-equipping. An empty allowed item pool on the item branch emits the
+  standard empty-chest message and stays exploring.
+  There is no chest-appearance gate or encounter-kind roll, no combat or
+  `event-encounter-found`, and no exploration history/miss-counter update.
+  The per-run forced first combat and subsequent exploration pacing are
+  unchanged. An ineligible ascent grants nothing and consumes no RNG.
+  This is an initial, unplaytested balance pass, not a measured balance
+  claim: chests are guaranteed, equipment is not. Weapon access at section
+  boundaries (including floor 5→6 into tier 2), chest-gold income, and the
+  legacy tier-3/tier-4 continuation remain balance risks to playtest.
 
 New events (additive; no existing key changed meaning):
 `event-loot-found{item}`, `event-item-equipped{item, swapped_from?}`
@@ -419,7 +431,7 @@ asset's `"tier"` field. An absent field means tier 1 (JSON cannot tell
 older mods keep working.
 
 - **Section gating** — a section may list `"item_tiers": [..]`; every
-  item roll it makes (chest loot, ascend armor reward, merchant stock)
+  item roll it makes (exploration/ascent chest loot, merchant stock)
   draws from a pool restricted to those tiers. Absent/empty = NO
   restriction (mods keep rolling the whole registry). The pool is the
   registry's `ItemIDsForTiers` lookup: sorted ids, unrestricted when no
