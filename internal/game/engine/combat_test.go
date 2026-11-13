@@ -926,6 +926,8 @@ func TestFlee(t *testing.T) {
 func TestAscendUnlocking(t *testing.T) {
 	t.Run("blocked before a victory", func(t *testing.T) {
 		e := newTestEngine(0)
+		stub := e.rng.(*stubRng)
+		e.BossUnlocked = true
 
 		events := e.Process(Command{Type: CmdAscend})
 
@@ -934,6 +936,9 @@ func TestAscendUnlocking(t *testing.T) {
 		}
 		if e.CurrentFloor != 1 {
 			t.Errorf("floor = %d, want 1", e.CurrentFloor)
+		}
+		if stub.calls != 0 || e.Player.Gold != 0 || e.PendingLoot != nil || e.State != StateExploring || !e.BossUnlocked || e.CanAscend || e.firstExploreDone || e.recentKinds != [2]EncounterType{} {
+			t.Error("ineligible ascension consumed RNG, granted rewards, or changed state")
 		}
 	})
 
@@ -946,9 +951,10 @@ func TestAscendUnlocking(t *testing.T) {
 		if !e.CanAscend {
 			t.Fatal("victory did not unlock ascending")
 		}
+		e.rng = &stubRng{values: []int{40}} // item branch, empty registry
 		events := e.Process(Command{Type: CmdAscend})
 
-		// The test registry has no armor pieces: the ascend emits the
+		// The test registry has no items: the ascend emits the
 		// floor event plus the empty-pool message and stays exploring.
 		if got := eventTypes(events); !typesEqual(got, EventFloorEntered, EventMessage) {
 			t.Errorf("events = %v, want [floor-entered message]", got)
@@ -1029,8 +1035,8 @@ func TestDefenseMitigationInCombat(t *testing.T) {
 	})
 }
 
-// ascendItems is the armor-bearing registry shared by the ascend tests:
-// the sorted armor pool is [chain_mail, helm_cap].
+// ascendItems is the registry shared by the ascend tests:
+// the sorted chest pool is [chain_mail, helm_cap, wooden_sword].
 func ascendItems() map[string]game.ItemAsset {
 	return map[string]game.ItemAsset{
 		"wooden_sword": {ID: "wooden_sword", Name: "Sword", Slot: "weapon", BonusDMG: 5},
@@ -1039,9 +1045,9 @@ func ascendItems() map[string]game.ItemAsset {
 	}
 }
 
-// Ascending to the next floor rolls a random armor piece from the NEW
+// The item branch on ascent rolls any slot from the NEW
 // floor's section and opens the loot decision over it (no auto-equip).
-func TestAscendGrantsRandomArmor(t *testing.T) {
+func TestAscendChestGrantsRandomItem(t *testing.T) {
 	tests := []struct {
 		name    string
 		rngPick int
@@ -1049,11 +1055,12 @@ func TestAscendGrantsRandomArmor(t *testing.T) {
 	}{
 		{"first armor in sorted order", 0, "chain_mail"},
 		{"second armor in sorted order", 1, "helm_cap"},
+		{"weapon in sorted order", 2, "wooden_sword"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			e := newTestEngine(tt.rngPick)
+			e := newTestEngine(40, tt.rngPick)
 			e.reg.Items = ascendItems()
 			weaponBefore := e.Player.Weapon
 			e.CanAscend = true
@@ -1066,7 +1073,7 @@ func TestAscendGrantsRandomArmor(t *testing.T) {
 			}
 			item := events[1].Data["item"].(*entities.Item)
 			if item.ID != tt.wantID {
-				t.Errorf("looted item = %q, want %q (weapons must never roll)", item.ID, tt.wantID)
+				t.Errorf("looted item = %q, want %q", item.ID, tt.wantID)
 			}
 			if e.State != StateLoot || e.PendingLoot != item {
 				t.Errorf("state = %v, pending = %v, want StateLoot holding the reward", e.State, e.PendingLoot)
@@ -1082,11 +1089,11 @@ func TestAscendGrantsRandomArmor(t *testing.T) {
 	}
 }
 
-// A registry without armor pieces makes ascending work with just the floor
+// A registry without items makes the item branch work with just the floor
 // event and a message: the empty-pool guard behaves like an empty chest,
 // staying in StateExploring with nothing pending.
-func TestAscendWithoutArmorRegistryGrantsNothing(t *testing.T) {
-	e := newTestEngine()
+func TestAscendWithoutItemRegistryGrantsNothing(t *testing.T) {
+	e := newTestEngine(40)
 	e.CanAscend = true
 
 	events := e.Process(Command{Type: CmdAscend})
@@ -1414,7 +1421,7 @@ func TestCritNeverFiresWithZeroThreshold(t *testing.T) {
 // The ascend reward is a loot decision: wearing it from StateLoot sends
 // the displaced gear to the bag when there is room.
 func TestAscendLootWearDisplacesGearToBag(t *testing.T) {
-	e := newTestEngine(1) // helm_cap from the sorted armor pool
+	e := newTestEngine(40, 1) // item branch, helm_cap from the sorted chest pool
 	e.reg.Items = ascendItems()
 	oldHelm := entities.NewItemFromAsset(game.ItemAsset{
 		ID: "rusty_helm", Name: "Rusty Helm", Slot: "helmet", BonusDEF: 1,
@@ -1458,7 +1465,7 @@ func TestAscendLootWearDisplacesGearToBag(t *testing.T) {
 // With the bag full, wearing the ascend reward from StateLoot destroys the
 // displaced gear (EventItemLost) — same as the chest flow.
 func TestAscendLootWearWithFullBagDestroysDisplaced(t *testing.T) {
-	e := newTestEngine(1) // helm_cap
+	e := newTestEngine(40, 1) // item branch, helm_cap
 	e.reg.Items = ascendItems()
 	oldHelm := entities.NewItemFromAsset(game.ItemAsset{
 		ID: "rusty_helm", Name: "Rusty Helm", Slot: "helmet", BonusDEF: 1,
@@ -1498,7 +1505,7 @@ func TestAscendLootWearWithFullBagDestroysDisplaced(t *testing.T) {
 // discarded — exactly the chest options.
 func TestAscendLootStashAndDiscard(t *testing.T) {
 	setup := func(rngPick int) (*Engine, *entities.Item) {
-		e := newTestEngine(rngPick)
+		e := newTestEngine(40, rngPick)
 		e.reg.Items = ascendItems()
 		e.CanAscend = true
 		e.Process(Command{Type: CmdAscend})

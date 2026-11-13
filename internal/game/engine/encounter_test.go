@@ -306,17 +306,16 @@ func TestSecondExploreResumesKindRolls(t *testing.T) {
 // first explore after ASCEND rolls the kind table instead of repeating
 // the forced combat.
 func TestAscendDoesNotResetFirstExploreFlag(t *testing.T) {
-	// Forced combat: 3 picks (0,0,0); sneak away (0); ASCEND (empty armor
-	// pool → no rng); kind Intn(30) = 10 → sanctuary.
+	// Forced combat: 3 picks (0,0,0); sneak away (0); ASCEND (40 → empty
+	// item pool); kind Intn(30) = 10 → sanctuary.
 	e := newKindEngine()
-	stub := &stubRng{values: []int{0, 0, 0, 0, 10}}
+	stub := &stubRng{values: []int{0, 0, 0, 0, 40, 10}}
 	e.rng = stub
 	e.CanAscend = true
 
 	e.Process(Command{Type: CmdExplore}) // forced combat
 	e.Process(Command{Type: CmdSneak})   // away
-	// The test registry has no armor pieces: the ascend emits the
-	// floor event plus the empty-pool message, consuming no rng.
+	// The test registry has no items: ascent consumes only the chest branch roll.
 	if got := eventTypes(e.Process(Command{Type: CmdAscend})); !typesEqual(got, EventFloorEntered, EventMessage) {
 		t.Fatalf("ascend events = %v, want [floor-entered message]", got)
 	}
@@ -326,8 +325,8 @@ func TestAscendDoesNotResetFirstExploreFlag(t *testing.T) {
 	if got := eventTypes(events); !typesEqual(got, EventHeroHealed) {
 		t.Fatalf("events = %v, want [hero-healed] (flag survived ascension)", got)
 	}
-	if stub.calls != 5 {
-		t.Errorf("rng calls = %d, want 5 (3 picks + sneak + kind roll)", stub.calls)
+	if stub.calls != 6 {
+		t.Errorf("rng calls = %d, want 6 (3 picks + sneak + chest branch + kind roll)", stub.calls)
 	}
 }
 
@@ -468,15 +467,14 @@ func TestDifferentKindAfterMerchantPairHappens(t *testing.T) {
 // history [combat, combat] can never satisfy the non-combat streak, so
 // nothing overrides before any kind was recorded (TestExploreSanctuary).
 func TestKindHistorySurvivesAscension(t *testing.T) {
-	// Two sanctuaries (history full), then ASCEND (empty armor pool → no
-	// rng), then a third sanctuary roll must still be overridden.
-	e := pastFirstExplore(newKindEngine(10, 10, 10, 104, 0))
+	// Two sanctuaries (history full), then ASCEND (40 → empty item pool),
+	// then a third sanctuary roll must still be overridden.
+	e := pastFirstExplore(newKindEngine(10, 10, 40, 10, 104, 0))
 	e.CanAscend = true
 
 	e.Process(Command{Type: CmdExplore}) // sanctuary #1
 	e.Process(Command{Type: CmdExplore}) // sanctuary #2
-	// The test registry has no armor pieces: the ascend emits the floor
-	// event plus the empty-pool message, consuming no rng.
+	// The test registry has no items: ascent consumes only the chest branch roll.
 	if got := eventTypes(e.Process(Command{Type: CmdAscend})); !typesEqual(got, EventFloorEntered, EventMessage) {
 		t.Fatalf("ascend events = %v, want [floor-entered message]", got)
 	}

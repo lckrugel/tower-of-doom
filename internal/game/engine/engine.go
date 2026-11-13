@@ -196,21 +196,10 @@ func (e *Engine) handleExploring(cmd Command) []Event {
 		e.BossUnlocked = false
 		sectionDef := e.currentSection()
 		events := []Event{NewFloorEntered(e.CurrentFloor, sectionDef.Name)}
-		// The ascend reward is a loot decision, not an auto-equip: the
-		// armor piece rolled from the NEW floor's section is held as
-		// PendingLoot and the player chooses in StateLoot (wear/stash/
-		// discard) — the very same flow as a chest.
-		if item := e.rollArmorReward(sectionDef.ItemTiers); item != nil {
-			e.PendingLoot = item
-			e.State = StateLoot
-			events = append(events, NewLootFound(item))
-		} else {
-			// Empty armor pool (only possible for registries that skipped
-			// validation): behave like an empty chest — a message and no
-			// loot decision, never StateLoot holding a nil item.
-			events = append(events, NewMessage("No armor piece awaits on this floor."))
-		}
-		return events
+		// Every ascent grants a standard chest from the destination floor,
+		// without rolling an encounter kind or recording exploration history.
+		e.CurrentEncounter = Encounter{}
+		return append(events, e.resolveEncounter(Encounter{Type: EncounterChest})...)
 
 	default:
 		return []Event{NewMessage("Unhandled command")}
@@ -586,14 +575,6 @@ func (e *Engine) pickItem(accept func(entities.ItemSlot) bool, tiers []int) *ent
 	}
 	item := e.itemFromAsset(e.reg.Items[pool[e.rng.Intn(len(pool))]])
 	return &item
-}
-
-// rollArmorReward rolls a random armor piece (helmet, body or boots) from
-// the registry as the reward for ascending, restricted to the section's
-// allowed item tiers (empty = unrestricted). The piece is held as
-// PendingLoot: the player decides its fate in StateLoot, like any chest.
-func (e *Engine) rollArmorReward(tiers []int) *entities.Item {
-	return e.pickItem(entities.IsArmor, tiers)
 }
 
 // rollItemReward rolls a random item from the whole registry (any slot) as

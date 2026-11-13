@@ -2,7 +2,45 @@ package engine
 
 import (
 	"testing"
+
+	"github.com/lckrugel/tower-of-doom/internal/game"
 )
+
+func TestAscendGoldChestUsesDestinationBudget(t *testing.T) {
+	e := newKindEngine(39) // Even before the first EXPLORE, ascent is not exploration.
+	e.reg.Sections = []game.SectionAsset{
+		{ID: "old", Name: "Old", MinFloor: 1, MaxFloor: 5, BaseDifficulty: 1},
+		{ID: "next", Name: "Next", MinFloor: 6, MaxFloor: -1, BaseDifficulty: 17, DifficultyPerFloor: 3},
+	}
+	e.CurrentFloor = 5
+	e.CanAscend = true
+	e.BossUnlocked = true
+	e.Player.Gold = 7
+	firstExplore := e.firstExploreDone
+	history, misses := e.recentKinds, e.encounterMisses
+
+	events := e.Process(Command{Type: CmdAscend})
+
+	if got := eventTypes(events); !typesEqual(got, EventFloorEntered, EventGoldGained) {
+		t.Fatalf("events = %v, want [floor-entered gold-gained]", got)
+	}
+	if events[0].Data["floor"] != 6 || events[0].Data["section"] != "Next" {
+		t.Errorf("floor event = %v, want destination floor 6 / Next", events[0].Data)
+	}
+	if events[1].Data["amount"] != 85 || events[1].Data["source"] != GoldSourceChest || e.Player.Gold != 92 {
+		t.Errorf("gold event = %v, total = %d, want 85 chest gold added to 7", events[1].Data, e.Player.Gold)
+	}
+	if e.CurrentFloor != 6 || e.CanAscend || e.BossUnlocked || e.State != StateExploring || e.PendingLoot != nil || len(e.CurrentEncounter.Monsters) != 0 {
+		t.Errorf("invalid post-ascend state: floor=%d ascend=%v boss=%v state=%v loot=%v encounter=%v", e.CurrentFloor, e.CanAscend, e.BossUnlocked, e.State, e.PendingLoot, e.CurrentEncounter)
+	}
+	if e.firstExploreDone != firstExplore || e.recentKinds != history || e.encounterMisses != misses {
+		t.Error("ascension chest changed exploration pacing/history")
+	}
+	stub := e.rng.(*stubRng)
+	if stub.calls != 1 || stub.bounds[0] != 100 {
+		t.Errorf("rng bounds = %v, want [100] (no appearance or kind roll)", stub.bounds)
+	}
+}
 
 // Kills pay a flat 5 × enemy-difficulty gold on every defeat (mid-combat
 // kills included), alongside the instant XP. The grant consumes no rng.

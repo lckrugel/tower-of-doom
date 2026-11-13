@@ -210,8 +210,8 @@ func (e *Engine) recordEncounterKind(kind EncounterType) {
 }
 
 // resolveEncounter handles the EncounterTypes that resolve on the spot:
-// a sanctuary (heal) resolves instantly, while a chest rolls its item and
-// holds it as PendingLoot for the StateLoot decision (equip/stash/discard).
+// a sanctuary (heal) resolves instantly, while a chest grants gold or holds
+// an item as PendingLoot for the StateLoot decision (equip/stash/discard).
 // Only combat keeps the flow two-stepped, going through StateEncounter for
 // FIGHT/SNEAK.
 //
@@ -224,7 +224,7 @@ func (e *Engine) resolveEncounter(encounter Encounter) []Event {
 		return []Event{NewHeroHealedExact(e.Player, healed, e.Player.CurrentHPPercent())}
 	case EncounterChest:
 		section := e.currentSection()
-		// One extra roll right after the kind roll decides gold-vs-item: a
+		// One roll decides gold-vs-item (also used by guaranteed ascent chests): a
 		// gold chest pays out on the spot and skips the loot decision
 		// entirely — exploring continues directly.
 		if e.rng.Intn(100) < chestGoldChance {
