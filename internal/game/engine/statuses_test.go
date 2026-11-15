@@ -818,11 +818,11 @@ func TestSpeedChangeDoesNotReorderCurrentTurn(t *testing.T) {
 
 func TestCritStatusesUseUnclampedBaseBeforeMoveBonus(t *testing.T) {
 	for _, tc := range []struct {
-		name string
-		side ActorSide
-		mods []int
+		name              string
+		side              ActorSide
+		mods              []int
 		bonus, roll, view int
-		crit bool
+		crit              bool
 	}{
 		{"hero negative base rescued by bonus", ActorHero, []int{-40, 10}, 30, 9, 0, true},
 		{"hero exact threshold", ActorHero, []int{-40, 10}, 30, 10, 0, false},
@@ -837,14 +837,20 @@ func TestCritStatusesUseUnclampedBaseBeforeMoveBonus(t *testing.T) {
 			startEncounter(e, enemy)
 			e.State = StateCombat
 			actor, defender := Combatant(e.Player), Combatant(e.currentEnemy())
-			if tc.side == ActorEnemy { actor, defender = defender, actor }
+			if tc.side == ActorEnemy {
+				actor, defender = defender, actor
+			}
 			for i, amount := range tc.mods {
-				e.stateOf(actor).applyStatus(entities.Status{ID: string(rune('a'+i)), Stat: entities.StatCrit, StatAmount: amount, Duration: 2})
+				e.stateOf(actor).applyStatus(entities.Status{ID: string(rune('a' + i)), Stat: entities.StatCrit, StatAmount: amount, Duration: 2})
 			}
 			view := e.CombatView()
 			gotView := view.Hero.Stats.Crit
-			if tc.side == ActorEnemy { gotView = view.Enemy.Stats.Crit }
-			if gotView != tc.view { t.Errorf("view crit=%d, want %d", gotView, tc.view) }
+			if tc.side == ActorEnemy {
+				gotView = view.Enemy.Stats.Crit
+			}
+			if gotView != tc.view {
+				t.Errorf("view crit=%d, want %d", gotView, tc.view)
+			}
 			stub := &stubRng{values: []int{1, tc.roll}}
 			e.rng = stub
 			move := entities.Move{Name: "Critical", Effects: []entities.MoveEffect{{Type: "damage", Target: entities.TargetEnemy, DmgModifier: 100, CritBonus: tc.bonus}}}
@@ -861,17 +867,25 @@ func TestCritStatusRefreshAndExpiration(t *testing.T) {
 	startEncounter(e, monsterFromFixture("goblin"))
 	e.State = StateCombat
 	status := entities.NewStatusFromAsset(game.StatusAsset{ID: "focus", Kind: "buff", Duration: 2, Effect: game.StatusEffectAsset{Type: "stat", Stat: "crit", Amount: 20}})
-	if status.Stat != entities.StatCrit { t.Fatalf("status stat=%s", status.Stat) }
+	if status.Stat != entities.StatCrit {
+		t.Fatalf("status stat=%s", status.Stat)
+	}
 	e.heroCombat.applyStatus(status)
 	e.heroCombat.turn = 1
 	e.heroCombat.applyStatus(status)
-	if got := e.critBase(e.Player); got != e.Player.CritThreshold()+20 { t.Errorf("refresh stacked crit: %d", got) }
+	if got := e.critBase(e.Player); got != e.Player.CritThreshold()+20 {
+		t.Errorf("refresh stacked crit: %d", got)
+	}
 	e.heroCombat.turn = 2
 	expireStatStatuses(&e.heroCombat, e.Player)
-	if got := e.critBase(e.Player); got != e.Player.CritThreshold()+20 { t.Error("crit expired before refreshed deadline") }
+	if got := e.critBase(e.Player); got != e.Player.CritThreshold()+20 {
+		t.Error("crit expired before refreshed deadline")
+	}
 	e.heroCombat.turn = 3
 	expireStatStatuses(&e.heroCombat, e.Player)
-	if got := e.critBase(e.Player); got != e.Player.CritThreshold() { t.Error("crit did not expire") }
+	if got := e.critBase(e.Player); got != e.Player.CritThreshold() {
+		t.Error("crit did not expire")
+	}
 }
 
 func TestStatLifetimeContinuesAcrossKillingTurns(t *testing.T) {

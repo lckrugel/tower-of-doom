@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"math"
 	"testing"
 
 	"github.com/lckrugel/tower-of-doom/internal/game"
@@ -342,12 +343,41 @@ func TestSelfDamagePercentUsesMaximumHPAndBypassesArmor(t *testing.T) {
 	}
 }
 
+type highHPCombatant struct {
+	Combatant
+	hp, maxHP int
+}
+
+func (c *highHPCombatant) Name() string  { return "High HP" }
+func (c *highHPCombatant) HP() int       { return c.hp }
+func (c *highHPCombatant) MaxHP() int    { return c.maxHP }
+func (c *highHPCombatant) IsAlive() bool { return c.hp > 0 }
+func (c *highHPCombatant) TakeDmg(dmg int) int {
+	if dmg < 0 {
+		return 0
+	}
+	dealt := min(dmg, c.hp)
+	c.hp -= dealt
+	return dealt
+}
+
+func TestSelfDamageCostSaturatesOnIntegerOverflow(t *testing.T) {
+	e := movesEngine()
+	actor := &highHPCombatant{hp: 500, maxHP: 100}
+	startEncounter(e, monsterFromFixture("goblin"))
+	move := entities.Move{Name: "Overflow Toll", Effects: []entities.MoveEffect{{Type: "self_damage", Target: entities.TargetSelf, Flat: math.MaxInt, Percent: 1}}}
+	events := e.resolveMoveEffects(&move, actor, e.currentEnemy(), ActorHero)
+	if actor.HP() != 0 || events[1].Data["damage"] != 500 {
+		t.Fatalf("self cost events=%v HP=%d, want damage 500 and 0 HP", events, actor.HP())
+	}
+}
+
 func TestSelfDamageOutcomeAndQueue(t *testing.T) {
 	for _, tc := range []struct {
-		name string
+		name     string
 		heroCost bool
-		want []EventType
-		state GameState
+		want     []EventType
+		state    GameState
 	}{
 		{"hero dies after killing enemy", true, []EventType{EventMoveUsed, EventCombatDamageDealt, EventSelfDamage, EventHeroDefeated}, StateGameOver},
 		{"enemy dies after attacking hero", false, []EventType{EventMoveUsed, EventCombatDamageTaken, EventSelfDamage, EventEnemyDefeated, EventVictory}, StateExploring},
@@ -378,8 +408,12 @@ func TestSelfDamageOutcomeAndQueue(t *testing.T) {
 			if !typesEqual(eventTypes(events), tc.want...) || e.State != tc.state {
 				t.Errorf("events=%v state=%v want %v/%v", eventTypes(events), e.State, tc.want, tc.state)
 			}
-			if tc.heroCost && e.kills != 0 { t.Errorf("mutual death granted %d kills", e.kills) }
-			if !tc.heroCost && e.kills != 1 { t.Errorf("enemy self-kill awarded %d kills, want one", e.kills) }
+			if tc.heroCost && e.kills != 0 {
+				t.Errorf("mutual death granted %d kills", e.kills)
+			}
+			if !tc.heroCost && e.kills != 1 {
+				t.Errorf("enemy self-kill awarded %d kills, want one", e.kills)
+			}
 		})
 	}
 }

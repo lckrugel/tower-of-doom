@@ -279,7 +279,13 @@ func (e *Engine) resolveMoveEffects(move *entities.Move, attacker, defender Comb
 			// Divide before multiplying to avoid overflowing on large max HP;
 			// the remainder is at most 99 and percent is validated <= 100.
 			percent := target.MaxHP()/100*effect.Percent + (target.MaxHP()%100)*effect.Percent/100
-			damage := target.TakeDmg(effect.Flat + percent)
+			cost := effect.Flat
+			if percent > math.MaxInt-cost {
+				cost = math.MaxInt
+			} else {
+				cost += percent
+			}
+			damage := target.TakeDmg(cost)
 			events = append(events, NewSelfDamage(target, side, move.Name, damage))
 		case "status":
 			fired := e.rng.Intn(100) < effect.Status.Chance
