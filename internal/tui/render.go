@@ -79,6 +79,8 @@ func eventText(ev engine.Event) string {
 		return damageDealtText(ev.Data, plainTones)
 	case engine.EventCombatDamageTaken:
 		return damageTakenText(ev.Data, plainTones)
+	case engine.EventSelfDamage:
+		return selfDamageText(ev.Data)
 	case engine.EventEnemyHealed:
 		return fmt.Sprintf("The %v is healed.", ev.Data["enemy"])
 	case engine.EventEnemyDefeated:
@@ -252,6 +254,34 @@ func combatHealedText(data map[string]any) string {
 		return fmt.Sprintf("The %s uses %s, but it is already at full health.", target, move)
 	}
 	return fmt.Sprintf("The %s uses %s and restores %d HP.", target, move, healed)
+}
+
+// selfDamageText names the caster rather than implying an enemy strike.
+// Damage is the HP actually lost, not the move's authored cost.
+func selfDamageText(data map[string]any) string {
+	move, _ := data["move"].(string)
+	target, _ := data["target"].(string)
+	damage, _ := data["damage"].(int)
+	header, verb, fall := "You", "lose", " and fall!"
+	if !isHeroEvent(data) {
+		header, verb, fall = "The "+target, "loses", " and falls!"
+	}
+	var line string
+	if damage == 0 {
+		line = fmt.Sprintf("%s use %s but lose no HP", header, move)
+		if !isHeroEvent(data) {
+			line = fmt.Sprintf("%s uses %s but loses no HP", header, move)
+		}
+	} else {
+		line = fmt.Sprintf("%s %s %d HP using %s", header, verb, damage, move)
+	}
+	if hp, maxHP, ok := exactHP(data, "hp_exact", "max_hp"); ok {
+		line += fmt.Sprintf(" (%d/%d HP left)", hp, maxHP)
+		if hp == 0 && damage > 0 {
+			return line + fall
+		}
+	}
+	return line + "."
 }
 
 // itemOf reads an event's item payload, treating a missing key and a

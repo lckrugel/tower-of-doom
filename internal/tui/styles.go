@@ -100,7 +100,7 @@ func toneOf(ev engine.Event) lipgloss.Style {
 	switch ev.Type {
 	case engine.EventCombatDamageDealt:
 		return styleDamage
-	case engine.EventCombatDamageTaken:
+	case engine.EventCombatDamageTaken, engine.EventSelfDamage:
 		return styleHurt
 	case engine.EventHeroHealed, engine.EventCombatHealed:
 		return styleHeal

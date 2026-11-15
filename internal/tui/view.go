@@ -752,6 +752,13 @@ func (m Model) gridTags(move entities.Move, cooling bool, source string) string 
 				if effect.CritBonus != 0 {
 					tags = append(tags, fmt.Sprintf("✦%+d", effect.CritBonus))
 				}
+			case "self_damage":
+				if effect.Flat != 0 {
+					tags = append(tags, fmt.Sprintf("-%d HP", effect.Flat))
+				}
+				if effect.Percent != 0 {
+					tags = append(tags, fmt.Sprintf("-%d%% max HP", effect.Percent))
+				}
 			case "heal":
 				if effect.Flat != 0 {
 					tags = append(tags, fmt.Sprintf("+%d HP", effect.Flat))

@@ -462,6 +462,7 @@ func TestGridTagsRenderOrderedMoveEffects(t *testing.T) {
 	}{
 		{"utility", entities.Move{Effects: []entities.MoveEffect{{Type: "heal", Target: entities.TargetSelf, Flat: 8}, {Type: "status", Target: entities.TargetSelf, Status: entities.MoveStatus{ID: "guard", Chance: 75}}}}, []string{"+8 HP", "☠guard 75%"}, []string{"100%"}},
 		{"percent heal", entities.Move{Effects: []entities.MoveEffect{{Type: "heal", Target: entities.TargetSelf, Percent: 20}}}, []string{"+20% HP"}, []string{"100%"}},
+		{"self cost", entities.Move{Effects: []entities.MoveEffect{{Type: "self_damage", Target: entities.TargetSelf, Flat: 4, Percent: 10}}}, []string{"-4 HP", "-10% max HP"}, []string{"+4 HP", "100%"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -477,6 +478,57 @@ func TestGridTagsRenderOrderedMoveEffects(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestSelfCostAndCritLore(t *testing.T) {
+	e := engine.NewEngine(&game.Registry{Statuses: map[string]game.StatusAsset{
+		"focus": {ID: "focus", Name: "Focus", Kind: "buff", Effect: game.StatusEffectAsset{Type: "stat", Stat: "crit", Amount: 15}, Duration: 2},
+	}})
+	m := New(e)
+	move := entities.Move{Effects: []entities.MoveEffect{{Type: "damage", Target: entities.TargetEnemy, DmgModifier: 100}, {Type: "self_damage", Target: entities.TargetSelf, Flat: 4, Percent: 10}, {Type: "heal", Target: entities.TargetSelf, Flat: 5}}}
+	if got := m.moveEffectsExplanation(move); got != "damage 100% → enemy; self damage 4 HP + 10% MaxHP → self; heal 5 HP → self" {
+		t.Errorf("effect order/explanation = %q", got)
+	}
+	for _, tc := range []struct {
+		amount int
+		want   string
+	}{{15, "+15 crit chance"}, {-15, "-15 crit chance"}} {
+		a := game.StatusAsset{Effect: game.StatusEffectAsset{Type: "stat", Stat: "crit", Amount: tc.amount}}
+		if got := statusEffectText(a); got != tc.want {
+			t.Errorf("crit lore = %q, want %q", got, tc.want)
+		}
+	}
+	if got := m.moveStatusExplanation(entities.MoveStatus{ID: "focus", Chance: 100}, entities.TargetSelf); !strings.Contains(got, "+15 crit chance") {
+		t.Errorf("move status explanation = %q", got)
+	}
+	if got := m.statusExplanation([]combatStatus{{id: "focus", name: "Focus", turns: 2}}); !strings.Contains(got, "+15 crit chance") {
+		t.Errorf("active status explanation = %q", got)
+	}
+	if got := m.overlayPanel(); !strings.Contains(stripANSI(got), "+15 crit chance") || !strings.Contains(stripANSI(got), "self-cost") {
+		t.Errorf("overlay missing crit or cost legend: %q", stripANSI(got))
+	}
+}
+
+func TestCombatCritStatusUsesSnapshot(t *testing.T) {
+	// Build the status lore in a fresh registry to avoid mutating the shared fixture.
+	e := engine.NewEngine(&game.Registry{
+		Monsters: map[string]game.MonsterAsset{"goblin": {ID: "goblin", Name: "Goblin", Difficulty: 1, HP: 200, Damage: 1, Speed: 10, Crit: 5}},
+		Statuses: map[string]game.StatusAsset{"focus": {ID: "focus", Name: "Focus", Kind: "buff", Effect: game.StatusEffectAsset{Type: "stat", Stat: "crit", Amount: 15}, Duration: 2}},
+		Sections: []game.SectionAsset{{ID: "test", Name: "Test", MinFloor: 1, MaxFloor: -1, BaseDifficulty: 1, Spawns: []game.SpawnEntry{{MonsterID: "goblin", Weight: 1}}}},
+	})
+	learnMove(e, entities.Move{ID: "focus_move", Name: "Focus Move", Effects: []entities.MoveEffect{{Type: "status", Target: entities.TargetSelf, Status: entities.MoveStatus{ID: "focus", Chance: 100}}}})
+	m := enterCombat(t, e)
+	m = useMove(t, m, 1)
+	crit := e.CombatView().Hero.Stats.Crit
+	if crit != 25 {
+		t.Fatalf("snapshot crit = %d, want 25", crit)
+	}
+	if got := stripANSI(m.combatPanel()); !strings.Contains(got, "✦ 5%") {
+		t.Errorf("enemy combat crit missing: %q", got)
+	}
+	if got := effectiveStatLine(e.CombatView().Hero.Stats); !strings.Contains(stripANSI(got), "✦ 25%") {
+		t.Errorf("effective crit line = %q", got)
 	}
 }
 
