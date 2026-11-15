@@ -188,6 +188,13 @@ func (e *Engine) enemyStat(stat entities.StatKind) int {
 	return e.effectiveStat(e.currentEnemy(), &e.enemyCombat, stat)
 }
 
+// critBase leaves the status-modified threshold unclamped so a move's
+// bonus can offset even an otherwise out-of-range effective base.
+func (e *Engine) critBase(c Combatant) int {
+	flat, _ := e.stateOf(c).statMods(entities.StatCrit)
+	return c.CritThreshold() + flat
+}
+
 // stateOf returns the combat-scoped state of a combatant: a fight has
 // exactly two sides — the hero and the current front monster.
 func (e *Engine) stateOf(c Combatant) *combatantState {
@@ -230,6 +237,9 @@ func (e *Engine) heroStrike(move *entities.Move) []Event {
 func (e *Engine) resolveMoveEffects(move *entities.Move, attacker, defender Combatant, side ActorSide) []Event {
 	events := []Event{NewMoveUsedOnSide(attacker.Name(), move.Name, side)}
 	for _, effect := range move.Effects {
+		if !attacker.IsAlive() {
+			break
+		}
 		target := defender
 		if effect.Target == entities.TargetSelf {
 			target = attacker
@@ -248,11 +258,11 @@ func (e *Engine) resolveMoveEffects(move *entities.Move, attacker, defender Comb
 			var dmg int
 			var crit bool
 			if side == ActorHero {
-				swing, c := e.rollMoveDamage(e.heroStat(entities.StatDMG), effect.DmgModifier, effect.CritBonus, attacker.CritThreshold())
+				swing, c := e.rollMoveDamage(e.heroStat(entities.StatDMG), effect.DmgModifier, effect.CritBonus, e.critBase(attacker))
 				crit = c
 				dmg = target.TakeDmg(effectiveDamage(swing, e.enemyStat(entities.StatDEF)))
 			} else {
-				swing, c := e.rollMoveDamage(e.enemyStat(entities.StatDMG), effect.DmgModifier, effect.CritBonus, attacker.CritThreshold())
+				swing, c := e.rollMoveDamage(e.enemyStat(entities.StatDMG), effect.DmgModifier, effect.CritBonus, e.critBase(attacker))
 				crit = c
 				dmg = target.TakeDmg(effectiveDamage(swing, e.heroStat(entities.StatDEF)))
 			}
@@ -265,6 +275,18 @@ func (e *Engine) resolveMoveEffects(move *entities.Move, attacker, defender Comb
 			amount := effect.Flat + target.MaxHP()*effect.Percent/100
 			healed := target.Heal(amount)
 			events = append(events, NewCombatHealed(target, side, move.Name, healed))
+		case "self_damage":
+			// Divide before multiplying to avoid overflowing on large max HP;
+			// the remainder is at most 99 and percent is validated <= 100.
+			percent := target.MaxHP()/100*effect.Percent + (target.MaxHP()%100)*effect.Percent/100
+			cost := effect.Flat
+			if percent > math.MaxInt-cost {
+				cost = math.MaxInt
+			} else {
+				cost += percent
+			}
+			damage := target.TakeDmg(cost)
+			events = append(events, NewSelfDamage(target, side, move.Name, damage))
 		case "status":
 			fired := e.rng.Intn(100) < effect.Status.Chance
 			statusTarget := target

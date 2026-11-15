@@ -67,7 +67,7 @@ func (e *Engine) combatActor(side ActorSide, id string, c Combatant, state *comb
 	}
 	v := CombatActorView{
 		Side: side, ID: id, Name: c.Name(),
-		Stats: CombatStats{HP: c.HP(), MaxHP: c.MaxHP(), DMG: stat(entities.StatDMG), DEF: stat(entities.StatDEF), SPD: stat(entities.StatSPD), Crit: c.CritThreshold()},
+		Stats: CombatStats{HP: c.HP(), MaxHP: c.MaxHP(), DMG: stat(entities.StatDMG), DEF: stat(entities.StatDEF), SPD: stat(entities.StatSPD), Crit: min(100, max(0, e.critBase(c)))},
 	}
 	if hero {
 		for _, move := range e.CombatMoves() {

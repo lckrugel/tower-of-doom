@@ -54,6 +54,38 @@ func TestCombatHealRendering(t *testing.T) {
 	}
 }
 
+func TestSelfDamageRendering(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		side       engine.ActorSide
+		hp, damage int
+		want       string
+	}{
+		{"hero cost", engine.ActorHero, 8, 12, "You lose 12 HP using Blood Price (8/100 HP left)."},
+		{"enemy cost", engine.ActorEnemy, 4, 6, "The Goblin loses 6 HP using Blood Price (4/30 HP left)."},
+		{"hero lethal cost", engine.ActorHero, 0, 8, "You lose 8 HP using Blood Price (0/100 HP left) and fall!"},
+		{"enemy lethal cost", engine.ActorEnemy, 0, 4, "The Goblin loses 4 HP using Blood Price (0/30 HP left) and falls!"},
+		{"zero actual loss", engine.ActorHero, 10, 0, "You use Blood Price but lose no HP (10/100 HP left)."},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			target, maxHP := "Hero", 100
+			if tc.side == engine.ActorEnemy {
+				target, maxHP = "Goblin", 30
+			}
+			ev := engine.Event{Type: engine.EventSelfDamage, Data: map[string]any{
+				"side": tc.side, "target": target, "move": "Blood Price", "damage": tc.damage,
+				"hp_exact": tc.hp, "max_hp": maxHP,
+			}}
+			if got := eventText(ev); got != tc.want {
+				t.Errorf("eventText = %q, want %q", got, tc.want)
+			}
+			if got := stripANSI(renderEvent(ev)); got != tc.want {
+				t.Errorf("renderEvent = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 // displacedItem is the previously worn gear an equip displaces into the
 // bag (the engine's swapped_from payload).
 func displacedItem() *entities.Item {

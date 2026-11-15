@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"math"
 	"testing"
 
 	"github.com/lckrugel/tower-of-doom/internal/game"
@@ -286,6 +287,136 @@ func TestMonsterPureHealThroughEngineTurn(t *testing.T) {
 }
 
 func intPtr(v int) *int { return &v }
+
+func TestSelfDamageOrderedEffects(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		side      ActorSide
+		costFirst bool
+		want      []EventType
+		calls     int
+	}{
+		{"hero cost first", ActorHero, true, []EventType{EventMoveUsed, EventSelfDamage}, 0},
+		{"hero attack first", ActorHero, false, []EventType{EventMoveUsed, EventCombatDamageDealt, EventSelfDamage}, 2},
+		{"enemy cost first", ActorEnemy, true, []EventType{EventMoveUsed, EventSelfDamage}, 0},
+		{"enemy attack first", ActorEnemy, false, []EventType{EventMoveUsed, EventCombatDamageTaken, EventSelfDamage}, 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := movesEngine()
+			heroWithDamage(e, 100)
+			enemy := entities.NewMonsterFromAsset(game.MonsterAsset{ID: "costly", Name: "Costly", Difficulty: 1, HP: 20, Damage: 100, Defense: 90})
+			startEncounter(e, enemy)
+			actor, defender := Combatant(e.Player), Combatant(e.currentEnemy())
+			if tc.side == ActorEnemy {
+				actor, defender = defender, actor
+			}
+			actor.TakeDmg(actor.HP() - 5)
+			cost := entities.MoveEffect{Type: "self_damage", Target: entities.TargetSelf, Flat: 3, Percent: 10}
+			attack := entities.MoveEffect{Type: "damage", Target: entities.TargetEnemy, DmgModifier: 100}
+			move := entities.Move{Name: "Costly Strike", Effects: []entities.MoveEffect{cost, attack}}
+			if !tc.costFirst {
+				move.Effects[0], move.Effects[1] = move.Effects[1], move.Effects[0]
+			}
+			stub := &stubRng{values: []int{1, 50}}
+			e.rng = stub
+			events := e.resolveMoveEffects(&move, actor, defender, tc.side)
+			if !typesEqual(eventTypes(events), tc.want...) || stub.calls != tc.calls {
+				t.Fatalf("events=%v calls=%d, want %v calls=%d", eventTypes(events), stub.calls, tc.want, tc.calls)
+			}
+			if data := events[len(events)-1].Data; data["side"] != tc.side || data["target"] != actor.Name() || data["move"] != move.Name || data["damage"] != 5 || data["hp_exact"] != 0 || data["max_hp"] != actor.MaxHP() {
+				t.Errorf("self cost event=%#v", data)
+			}
+		})
+	}
+}
+
+func TestSelfDamagePercentUsesMaximumHPAndBypassesArmor(t *testing.T) {
+	e := movesEngine()
+	actor := e.Player
+	actor.CurrentHP = 40
+	actor.EquipItem(&entities.Item{Slot: "ring", BonusHP: 20, BonusDEF: 100})
+	startEncounter(e, monsterFromFixture("goblin"))
+	move := entities.Move{Name: "Toll", Effects: []entities.MoveEffect{{Type: "self_damage", Target: entities.TargetSelf, Flat: 2, Percent: 10}}}
+	events := e.resolveMoveEffects(&move, actor, e.currentEnemy(), ActorHero)
+	if len(events) != 2 || events[1].Data["damage"] != 14 || events[1].Data["hp_exact"] != actor.HP() || actor.MaxHP() != 120 {
+		t.Fatalf("self cost events=%v HP=%d/%d", events, actor.HP(), actor.MaxHP())
+	}
+}
+
+type highHPCombatant struct {
+	Combatant
+	hp, maxHP int
+}
+
+func (c *highHPCombatant) Name() string  { return "High HP" }
+func (c *highHPCombatant) HP() int       { return c.hp }
+func (c *highHPCombatant) MaxHP() int    { return c.maxHP }
+func (c *highHPCombatant) IsAlive() bool { return c.hp > 0 }
+func (c *highHPCombatant) TakeDmg(dmg int) int {
+	if dmg < 0 {
+		return 0
+	}
+	dealt := min(dmg, c.hp)
+	c.hp -= dealt
+	return dealt
+}
+
+func TestSelfDamageCostSaturatesOnIntegerOverflow(t *testing.T) {
+	e := movesEngine()
+	actor := &highHPCombatant{hp: 500, maxHP: 100}
+	startEncounter(e, monsterFromFixture("goblin"))
+	move := entities.Move{Name: "Overflow Toll", Effects: []entities.MoveEffect{{Type: "self_damage", Target: entities.TargetSelf, Flat: math.MaxInt, Percent: 1}}}
+	events := e.resolveMoveEffects(&move, actor, e.currentEnemy(), ActorHero)
+	if actor.HP() != 0 || events[1].Data["damage"] != 500 {
+		t.Fatalf("self cost events=%v HP=%d, want damage 500 and 0 HP", events, actor.HP())
+	}
+}
+
+func TestSelfDamageOutcomeAndQueue(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		heroCost bool
+		want     []EventType
+		state    GameState
+	}{
+		{"hero dies after killing enemy", true, []EventType{EventMoveUsed, EventCombatDamageDealt, EventSelfDamage, EventHeroDefeated}, StateGameOver},
+		{"enemy dies after attacking hero", false, []EventType{EventMoveUsed, EventCombatDamageTaken, EventSelfDamage, EventEnemyDefeated, EventVictory}, StateExploring},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := movesEngine()
+			heroWithDamage(e, 100)
+			cost := entities.MoveEffect{Type: "self_damage", Target: entities.TargetSelf, Flat: 100}
+			attack := entities.MoveEffect{Type: "damage", Target: entities.TargetEnemy, DmgModifier: 100}
+			move := entities.Move{ID: "sacrifice", Name: "Sacrifice", Effects: []entities.MoveEffect{attack, cost}, Weight: 1}
+			if tc.heroCost {
+				e.reg.Moves[move.ID] = game.MoveAsset{ID: move.ID, Name: move.Name, Type: "both", Weight: 1, Cooldown: 1, Learnable: true, Effects: []game.MoveEffectAsset{{Type: "damage", Target: "enemy", DmgModifier: intPtr(100)}, {Type: "self_damage", Target: "self", Flat: intPtr(100)}}}
+				learn(e, move.ID)
+				startEncounter(e, monsterFromFixture("goblin"))
+			} else {
+				move.Effects = []entities.MoveEffect{attack, cost}
+				enemy := entities.NewMonsterFromAsset(game.MonsterAsset{ID: "sacrifice", Name: "Sacrifice", Difficulty: 1, HP: 20, Damage: 2, Speed: 20}, move)
+				startEncounter(e, enemy)
+			}
+			e.Process(Command{Type: CmdFight})
+			var events []Event
+			if tc.heroCost {
+				events = e.Process(Command{Type: CmdMove, Index: combatMoveIndex(e, move.ID)})
+			} else {
+				events = e.Process(Command{Type: CmdMove, Index: 0})
+				// Enemy acts first, and its self-cost prevents the hero's action.
+			}
+			if !typesEqual(eventTypes(events), tc.want...) || e.State != tc.state {
+				t.Errorf("events=%v state=%v want %v/%v", eventTypes(events), e.State, tc.want, tc.state)
+			}
+			if tc.heroCost && e.kills != 0 {
+				t.Errorf("mutual death granted %d kills", e.kills)
+			}
+			if !tc.heroCost && e.kills != 1 {
+				t.Errorf("enemy self-kill awarded %d kills, want one", e.kills)
+			}
+		})
+	}
+}
 
 // learn teaches the hero the named fixture moves in order (learning
 // order = the effective-set order the CmdMove index points into).

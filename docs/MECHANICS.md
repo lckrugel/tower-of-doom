@@ -172,10 +172,15 @@ helpers are for non-engine use only (e.g. item durability).
      math, no rng (the modifier is a percent; 100 = neutral).
   2. Damage spread: `max(1, base − 1 + Intn(3))` (±1 around the base).
   3. Critical hit: crit if
-     `Intn(100) < clamp(CritThreshold() + move.crit_bonus, 0, 100)`,
-     doubling the swung damage of that hit.
-  - The Hero has a fixed 10% crit threshold; each monster has its own
-    `crit` asset value (0 = never crits, validated in [0, 100]).
+      `Intn(100) < clamp(base crit + active flat crit status amounts +
+      move.crit_bonus, 0, 100)`,
+      doubling the swung damage of that hit.
+   - The Hero starts at 10% crit; each monster has its own `crit` asset
+     value (0 = never crits, validated in [0, 100]). Flat `stat: "crit"`
+     statuses add percentage points to this base. The combat view shows
+     the effective base crit chance (clamped to [0, 100]), before the
+     per-move bonus; the attack clamps the combined total once. Crit
+     status percentages are not supported and fail content validation.
 - **Monster move AI (v1):** each monster turn, the engine filters the
   monster's move set to the moves NOT on cooldown and picks ONE `Intn`
   over the filtered total weight (the per-monster ref weights, resolved
@@ -222,7 +227,8 @@ helpers are for non-engine use only (e.g. item durability).
 1. Capture the original combatants and effective-SPD initiative once.
 2. Resolve eligible actions in that order. Finish a selected move's effects
    in authored order before deciding whether the other combatant can act:
-   a killing move's self-heal still happens here, before DoTs. A monster
+    a killing move's self-heal or self-cost still happens here, before DoTs,
+    while its caster lives. A lethal self-cost stops its remaining effects. A monster
    unable to act consumes neither move-pick nor attack RNG.
 3. Process living recipients' DoTs in captured initiative order, each
    recipient's statuses in application order. Skip recipients already
@@ -242,7 +248,8 @@ recipient is processed first and loses this lethal-DoT tie.** If the first
 recipient survives, process the second normally. Skipped DoTs on a
 surviving hero retain their unconsumed ticks across the queued enemies.
 
-Direct hero death is irreversible: no later action or DoT damage runs,
+Direct hero death, including a lethal self-cost, is irreversible: no later
+action or DoT damage runs,
 and no pending monster DoT or XP can rescue the hero. If an action kills
 the monster but a subsequent hero DoT is lethal, the outcome is game over:
 no kill rewards, victory, boss loot, or progression unlock. This also
@@ -284,6 +291,9 @@ actions or end-of-turn ticks; escape chances and costs are unchanged.
   **subsequent full turns**. The partial application turn does not consume
   one. Immediate modifiers can affect the remaining action, but not the
   initiative already captured for actions and DoTs.
+- Flat crit modifiers follow this same status lifetime and same-ID refresh
+  rule. They change crit chance by percentage points, not damage, and do
+  not alter the captured initiative or spend RNG themselves.
 - DoT `duration` instead counts **damage ticks**, starting at application
   turn end if the recipient is reached. Only an actual tick consumes a
   tick; stopping at an earlier lethal recipient does not consume skipped
@@ -764,7 +774,7 @@ below documents the shipped behavior.
 
 - A Move is an asset (`moves.json`) with `id`, `name`, `type`, `tier`,
   `cooldown`, `weight`, and an ordered `effects` list. Effects can damage
-  an enemy, heal the user, or apply a status to self or enemy, and may be
+  an enemy, heal or damage the user, or apply a status to self or enemy, and may be
   combined in one move. Effects resolve in authored order. If an effect
   kills a target, later effects continue for living recipients and skip
   dead recipients; status chance rolls still occur in order even for dead
@@ -772,6 +782,17 @@ below documents the shipped behavior.
   component may be omitted), applied through `Heal` and clamped to missing
   HP. Healing has no resource or use limit: combat recovery by stalling is
   intentionally unlimited.
+- `self_damage` is a direct, authored cost targeting `self`:
+  `flat + floor(caster MaxHP × percent / 100)` (either component may be
+  omitted). MaxHP includes equipment. It bypasses defense, crit, spread,
+  and RNG, clamps actual HP lost to current HP, and **can kill the caster**.
+  Its own event reports the caster's side/name, move name, actual HP lost,
+  and remaining/max HP. If the caster dies, later effects of that move
+  are skipped; a living caster can still pay a cost or self-heal after
+  killing the defender. If both die, hero defeat takes precedence: no
+  kill XP, boss reward, victory, or progression unlock (kills pay no gold).
+  The existing `hp_below` AI condition can select low-life moves, but no
+  new monster or move assets are shipped with this mechanic.
 - Each combatant has AT MOST 4 moves (`MAX_MOVES`).
 - Monsters pick moves by weight (AI v1; a decision tree may come later):
   each monster turn, ONE `Intn` over the cooldown-filtered set's total

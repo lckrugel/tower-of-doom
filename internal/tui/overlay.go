@@ -47,7 +47,8 @@ func (m Model) overlayPanel() string {
 
 	// The move-tag legend.
 	rows = append(rows, styleDim.Render("MOVE TAGS"))
-	rows = append(rows, styleDim.Render("  N% damage · +N HP / +N% HP healing · ✦+N crit · ☠<status> N% chance"))
+	rows = append(rows, styleDim.Render("  N% damage to enemy · +N HP / +N% HP healing · -N HP / -N% max HP self-cost"))
+	rows = append(rows, styleDim.Render("  ✦+N crit · ☠<status> N% chance"))
 	rows = append(rows, styleDim.Render("  (N turns) move locked · ◆ learned · ⚔ weapon"))
 
 	// The live state's key map — the same chips the action bar shows.
@@ -107,6 +108,9 @@ func statusEffectText(a game.StatusAsset) string {
 		}
 		return strings.Join(parts, " + ") + " dmg/turn"
 	case "stat":
+		if a.Effect.Stat == "crit" {
+			return fmt.Sprintf("%+d crit chance", a.Effect.Amount)
+		}
 		parts := make([]string, 0, 2)
 		if a.Effect.Amount != 0 {
 			parts = append(parts, fmt.Sprintf("%+d", a.Effect.Amount))
@@ -188,6 +192,15 @@ func (m Model) moveEffectsExplanation(move entities.Move) string {
 				amounts = append(amounts, fmt.Sprintf("%d%% HP", effect.Percent))
 			}
 			parts = append(parts, fmt.Sprintf("heal %s → %s", strings.Join(amounts, " + "), target))
+		case "self_damage":
+			var amounts []string
+			if effect.Flat != 0 {
+				amounts = append(amounts, fmt.Sprintf("%d HP", effect.Flat))
+			}
+			if effect.Percent != 0 {
+				amounts = append(amounts, fmt.Sprintf("%d%% MaxHP", effect.Percent))
+			}
+			parts = append(parts, fmt.Sprintf("self damage %s → %s", strings.Join(amounts, " + "), target))
 		case "status":
 			s := effect.Status
 			if s.ID == "" {
