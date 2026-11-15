@@ -168,6 +168,59 @@ func TestEmbeddedEarlyBossIsolation(t *testing.T) {
 	}
 }
 
+func TestCritStatusAndSelfDamageValidation(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		effect MoveEffectAsset
+		want   string
+	}{
+		{"flat cost", MoveEffectAsset{Type: "self_damage", Target: "self", Flat: ptrInt(3)}, ""},
+		{"percent cost", MoveEffectAsset{Type: "self_damage", Target: "self", Percent: ptrInt(25)}, ""},
+		{"both", MoveEffectAsset{Type: "self_damage", Target: "self", Flat: ptrInt(2), Percent: ptrInt(10)}, ""},
+		{"enemy", MoveEffectAsset{Type: "self_damage", Target: "enemy", Flat: ptrInt(1)}, "self_damage target"},
+		{"unknown target", MoveEffectAsset{Type: "self_damage", Target: "other", Flat: ptrInt(1)}, "invalid target"},
+		{"zero", MoveEffectAsset{Type: "self_damage", Target: "self", Flat: ptrInt(0)}, "positive"},
+		{"negative", MoveEffectAsset{Type: "self_damage", Target: "self", Flat: ptrInt(-1)}, "negative"},
+		{"percent over 100", MoveEffectAsset{Type: "self_damage", Target: "self", Percent: ptrInt(101)}, "percent"},
+		{"negative percent", MoveEffectAsset{Type: "self_damage", Target: "self", Percent: ptrInt(-1)}, "percent"},
+		{"damage payload", MoveEffectAsset{Type: "self_damage", Target: "self", Flat: ptrInt(1), DmgModifier: ptrInt(100)}, "ambiguous"},
+		{"crit payload", MoveEffectAsset{Type: "self_damage", Target: "self", Flat: ptrInt(1), CritBonus: ptrInt(2)}, "ambiguous"},
+		{"status payload", MoveEffectAsset{Type: "self_damage", Target: "self", Flat: ptrInt(1), Status: &MoveStatusEffectAsset{ID: "guard"}}, "ambiguous"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r, err := Load("")
+			if err != nil {
+				t.Fatal(err)
+			}
+			m := r.Moves["quick_stab"]
+			m.Effects = []MoveEffectAsset{tc.effect}
+			r.Moves[m.ID] = m
+			err = r.Validate(1)
+			if tc.want == "" && err != nil || tc.want != "" && (err == nil || !strings.Contains(err.Error(), tc.want)) {
+				t.Fatalf("Validate = %v, want substring %q", err, tc.want)
+			}
+		})
+	}
+	for _, tc := range []struct {
+		amount, percent int
+		want            string
+	}{
+		{10, 0, ""}, {-100, 0, ""}, {0, 0, "non-zero"}, {101, 0, "crit amount"}, {-101, 0, "crit amount"}, {5, 1, "crit percent"},
+	} {
+		r, err := Load("")
+		if err != nil {
+			t.Fatal(err)
+		}
+		r.Statuses["synthetic_crit"] = StatusAsset{ID: "synthetic_crit", Name: "Crit", Kind: "debuff", Duration: 2, Effect: StatusEffectAsset{Type: "stat", Stat: "crit", Amount: tc.amount, Percent: tc.percent}}
+		err = r.Validate(1)
+		if tc.want == "" && err != nil || tc.want != "" && (err == nil || !strings.Contains(err.Error(), tc.want)) {
+			t.Errorf("crit amount=%d percent=%d: Validate=%v, want %q", tc.amount, tc.percent, err, tc.want)
+		}
+	}
+}
+
+func ptrInt(v int) *int { return &v }
+
 func TestMoveEffectsDecodeAndValidate(t *testing.T) {
 	var mv MoveAsset
 	err := json.Unmarshal([]byte(`{"id":"m","name":"M","type":"both","tier":1,"cooldown":0,"weight":1,"effects":[{"type":"damage","target":"enemy","dmg_modifier":120},{"type":"heal","target":"self","flat":5,"percent":10},{"type":"status","target":"enemy","status":{"id":"poison","chance":50}}]}`), &mv)

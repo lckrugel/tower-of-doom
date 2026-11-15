@@ -159,7 +159,7 @@ type MoveAsset struct {
 type StatusEffectAsset struct {
 	// Type is "dot" or "stat".
 	Type string `json:"type"`
-	// Stat names the modified stat ("dmg", "def" or "spd") — for type
+	// Stat names the modified stat ("dmg", "def", "spd" or "crit") — for type
 	// "stat" only.
 	Stat string `json:"stat"`
 	// Amount is the DoT damage per turn (>= 1) or the stat modifier (!= 0)
@@ -600,9 +600,20 @@ func (r *Registry) Validate(topFloor int) error {
 				fail("status %q has dot percent %d, want within [0, 100]", st.ID, st.Effect.Percent)
 			}
 		case "stat":
-			if !slices.Contains([]string{"dmg", "def", "spd"}, st.Effect.Stat) {
-				fail("status %q modifies unknown stat %q, want one of dmg, def, spd",
+			if !slices.Contains([]string{"dmg", "def", "spd", "crit"}, st.Effect.Stat) {
+				fail("status %q modifies unknown stat %q, want one of dmg, def, spd, crit",
 					st.ID, st.Effect.Stat)
+			}
+			if st.Effect.Stat == "crit" {
+				if st.Effect.Percent != 0 {
+					fail("status %q crit percent must be 0", st.ID)
+				}
+				if st.Effect.Amount < -100 || st.Effect.Amount > 100 {
+					fail("status %q crit amount must be within [-100, 100]", st.ID)
+				}
+				if st.Effect.Amount == 0 {
+					fail("status %q crit amount must be non-zero", st.ID)
+				}
 			}
 			if st.Effect.Amount == 0 && st.Effect.Percent == 0 {
 				fail("status %q has no stat modifier, want non-zero amount or percent", st.ID)
@@ -654,6 +665,27 @@ func (r *Registry) Validate(topFloor int) error {
 					fail("%s has invalid target %q", prefix, effect.Target)
 				}
 				switch effect.Type {
+				case "self_damage":
+					if effect.Target != "self" {
+						fail("%s self_damage target must be \"self\"", prefix)
+					}
+					if effect.DmgModifier != nil || effect.CritBonus != nil || effect.Status != nil {
+						fail("%s has ambiguous payload", prefix)
+					}
+					// Bound flat cost to keep the flat + percentage calculation safe
+					// for validated positive combatant maximum HP.
+					if effect.Flat != nil && *effect.Flat < 0 {
+						fail("%s has negative self_damage flat", prefix)
+					}
+					if effect.Flat != nil && *effect.Flat > 1000000 {
+						fail("%s self_damage flat exceeds 1000000", prefix)
+					}
+					if effect.Percent != nil && (*effect.Percent < 0 || *effect.Percent > 100) {
+						fail("%s self_damage percent must be within [0, 100]", prefix)
+					}
+					if (effect.Flat == nil || *effect.Flat == 0) && (effect.Percent == nil || *effect.Percent == 0) {
+						fail("%s has no positive self_damage component", prefix)
+					}
 				case "damage":
 					if effect.Target != "enemy" {
 						fail("%s damage target must be \"enemy\"", prefix)

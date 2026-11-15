@@ -102,6 +102,8 @@ const (
 	EventConsumableStorageFull
 	// An unopened chest was discovered; its reward has not been rolled.
 	EventChestFound
+	// A move directly spent its user's HP, bypassing armor and attack RNG.
+	EventSelfDamage
 )
 
 // Event is a synchronous command notification. Data is a fresh map, and
@@ -179,6 +181,15 @@ func NewHeroHealedExact(hero Combatant, healed, heroHPPercent int) Event {
 func NewCombatHealed(target Combatant, side ActorSide, move string, healed int) Event {
 	return Event{Type: EventCombatHealed, Data: map[string]any{
 		"target": target.Name(), "side": side, "move": move, "healed": healed,
+		"hp_exact": target.HP(), "max_hp": target.MaxHP(),
+	}}
+}
+
+// NewSelfDamage records the HP actually spent and the user's exact HP
+// immediately after the cost; side identifies the actor, not a name.
+func NewSelfDamage(target Combatant, side ActorSide, move string, damage int) Event {
+	return Event{Type: EventSelfDamage, Data: map[string]any{
+		"target": target.Name(), "side": side, "move": move, "damage": damage,
 		"hp_exact": target.HP(), "max_hp": target.MaxHP(),
 	}}
 }

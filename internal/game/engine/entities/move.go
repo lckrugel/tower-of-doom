@@ -164,9 +164,10 @@ const (
 type StatKind string
 
 const (
-	StatDMG StatKind = "dmg"
-	StatDEF StatKind = "def"
-	StatSPD StatKind = "spd"
+	StatDMG  StatKind = "dmg"
+	StatDEF  StatKind = "def"
+	StatSPD  StatKind = "spd"
+	StatCrit StatKind = "crit"
 )
 
 // Status is a Combat 2.0 status effect built from a validated
